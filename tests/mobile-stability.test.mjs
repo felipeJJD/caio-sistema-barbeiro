@@ -1,0 +1,38 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const [css, gestureGuard, dashboard] = await Promise.all([
+  readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  readFile(new URL("../app/ui/app-gesture-guard.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/ui/dashboard-app.tsx", import.meta.url), "utf8"),
+]);
+
+test("mobile form controls stay at 16px to prevent iPhone focus zoom", () => {
+  assert.match(css, /body select,[\s\S]*font-size:16px!important/);
+  assert.match(css, /select:focus[\s\S]*\.mobile-bottom-navigation/);
+});
+
+test("visible viewport and keyboard state are restored on iPhone", () => {
+  assert.match(gestureGuard, /data-app-keyboard-open/);
+  assert.match(gestureGuard, /resolveMobileViewport/);
+  assert.match(gestureGuard, /let layoutViewportHeight = window\.innerHeight/);
+  assert.match(gestureGuard, /layoutViewportHeight = Math\.max\(layoutViewportHeight, window\.innerHeight\)/);
+  assert.match(gestureGuard, /visualViewport\?\.addEventListener\("resize"/);
+  assert.match(gestureGuard, /document\.addEventListener\("change", refreshAfterFieldInteraction\)/);
+  assert.match(gestureGuard, /visibilitychange/);
+});
+
+test("record actions reject duplicates and recover from slow or offline connections", () => {
+  assert.match(dashboard, /actionInFlight\.current/);
+  assert.match(dashboard, /!navigator\.onLine/);
+  assert.match(dashboard, /controller\.abort\(\), 20_000/);
+});
+
+test("a saved record confirms success without forcing the screen to move", () => {
+  assert.match(dashboard, /showAppToast\(success\)/);
+  assert.doesNotMatch(dashboard, /record-action-toast/);
+  assert.doesNotMatch(dashboard, /scrollSavedRecordToTop\(\)/);
+  assert.doesNotMatch(dashboard, /contentViewport\.current\?\.scrollTo\(/);
+  assert.doesNotMatch(dashboard, /window\.scrollTo\(/);
+});

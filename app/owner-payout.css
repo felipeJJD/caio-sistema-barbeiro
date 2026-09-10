@@ -1,0 +1,12 @@
+.team-owner-label{display:inline-block!important;margin:0 0 0 7px!important;padding:3px 5px;border-radius:7px;background:#f3e7cb;color:#936920;font:800 7px/1 Arial,Helvetica,sans-serif!important;vertical-align:middle}
+.owner-payout-card{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,.6fr);gap:18px;align-items:center;padding:22px;background:linear-gradient(135deg,#fffdf7,#f6efdf);border-color:#e5d5ae}
+.owner-payout-card>div>span{display:block;color:#9b7428;font-size:9px;font-weight:900;letter-spacing:.11em}
+.owner-payout-card h2{margin-top:7px;font-size:29px}
+.owner-payout-card p{max-width:520px;margin:6px 0 0;color:#6f746b;font-size:11px;line-height:1.5}
+.owner-payout-card .primary-button{align-self:center}
+.owner-payout-form{display:grid;gap:4px}
+.owner-payout-form .field{margin:0}
+.owner-payout-form>small{color:#777a70;font-size:9px;line-height:1.45}
+.owner-payout-form>div{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.owner-payout-form .cancel-button{width:100%;margin:0;padding:11px}
+@media(max-width:680px){.owner-payout-card{grid-template-columns:1fr;padding:17px}.owner-payout-card h2{font-size:26px}}

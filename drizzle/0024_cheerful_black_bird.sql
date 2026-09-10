@@ -1,0 +1,1 @@
+CREATE INDEX `appointments_organization_date_barber_idx` ON `appointments` (`organization_id`,`appointment_date`,`barber_id`);

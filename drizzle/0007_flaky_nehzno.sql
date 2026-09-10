@@ -1,0 +1,1 @@
+ALTER TABLE `team_invites` ADD `team_member_id` integer;

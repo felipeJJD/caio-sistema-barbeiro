@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Cortou Anotou">
+  <rect width="512" height="512" rx="112" fill="#1e211e"/>
+  <path d="M145 126h120c46 0 83 37 83 83v106c0 46-37 83-83 83H145" fill="none" stroke="#f5f1e8" stroke-width="38" stroke-linecap="round"/>
+  <path d="M182 174h78M288 260l43 43 78-92" fill="none" stroke="#d5a535" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M170 405h172" stroke="#d5a535" stroke-width="26" stroke-linecap="round"/>
+</svg>

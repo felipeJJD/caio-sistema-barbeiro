@@ -1,0 +1,56 @@
+/* Central de notificações do proprietário. */
+.topbar{position:relative}
+.notification-center{position:relative;z-index:70}
+.notification-bell{position:relative;width:39px;height:39px;display:grid;place-items:center;border:1px solid #dfddd4;border-radius:11px;background:#fff;color:#30352f;box-shadow:0 4px 14px #1e211e0b}
+.notification-bell:hover{border-color:#d4b361;background:#fffdf8}
+.notification-bell svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.notification-bell>span{position:absolute;right:-5px;top:-6px;min-width:18px;height:18px;padding:0 4px;display:grid;place-items:center;border:2px solid var(--cream);border-radius:10px;background:#d7a642;color:#20231f;font-size:8px;font-weight:900}
+.notification-panel{position:absolute;right:0;top:48px;width:min(380px,calc(100vw - 28px));max-height:min(650px,calc(100vh - 90px));display:flex;flex-direction:column;overflow:hidden;border:1px solid #d8d6cd;border-radius:17px;background:#f8f7f2;box-shadow:0 24px 65px #1619143d;animation:notification-enter .18s ease-out}
+.notification-panel>header{display:flex;align-items:center;gap:10px;padding:15px 16px;background:linear-gradient(135deg,#292e28,#1c201c);color:#fff}
+.notification-panel>header>div{flex:1}
+.notification-panel>header strong,.notification-panel>header small{display:block}
+.notification-panel>header strong{font-family:Georgia,"Times New Roman",serif;font-size:17px}
+.notification-panel>header small{margin-top:3px;color:#bcc3ba;font-size:8px}
+.notification-panel>header>i{width:9px;height:9px;border-radius:50%;background:#7a8179;box-shadow:0 0 0 4px #ffffff09}
+.notification-panel>header>i.active{background:#63bd7d;box-shadow:0 0 0 4px #63bd7d1c}
+.notification-device{padding:12px 14px;border-bottom:1px solid #e5e2d8;background:#f3ead5}
+.notification-device p{margin:0;color:#5d604f;font-size:9px;line-height:1.45}
+.notification-device button{width:100%;margin-top:9px;padding:9px 10px;border:0;border-radius:9px;background:#30352f;color:#fff;font-size:9px;font-weight:850}
+.notification-device button:disabled{opacity:.55}
+.notification-message{display:block;margin-top:8px;color:#7b5d24;font-size:8px;font-weight:800}
+.notification-retention{margin:0;padding:8px 14px;border-bottom:1px solid #e7e4dc;background:#f8f7f2;color:#83877f;font-size:7px;font-weight:750}
+.notification-list{min-height:120px;overflow-y:auto;background:#fff}
+.notification-item{position:relative;display:flex;border-top:1px solid #edebe4;background:#fff}
+.notification-item:first-child{border-top:0}
+.notification-item:hover{background:#fbfaf5}
+.notification-item.unread{background:#fffaf0}
+.notification-open{min-width:0;flex:1;display:flex;gap:10px;text-align:left;padding:13px 8px 13px 14px;border:0;background:transparent;color:#343832}
+.notification-open>i{width:30px;height:30px;flex:0 0 30px;display:grid;place-items:center;border-radius:9px;background:#f2e5c4;color:#a8741e;font-style:normal;font-size:13px;font-weight:900}
+.notification-open>span{min-width:0}
+.notification-list strong,.notification-list p,.notification-list small{display:block}
+.notification-list strong{font-size:10px}
+.notification-list p{margin:4px 0;color:#666b63;font-size:9px;line-height:1.4}
+.notification-list small{color:#999d95;font-size:7px}
+.notification-item.unread strong:after{content:"";display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:#d7a642}
+.notification-delete{width:40px;flex:0 0 40px;display:grid;place-items:center;align-self:stretch;border:0;background:transparent;color:#9a9e96}
+.notification-delete:hover{background:#f9ecec;color:#b14750}
+.notification-delete:disabled{opacity:.45}
+.notification-delete svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.notification-empty{padding:26px 20px;text-align:center;color:#747a71}
+.notification-empty>span{display:block;font-size:24px}
+.notification-empty strong{margin-top:8px;color:#414640;font-size:11px}
+.notification-empty p{margin:5px auto 0;max-width:240px;font-size:9px;line-height:1.5}
+.notification-bell:focus-visible,.notification-device button:focus-visible,.notification-open:focus-visible,.notification-delete:focus-visible{outline:2px solid #d7a642;outline-offset:-2px}
+@keyframes notification-enter{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
+@media(max-width:680px){
+  .topbar{padding-right:50px}
+  .top-actions{display:flex;position:absolute;right:0;top:0}
+  .top-actions>.sync-pill,.top-actions>.profile-button{display:none}
+  .notification-panel{right:0;top:47px;width:calc(100vw - 28px);max-height:min(68vh,590px);border-radius:16px}
+  .notification-bell{width:40px;height:40px}
+  .notification-device p{font-size:9px}
+  .notification-open{padding:12px 8px 12px 12px}
+  .notification-list p{font-size:9px}
+  .notification-delete{width:42px;flex-basis:42px}
+}
+@media(prefers-reduced-motion:reduce){.notification-panel{animation:none}}

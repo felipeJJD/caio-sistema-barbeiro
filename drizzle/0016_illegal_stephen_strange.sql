@@ -1,0 +1,2 @@
+ALTER TABLE `organizations` ADD `public_booking_enabled` integer DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE `organizations` ADD `public_booking_requires_approval` integer DEFAULT true NOT NULL;

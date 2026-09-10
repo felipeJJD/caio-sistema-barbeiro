@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1170" height="2532" viewBox="0 0 1170 2532">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="76%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".38" stop-color="#faf9f4"/>
+      <stop offset="1" stop-color="#f2efe5"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" x2="1">
+      <stop stop-color="#c88f28"/>
+      <stop offset="1" stop-color="#e9bb56"/>
+    </linearGradient>
+  </defs>
+  <rect width="1170" height="2532" fill="url(#bg)"/>
+  <g text-anchor="middle">
+    <text x="450" y="1040" fill="#1b1e1a" font-family="Georgia, 'Times New Roman', serif" font-size="270" font-weight="700">C</text>
+    <rect x="580" y="800" width="7" height="245" rx="4" fill="#d7a642"/>
+    <text x="720" y="1040" fill="#1b1e1a" font-family="Georgia, 'Times New Roman', serif" font-size="270" font-weight="700">A</text>
+    <text x="455" y="1185" fill="#1b1e1a" font-family="Arial, Helvetica, sans-serif" font-size="78" font-weight="800">CORTOU</text>
+    <text x="755" y="1185" fill="#c88f28" font-family="Arial, Helvetica, sans-serif" font-size="78" font-weight="800">ANOTOU</text>
+    <text x="585" y="1265" fill="#9a762d" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="700" letter-spacing="2">AGENDA E GESTÃO PARA BARBEARIAS</text>
+    <rect x="195" y="1570" width="780" height="24" rx="12" fill="#dedbd2"/>
+    <rect x="195" y="1570" width="150" height="24" rx="12" fill="url(#gold)"/>
+    <text x="585" y="1695" fill="#777b74" font-family="Arial, Helvetica, sans-serif" font-size="42">Carregando...</text>
+  </g>
+</svg>
