@@ -39,3 +39,13 @@ test("a saved record confirms success without forcing the screen to move", () =>
   assert.doesNotMatch(dashboard, /contentViewport\.current\?\.scrollTo\(/);
   assert.doesNotMatch(dashboard, /window\.scrollTo\(/);
 });
+
+test("owner commission lives on the dashboard and Team opens staff payments", () => {
+  const overview = dashboard.slice(dashboard.indexOf("function Overview("), dashboard.indexOf("function trialPlanDetails("));
+  const teamHub = dashboard.slice(dashboard.indexOf("function TeamHub("), dashboard.indexOf("function TeamPayments("));
+  assert.match(overview, /<OwnerPayoutEditor data=\{data\}/);
+  assert.match(teamHub, /useState<"Vales e pagamentos" \| "Usuários e convites">\("Vales e pagamentos"\)/);
+  assert.doesNotMatch(teamHub, />Resultados<\/button>/);
+  assert.match(teamHub, />Vales e pagamentos<\/button>/);
+  assert.match(teamHub, />Usuários e convites<\/button>/);
+});
