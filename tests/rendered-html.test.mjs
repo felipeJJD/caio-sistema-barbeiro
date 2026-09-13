@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:net';
 import { openDatabase } from '../runtime/storage.mjs';
 import { bootstrapAdmin } from '../scripts/bootstrap-admin.mjs';
+import { appDate } from '../lib/app-date.ts';
 
 test('production server: login, dashboard, writes, authorization, photos, and restart', { timeout: 120000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'barber-server-'));
@@ -64,11 +65,35 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     assert.match(login.headers.get('set-cookie'), /HttpOnly/i);
     const dashboard = await fetch(base, { headers: { Cookie: cookie } });
     assert.equal(dashboard.status, 200);
-    assert.match(await dashboard.text(), /Caio Barbearia/);
+    const dashboardHtml = await dashboard.text();
+    assert.match(dashboardHtml, /Caio Barbearia/);
     const saved = await jsonPost('/api/action', { action: 'save-service', name: 'Corte de verificação', priceCents: 4500, durationMinutes: 30, active: true }, cookie);
     const savedBody = await saved.json();
     assert.equal(saved.status, 200, JSON.stringify(savedBody));
     assert.ok(savedBody.data.services.some(service => service.name === 'Corte de verificação' && service.priceCents === 4500));
+    const employeeResponse = await jsonPost('/api/action', { action: 'save-team', name: 'Davi', role: 'Barbeiro', loginEmail: '', accessRole: 'barber', commissionRateBps: 5000, active: true }, cookie);
+    const employeeBody = await employeeResponse.json();
+    assert.equal(employeeResponse.status, 200, JSON.stringify(employeeBody));
+    const employee = employeeBody.data.team.find(member => member.name === 'Davi');
+    assert.ok(employee);
+    const teamPaymentResponse = await jsonPost('/api/action', { action: 'team-payment', teamMemberId: employee.id, occurredAt: appDate(), kind: 'Vale', reason: 'Adiantamento de teste', valueCents: 5000 }, cookie);
+    const teamPaymentBody = await teamPaymentResponse.json();
+    assert.equal(teamPaymentResponse.status, 200, JSON.stringify(teamPaymentBody));
+    const teamPayment = teamPaymentBody.data.teamPayments.find(entry => entry.teamMemberId === employee.id && entry.kind === 'Vale' && entry.valueCents === 5000);
+    assert.ok(teamPayment);
+    const editedTeamPaymentResponse = await jsonPost('/api/action', { action: 'team-payment', id: teamPayment.id, teamMemberId: employee.id, occurredAt: appDate(), kind: 'Pagamento', reason: 'Acerto de teste', valueCents: 4500 }, cookie);
+    const editedTeamPaymentBody = await editedTeamPaymentResponse.json();
+    assert.equal(editedTeamPaymentResponse.status, 200, JSON.stringify(editedTeamPaymentBody));
+    assert.ok(editedTeamPaymentBody.data.teamPayments.some(entry => entry.id === teamPayment.id && entry.kind === 'Pagamento' && entry.reason === 'Acerto de teste' && entry.valueCents === 4500));
+    const disposableTeamPaymentResponse = await jsonPost('/api/action', { action: 'team-payment', teamMemberId: employee.id, occurredAt: appDate(), kind: 'Vale', reason: 'Excluir no teste', valueCents: 1000 }, cookie);
+    const disposableTeamPaymentBody = await disposableTeamPaymentResponse.json();
+    assert.equal(disposableTeamPaymentResponse.status, 200, JSON.stringify(disposableTeamPaymentBody));
+    const disposableTeamPayment = disposableTeamPaymentBody.data.teamPayments.find(entry => entry.reason === 'Excluir no teste');
+    assert.ok(disposableTeamPayment);
+    const deletedTeamPaymentResponse = await jsonPost('/api/action', { action: 'delete-team-payment', id: disposableTeamPayment.id }, cookie);
+    const deletedTeamPaymentBody = await deletedTeamPaymentResponse.json();
+    assert.equal(deletedTeamPaymentResponse.status, 200, JSON.stringify(deletedTeamPaymentBody));
+    assert.equal(deletedTeamPaymentBody.data.teamPayments.some(entry => entry.id === disposableTeamPayment.id), false);
     const form = new FormData();
     form.set('kind', 'shop');
     form.set('consent', 'true');
@@ -87,6 +112,9 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     assert.equal((await fetch(`${base}/api/public-gallery/image/${image.id}`)).status, 200);
     const afterRestart = await fetch(`${base}/api/dashboard-period`, { headers: { Cookie: cookie } });
     assert.equal(afterRestart.status, 200);
-    assert.match(await afterRestart.text(), /Corte de verificação/);
+    const afterRestartBody = await afterRestart.json();
+    assert.ok(afterRestartBody.data.services.some(service => service.name === 'Corte de verificação'));
+    assert.ok(afterRestartBody.data.teamPayments.some(entry => entry.teamMemberName === 'Davi' && entry.kind === 'Pagamento' && entry.reason === 'Acerto de teste' && entry.valueCents === 4500));
+    assert.equal(afterRestartBody.data.teamPayments.some(entry => entry.reason === 'Excluir no teste'), false);
   } finally { await stop(); await rm(directory, { recursive: true, force: true }); }
 });

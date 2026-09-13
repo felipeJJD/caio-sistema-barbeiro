@@ -15,10 +15,13 @@ test("mobile form controls stay at 16px to prevent iPhone focus zoom", () => {
 
 test("visible viewport and keyboard state are restored on iPhone", () => {
   assert.match(gestureGuard, /data-app-keyboard-open/);
+  assert.match(gestureGuard, /--app-keyboard-inset/);
   assert.match(gestureGuard, /resolveMobileViewport/);
   assert.match(gestureGuard, /let layoutViewportHeight = window\.innerHeight/);
   assert.match(gestureGuard, /layoutViewportHeight = Math\.max\(layoutViewportHeight, window\.innerHeight\)/);
-  assert.match(gestureGuard, /visualViewport\?\.addEventListener\("resize"/);
+  assert.match(gestureGuard, /visualViewport\?\.addEventListener\("resize", refreshVisibleViewport\)/);
+  assert.match(gestureGuard, /closest<HTMLElement>\("\.app-shell > \.content"\)/);
+  assert.match(gestureGuard, /scrollBy\(\{ top: delta, behavior: "smooth" \}\)/);
   assert.match(gestureGuard, /document\.addEventListener\("change", refreshAfterFieldInteraction\)/);
   assert.match(gestureGuard, /visibilitychange/);
 });

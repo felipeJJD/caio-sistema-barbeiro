@@ -16,7 +16,7 @@ test("iPhone elimina o deslocamento antigo ao trocar teclado por lista", () => {
     windowHeight: 844,
     editing: true,
     resetIdleOffset: true,
-  }), { height: 844, top: 0, keyboardOpen: false });
+  }), { height: 844, top: 0, keyboardOpen: false, keyboardInset: 0 });
 });
 
 test("iPhone mantém a moldura completa e estável enquanto o teclado está aberto", () => {
@@ -26,7 +26,7 @@ test("iPhone mantém a moldura completa e estável enquanto o teclado está aber
     windowHeight: 844,
     editing: true,
     resetIdleOffset: true,
-  }), { height: 844, top: 0, keyboardOpen: true });
+  }), { height: 844, top: 0, keyboardOpen: true, keyboardInset: 334 });
 });
 
 test("demais dispositivos mantêm o cálculo anterior", () => {
@@ -36,5 +36,5 @@ test("demais dispositivos mantêm o cálculo anterior", () => {
     windowHeight: 800,
     editing: false,
     resetIdleOffset: false,
-  }), { height: 780, top: 36, keyboardOpen: false });
+  }), { height: 780, top: 36, keyboardOpen: false, keyboardInset: 0 });
 });

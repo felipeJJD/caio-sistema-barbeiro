@@ -1,6 +1,6 @@
 import { changeOwnPassword, getSessionAccess, setPasswordForTeamMember } from "../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../db/access";
-import { cancelAppointment, completeAppointment, confirmAppointment, createDailyRecord, deleteAppointment, deleteClient, deleteDailyRecord, deleteExpense, deleteMembershipPayment, deletePlan, deleteService, ensureDemoData, getDashboardData, markAppointmentReminderSent, registerAttendance, renewClient, saveAgendaSettings, saveAppointment, saveClient, saveExpense, saveGoal, savePayment, savePlan, saveService, saveTeamMember, syncFinishedAppointments, updateDailyRecord } from "../../../db/dashboard";
+import { cancelAppointment, completeAppointment, confirmAppointment, createDailyRecord, deleteAppointment, deleteClient, deleteDailyRecord, deleteExpense, deleteMembershipPayment, deletePlan, deleteService, deleteTeamPayment, ensureDemoData, getDashboardData, markAppointmentReminderSent, registerAttendance, renewClient, saveAgendaSettings, saveAppointment, saveClient, saveExpense, saveGoal, savePayment, savePlan, saveService, saveTeamMember, saveTeamPayment, syncFinishedAppointments, updateDailyRecord } from "../../../db/dashboard";
 import { deleteProduct, deleteProductSale, registerProductSale, registerProductSaleBundle, saveProduct } from "../../../db/products";
 import { appMonth } from "../../../lib/app-date";
 
@@ -35,6 +35,8 @@ export async function POST(request: Request) {
     else if (data.action === "delete-daily-record") await deleteDailyRecord(access, Number(data.id));
     else if (data.action === "expense") await saveExpense(access, { id: data.id ? Number(data.id) : undefined, occurredAt: String(data.occurredAt), type: String(data.type ?? "Variável"), description: String(data.description ?? ""), valueCents: Number(data.valueCents), paid: Boolean(data.paid) });
     else if (data.action === "delete-expense") await deleteExpense(access, Number(data.id));
+    else if (data.action === "team-payment") await saveTeamPayment(access, { id: data.id ? Number(data.id) : undefined, teamMemberId: Number(data.teamMemberId), occurredAt: String(data.occurredAt), kind: String(data.kind ?? "Vale"), reason: String(data.reason ?? ""), valueCents: Number(data.valueCents) });
+    else if (data.action === "delete-team-payment") await deleteTeamPayment(access, Number(data.id));
     else if (data.action === "save-product") await saveProduct(access, { id: data.id ? Number(data.id) : undefined, name: String(data.name ?? ""), category: String(data.category ?? "Geral"), costCents: Number(data.costCents), priceCents: Number(data.priceCents), commissionRateBps: Number(data.commissionRateBps), stockQuantity: Number(data.stockQuantity), lowStockThreshold: Number(data.lowStockThreshold), active: Boolean(data.active) });
     else if (data.action === "delete-product") await deleteProduct(access, Number(data.id));
     else if (data.action === "product-sale") await registerProductSale(access, { occurredAt: String(data.occurredAt), clientName: String(data.clientName ?? ""), sellerTeamMemberId: Number(data.sellerTeamMemberId ?? access.teamMemberId), productId: Number(data.productId), paymentMethodId: Number(data.paymentMethodId), quantity: Number(data.quantity) });

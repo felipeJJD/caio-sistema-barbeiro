@@ -249,6 +249,22 @@ export const team = sqliteTable("team", {
   active: integer("active", { mode: "boolean" }).notNull().default(true),
 }, (table) => [uniqueIndex("team_login_email_unique").on(table.loginEmail)]);
 
+export const teamPayments = sqliteTable("team_payments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  organizationId: integer("organization_id").notNull(),
+  teamMemberId: integer("team_member_id").notNull(),
+  teamMemberName: text("team_member_name").notNull(),
+  occurredAt: text("occurred_at").notNull(),
+  kind: text("kind").notNull(),
+  reason: text("reason").notNull().default(""),
+  valueCents: integer("value_cents").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("team_payments_organization_date_idx").on(table.organizationId, table.occurredAt),
+  index("team_payments_member_date_idx").on(table.teamMemberId, table.occurredAt),
+]);
+
 export const publicGalleryImages = sqliteTable("public_gallery_images", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   organizationId: integer("organization_id").notNull(),

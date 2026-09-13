@@ -232,6 +232,13 @@
       "when": 1788280397595,
       "tag": "0032_confused_deathbird",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1789268874358,
+      "tag": "0033_right_calypso",
+      "breakpoints": true
     }
   ]
 }
