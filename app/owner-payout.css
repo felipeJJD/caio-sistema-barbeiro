@@ -1,5 +1,5 @@
 .team-owner-label{display:inline-block!important;margin:0 0 0 7px!important;padding:3px 5px;border-radius:7px;background:#f3e7cb;color:#936920;font:800 7px/1 Arial,Helvetica,sans-serif!important;vertical-align:middle}
-.owner-payout-card{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,.6fr);gap:18px;align-items:center;padding:22px;background:linear-gradient(135deg,#fffdf7,#f6efdf);border-color:#e5d5ae}
+.owner-payout-card{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,.6fr);gap:18px;align-items:center;margin-bottom:18px;padding:22px;background:linear-gradient(135deg,#fffdf7,#f6efdf);border-color:#e5d5ae}
 .owner-payout-card>div>span{display:block;color:#9b7428;font-size:9px;font-weight:900;letter-spacing:.11em}
 .owner-payout-card h2{margin-top:7px;font-size:29px}
 .owner-payout-card p{max-width:520px;margin:6px 0 0;color:#6f746b;font-size:11px;line-height:1.5}
