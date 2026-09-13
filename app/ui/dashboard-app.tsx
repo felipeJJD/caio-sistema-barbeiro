@@ -21,6 +21,7 @@ import { PublicGallerySettings } from "./public-gallery-settings";
 import { BookingPaymentSettings } from "./booking-payment-settings";
 import { showAppToast } from "./app-toast";
 import { AppIcon } from "./app-icon";
+import { teamPaymentSummary } from "../../lib/team-payments";
 
 type NavIconName = "dashboard" | "plus" | "history" | "calendar" | "products" | "finance" | "members" | "goals" | "team" | "users" | "settings" | "plan" | "platform" | "more";
 type NavigationItem = { label: string; section: string; icon: NavIconName; group: "operation" | "management" };
@@ -155,6 +156,7 @@ function emptyPeriodData(baseData: DashboardData, start: string, end: string): D
     dataPeriod: { start, end },
     records: [],
     productSales: [],
+    teamPayments: [],
     membershipPayments: [],
     expenses: [],
     appointments: baseData.appointments.filter((item) => isOpenAppointment(item.status)),
@@ -1672,13 +1674,82 @@ function UserInvites() {
 }
 
 function TeamHub({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) {
-  const [view, setView] = useState<"Resultados" | "Usuários e convites">("Resultados");
+  const [view, setView] = useState<"Resultados" | "Vales e pagamentos" | "Usuários e convites">("Resultados");
+  const [start, setStart] = useState(data.dataPeriod.start);
+  const [end, setEnd] = useState(data.dataPeriod.end);
+  const periodData = usePeriodDashboardData(data, start, end);
   return <>
-    <div className="type-switch team-hub-tabs" aria-label="Áreas da equipe">
+    <div className="type-switch three team-hub-tabs" aria-label="Áreas da equipe">
       <button type="button" className={view === "Resultados" ? "active" : ""} onClick={() => setView("Resultados")}>Resultados</button>
+      <button type="button" className={view === "Vales e pagamentos" ? "active" : ""} onClick={() => setView("Vales e pagamentos")}>Vales e pagamentos</button>
       <button type="button" className={view === "Usuários e convites" ? "active" : ""} onClick={() => setView("Usuários e convites")}>Usuários e convites</button>
     </div>
-    {view === "Resultados" ? <Team data={data} post={post} pending={pending} /> : <UserInvites />}
+    {view !== "Usuários e convites" && <DateFilter start={start} end={end} setStart={setStart} setEnd={setEnd} />}
+    {view === "Resultados" && <Team data={periodData} post={post} pending={pending} />}
+    {view === "Vales e pagamentos" && <TeamPayments data={periodData} post={post} pending={pending} />}
+    {view === "Usuários e convites" && <UserInvites />}
+  </>;
+}
+
+function TeamPayments({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const editing = data.teamPayments.find((entry) => entry.id === editingId);
+  const editorRef = useEditorAutoScroll<HTMLElement>(editingId);
+  const employees = data.team.filter((member) => member.id !== data.viewer.teamMemberId);
+  const defaultDate = inRange(today, data.dataPeriod.start, data.dataPeriod.end) ? today : data.dataPeriod.end;
+  const employeeRows = employees.map((member) => {
+    const earnedCents = data.records
+      .filter((record) => record.barberId === member.id)
+      .reduce((sum, record) => sum + barberPayoutCents(record), 0)
+      + data.productSales
+        .filter((sale) => sale.sellerTeamMemberId === member.id)
+        .reduce((sum, sale) => sum + sale.commissionCents, 0);
+    const entries = data.teamPayments.filter((entry) => entry.teamMemberId === member.id);
+    return { member, ...teamPaymentSummary(earnedCents, entries) };
+  });
+  const totals = teamPaymentSummary(
+    employeeRows.reduce((sum, row) => sum + row.earnedCents, 0),
+    data.teamPayments.filter((entry) => employees.some((member) => member.id === entry.teamMemberId)),
+  );
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const teamMemberId = Number(form.get("teamMemberId"));
+    const employee = data.team.find((member) => member.id === teamMemberId);
+    const kind = String(form.get("kind") ?? "Vale");
+    const saved = await post({
+      action: "team-payment",
+      id: editing?.id ?? 0,
+      teamMemberId,
+      occurredAt: String(form.get("occurredAt") ?? defaultDate),
+      kind,
+      reason: String(form.get("reason") ?? ""),
+      valueCents: Math.round(Number(form.get("value") ?? 0) * 100),
+    }, editing ? "Lançamento atualizado." : `${kind} registrado para ${employee?.name ?? "o funcionário"}.`);
+    if (saved) setEditingId(null);
+  }
+
+  async function remove(entry: DashboardData["teamPayments"][number]) {
+    if (!window.confirm(`Excluir ${entry.kind.toLowerCase()} de ${money(entry.valueCents)} de ${entry.teamMemberName}?`)) return;
+    const removed = await post({ action: "delete-team-payment", id: entry.id }, "Lançamento excluído.");
+    if (removed && editingId === entry.id) setEditingId(null);
+  }
+
+  return <>
+    <section className="team-payment-total panel">
+      <div><span>RESUMO DO PERÍODO</span><strong>{date(data.dataPeriod.start)} a {date(data.dataPeriod.end)}</strong><small>O saldo considera comissões, gorjetas e vendas dos funcionários.</small></div>
+      <dl><div><dt>Gerado</dt><dd>{money(totals.earnedCents)}</dd></div><div><dt>Vales</dt><dd>{money(totals.valeCents)}</dd></div><div><dt>Pagamentos</dt><dd>{money(totals.paidCents)}</dd></div><div className={totals.remainingCents < 0 ? "is-advanced" : "is-balance"}><dt>Saldo restante</dt><dd>{money(totals.remainingCents)}</dd></div></dl>
+    </section>
+    <section className="team-payment-cards">
+      {employeeRows.map((row) => <article className="panel team-payment-card" key={row.member.id}><header><span className="large-avatar">{initials(row.member.name)}</span><div><h2>{row.member.name}</h2><small>{row.member.role}</small></div></header><dl><div><dt>Comissões + gorjetas</dt><dd>{money(row.earnedCents)}</dd></div><div><dt>Vales entregues</dt><dd>{money(row.valeCents)}</dd></div><div><dt>Pagamentos feitos</dt><dd>{money(row.paidCents)}</dd></div><div className={row.remainingCents < 0 ? "is-advanced" : "is-balance"}><dt>Saldo restante</dt><dd>{money(row.remainingCents)}</dd></div></dl></article>)}
+      {!employeeRows.length && <section className="panel"><Empty text="Cadastre um funcionário para controlar vales e pagamentos." /></section>}
+    </section>
+    <p className="team-payment-accounting-note"><b>Sem desconto duplicado:</b> vale e pagamento só registram o que já foi entregue ao funcionário. Eles não entram novamente como despesa, porque a comissão já foi descontada do lucro.</p>
+    <section className="team-payment-layout">
+      <div className="panel team-payment-history"><SectionTitle title="Histórico de vales e pagamentos" copy={`${data.teamPayments.length} ${data.teamPayments.length === 1 ? "lançamento" : "lançamentos"} no período`} /><div className="team-payment-list">{data.teamPayments.map((entry) => <article key={entry.id}><span className={`team-payment-kind ${entry.kind === "Vale" ? "vale" : "payment"}`}>{entry.kind}</span><div><strong>{entry.teamMemberName}</strong><small>{date(entry.occurredAt)} · {entry.reason}</small></div><b>{money(entry.valueCents)}</b><div className="icon-actions"><button type="button" title="Editar lançamento" aria-label={`Editar ${entry.kind.toLowerCase()} de ${entry.teamMemberName}`} onClick={() => setEditingId(entry.id)}><AppIcon name="edit" /></button><button type="button" className="danger" disabled={pending} title="Excluir lançamento" aria-label={`Excluir ${entry.kind.toLowerCase()} de ${entry.teamMemberName}`} onClick={() => void remove(entry)}><AppIcon name="trash" /></button></div></article>)}{!data.teamPayments.length && <Empty text="Nenhum vale ou pagamento neste período." />}</div></div>
+      <section className={`panel form-card compact editor-scroll-target${editing ? " is-editing" : ""}`} ref={editorRef} tabIndex={-1}><SectionTitle title={editing ? "Editar lançamento" : "Novo vale ou pagamento"} copy={editing ? "Altere os dados e salve novamente." : "Registre o valor que foi entregue ao funcionário."} />{employees.length ? <form className="app-form" onSubmit={submit} key={editing?.id ?? `new-${data.dataPeriod.start}`}><Field label="Funcionário"><select name="teamMemberId" defaultValue={editing?.teamMemberId ?? employees[0]?.id} required>{employees.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}</select></Field><Field label="Data"><input name="occurredAt" type="date" min={data.dataPeriod.start} max={data.dataPeriod.end} defaultValue={editing?.occurredAt ?? defaultDate} required /></Field><Field label="Tipo"><select name="kind" defaultValue={editing?.kind ?? "Vale"}><option>Vale</option><option>Pagamento</option></select></Field><Field label="Valor (R$)"><input name="value" type="number" min="0.01" max="1000000" step="0.01" inputMode="decimal" defaultValue={editing ? editing.valueCents / 100 : undefined} required /></Field><Field label="Motivo"><input name="reason" maxLength={160} placeholder="Ex.: adiantamento do dia" defaultValue={editing?.reason ?? ""} required /></Field><button className="primary-button" disabled={pending}>{pending ? "Salvando..." : editing ? "Salvar alterações" : "Salvar lançamento"}</button>{editing && <button type="button" className="cancel-button" onClick={() => setEditingId(null)}>Cancelar edição</button>}</form> : <Empty text="Cadastre um funcionário antes de fazer um lançamento." />}</section>
+    </section>
   </>;
 }
 
@@ -2292,7 +2363,7 @@ function Team({ data, post, pending }: { data: DashboardData; post: Post; pendin
         <div><button className="primary-button" disabled={pending}>{pending ? "Salvando..." : "Salvar comissão"}</button><button type="button" className="cancel-button" onClick={() => setEditingOwnerPayout(false)}>Cancelar</button></div>
       </form>}
     </article>}
-    {data.team.map((member) => { const result = data.barberRanking.find((item) => item.name === member.name); return <article className="panel team-card" key={member.id}><div className="large-avatar">{initials(member.name)}</div><h2>{member.name}{member.id === data.viewer.teamMemberId && <small className="team-owner-label">ADMINISTRADOR</small>}</h2><p>{member.role}</p><span className="commission">{(member.commissionRateBps / 100).toFixed(0)}% no avulso</span><div><span><small>Faturamento</small><b>{money(result?.valueCents ?? 0)}</b></span><span><small>Atendimentos</small><b>{result?.count ?? 0}</b></span><span><small>Comissão</small><b>{money(result?.commissionCents ?? 0)}</b></span></div></article>; })}
+    {data.team.map((member) => { const records = data.records.filter((record) => record.barberId === member.id); const sales = data.productSales.filter((sale) => sale.sellerTeamMemberId === member.id); const result = { valueCents: records.reduce((sum, record) => sum + record.valueCents, 0) + sales.reduce((sum, sale) => sum + sale.revenueCents, 0), count: records.reduce((sum, record) => sum + record.quantity, 0), commissionCents: records.reduce((sum, record) => sum + barberPayoutCents(record), 0) + sales.reduce((sum, sale) => sum + sale.commissionCents, 0) }; return <article className="panel team-card" key={member.id}><div className="large-avatar">{initials(member.name)}</div><h2>{member.name}{member.id === data.viewer.teamMemberId && <small className="team-owner-label">ADMINISTRADOR</small>}</h2><p>{member.role}</p><span className="commission">{(member.commissionRateBps / 100).toFixed(0)}% no avulso</span><div><span><small>Faturamento</small><b>{money(result.valueCents)}</b></span><span><small>Atendimentos</small><b>{result.count}</b></span><span><small>Comissão</small><b>{money(result.commissionCents)}</b></span></div></article>; })}
   </section>;
 }
 function DateFilter({ start, end, setStart, setEnd }: { start: string; end: string; setStart: (value: string) => void; setEnd: (value: string) => void }) {

@@ -13,7 +13,7 @@ npm test
 npm start
 ```
 
-O banco e uploads ficam em `.data` localmente. No Railway, montar volume em `/data`; o processo recusa iniciar sem volume persistente. Usar uma réplica. As 33 migrações são aplicadas no startup com checksum e transação. Não editar migrações já aplicadas.
+O banco e uploads ficam em `.data` localmente. No Railway, montar volume em `/data`; o processo recusa iniciar sem volume persistente. Usar uma réplica. As 34 migrações são aplicadas no startup com checksum e transação. Não editar migrações já aplicadas.
 
 ## Railway
 

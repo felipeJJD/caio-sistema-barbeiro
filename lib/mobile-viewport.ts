@@ -2,6 +2,7 @@ export type MobileViewportFrame = {
   height: number;
   top: number;
   keyboardOpen: boolean;
+  keyboardInset: number;
 };
 
 type AppleTouchDeviceInput = {
@@ -30,12 +31,17 @@ export function resolveMobileViewport({
   editing,
   resetIdleOffset,
 }: MobileViewportInput): MobileViewportFrame {
-  const keyboardOpen = editing && windowHeight - visualHeight > 120;
+  const hiddenHeight = Math.max(0, Math.round(windowHeight - visualHeight));
+  const keyboardOpen = editing && hiddenHeight > 120;
   if (resetIdleOffset) {
     return {
       height: Math.round(windowHeight),
       top: 0,
       keyboardOpen,
+      // iOS keeps the layout viewport at its original height while the visual
+      // viewport is shortened by the keyboard. Keep the shell stable, but
+      // expose the covered area so the inner scroller can create real space.
+      keyboardInset: keyboardOpen ? hiddenHeight : 0,
     };
   }
 
@@ -43,5 +49,6 @@ export function resolveMobileViewport({
     height: Math.round(visualHeight),
     top: Math.round(Math.max(0, visualTop)),
     keyboardOpen,
+    keyboardInset: 0,
   };
 }

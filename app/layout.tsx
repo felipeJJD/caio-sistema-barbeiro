@@ -3,6 +3,7 @@ import "./globals.css";
 import "./notification-center.css";
 import "./products.css";
 import "./owner-payout.css";
+import "./team-payments.css";
 import "./affiliate-portal.css";
 import "./shell-chrome.css";
 import "./help-chat.css";

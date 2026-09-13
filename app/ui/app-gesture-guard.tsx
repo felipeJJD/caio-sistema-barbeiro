@@ -20,6 +20,34 @@ export function AppGestureGuard() {
     let longTimer = 0;
     let layoutViewportHeight = window.innerHeight;
 
+    const focusedField = () => {
+      const active = document.activeElement;
+      return active instanceof HTMLElement
+        && active.matches("input, textarea, select, [contenteditable='true']")
+        ? active
+        : null;
+    };
+
+    const revealFocusedField = () => {
+      if (!resetIdleOffset || !root.hasAttribute("data-app-keyboard-open")) return;
+      const active = focusedField();
+      const scroller = active?.closest<HTMLElement>(".app-shell > .content");
+      if (!active || !scroller) return;
+
+      const visibleTop = Math.max(visualViewport?.offsetTop ?? 0, 0) + 14;
+      const visibleBottom = (visualViewport?.offsetTop ?? 0)
+        + (visualViewport?.height ?? window.innerHeight)
+        - 18;
+      const field = active.getBoundingClientRect();
+      const delta = field.bottom > visibleBottom
+        ? field.bottom - visibleBottom
+        : field.top < visibleTop
+          ? field.top - visibleTop
+          : 0;
+
+      if (Math.abs(delta) > 1) scroller.scrollBy({ top: delta, behavior: "smooth" });
+    };
+
     const syncVisibleViewport = () => {
       const active = document.activeElement;
       const editing = active instanceof HTMLElement
@@ -35,17 +63,27 @@ export function AppGestureGuard() {
       });
       root.style.setProperty("--app-viewport-height", `${viewport.height}px`);
       root.style.setProperty("--app-viewport-top", `${viewport.top}px`);
+      root.style.setProperty("--app-keyboard-inset", `${viewport.keyboardInset}px`);
       root.toggleAttribute("data-app-keyboard-open", viewport.keyboardOpen);
     };
 
     const refreshVisibleViewport = () => {
       syncVisibleViewport();
       window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(syncVisibleViewport);
+      frame = window.requestAnimationFrame(() => {
+        syncVisibleViewport();
+        revealFocusedField();
+      });
       window.clearTimeout(shortTimer);
       window.clearTimeout(longTimer);
-      shortTimer = window.setTimeout(syncVisibleViewport, 120);
-      longTimer = window.setTimeout(syncVisibleViewport, 420);
+      shortTimer = window.setTimeout(() => {
+        syncVisibleViewport();
+        revealFocusedField();
+      }, 160);
+      longTimer = window.setTimeout(() => {
+        syncVisibleViewport();
+        revealFocusedField();
+      }, 460);
     };
 
     const refreshWhenVisible = () => {
@@ -84,8 +122,8 @@ export function AppGestureGuard() {
     document.addEventListener("change", refreshAfterFieldInteraction);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     document.addEventListener("visibilitychange", releaseFocusWhenHidden);
-    visualViewport?.addEventListener("resize", syncVisibleViewport);
-    if (!resetIdleOffset) visualViewport?.addEventListener("scroll", syncVisibleViewport);
+    visualViewport?.addEventListener("resize", refreshVisibleViewport);
+    visualViewport?.addEventListener("scroll", refreshVisibleViewport);
     refreshVisibleViewport();
 
     return () => {
@@ -98,17 +136,18 @@ export function AppGestureGuard() {
       document.removeEventListener("gesturechange", preventGesture);
       document.removeEventListener("dblclick", preventDoubleTap);
       window.removeEventListener("resize", refreshVisibleViewport);
-    window.removeEventListener("focus", refreshVisibleViewport);
-    window.removeEventListener("pageshow", refreshVisibleViewport);
-    document.removeEventListener("focusin", refreshAfterFieldInteraction);
-    document.removeEventListener("focusout", refreshAfterFieldInteraction);
-    document.removeEventListener("change", refreshAfterFieldInteraction);
+      window.removeEventListener("focus", refreshVisibleViewport);
+      window.removeEventListener("pageshow", refreshVisibleViewport);
+      document.removeEventListener("focusin", refreshAfterFieldInteraction);
+      document.removeEventListener("focusout", refreshAfterFieldInteraction);
+      document.removeEventListener("change", refreshAfterFieldInteraction);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       document.removeEventListener("visibilitychange", releaseFocusWhenHidden);
-      visualViewport?.removeEventListener("resize", syncVisibleViewport);
-      if (!resetIdleOffset) visualViewport?.removeEventListener("scroll", syncVisibleViewport);
+      visualViewport?.removeEventListener("resize", refreshVisibleViewport);
+      visualViewport?.removeEventListener("scroll", refreshVisibleViewport);
       root.style.removeProperty("--app-viewport-height");
       root.style.removeProperty("--app-viewport-top");
+      root.style.removeProperty("--app-keyboard-inset");
       root.removeAttribute("data-app-keyboard-open");
     };
   }, []);

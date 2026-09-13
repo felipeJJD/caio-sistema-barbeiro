@@ -6,12 +6,13 @@ import { getDb } from "./index";
 import { listNotifications, notifyOwnersOfAppointmentCancellation, notifyOwnersOfAttendance, type AppNotification } from "./notifications";
 import { getPlatformBillingOffer, type PlatformBillingOffer } from "./platform-billing";
 import { deleteProductSalesForDailyRecord, getProductsData, registerProductSaleBundle, replaceProductSalesForDailyRecord, syncProductSalesForDailyRecord, type EditableProductSaleItemInput, type ProductSale, type ProductSaleItemInput, type ShopProduct } from "./products";
-import { appointments, authAccounts, clients, dailyRecords, expenses, goals, membershipPayments, organizations, paymentMethods, plans, services, team } from "./schema";
+import { appointments, authAccounts, clients, dailyRecords, expenses, goals, membershipPayments, organizations, paymentMethods, plans, services, team, teamPayments } from "./schema";
 import { appDate, appMonth, appTimeMinutes, membershipRenewalDates, nextMonthDueDate } from "../lib/app-date";
 import { barberPayoutCents } from "../lib/earnings";
 import { activeMembershipTotals, membershipPayoutCentsForAccessRole } from "../lib/membership-summary";
 import { validClientName } from "../lib/client-name";
 import { parseBookingWeekdays, serializeBookingWeekdays } from "../lib/booking-weekdays";
+import { isTeamPaymentKind, type TeamPaymentKind } from "../lib/team-payments";
 
 export type DashboardData = {
   dataPeriod: { start: string; end: string };
@@ -19,6 +20,7 @@ export type DashboardData = {
   clients: Array<{ id: number; name: string; phone: string; plan: string; planKind: string; planId: number; paymentMethodId: number; paymentName: string; balance: number; maxBalance: number; dueDate: string; status: string; monthlyValueCents: number; paidMonth: string; usedThisMonth: number; remaining: number; overLimit: boolean }>;
   plans: Array<{ id: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }>;
   team: Array<{ id: number; name: string; role: string; loginEmail: string | null; accessRole: string; commissionCents: number; commissionRateBps: number; active: boolean; hasPassword: boolean }>;
+  teamPayments: Array<{ id: number; teamMemberId: number; teamMemberName: string; occurredAt: string; kind: TeamPaymentKind; reason: string; valueCents: number }>;
   services: Array<{ id: number; name: string; priceCents: number; durationMinutes: number; active: boolean }>;
   agendaSettings: { useServiceDuration: boolean; openingTime: string; closingTime: string; publicBookingEnabled: boolean; publicBookingRequiresApproval: boolean; publicBookingWeekdays: number[]; publicBookingSlug: string };
   paymentMethods: Array<{ id: number; name: string; feeBps: number }>;
@@ -118,7 +120,7 @@ export async function ensureDemoData() {
 }
 
 function emptyDashboard(access: AccessContext, period = dashboardPeriod()): DashboardData {
-  return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: [], plans: [], team: [], services: [], agendaSettings: { useServiceDuration: false, openingTime: "08:00", closingTime: "19:00", publicBookingEnabled: true, publicBookingRequiresApproval: true, publicBookingWeekdays: parseBookingWeekdays(null), publicBookingSlug: "" }, paymentMethods: [], membershipPayments: [], records: [], expenses: [], appointments: [], notifications: [], products: [], productSales: [], goal: { revenueCents: 0, grossProfitCents: 0, expenseCents: 0, netProfitCents: 0, attendanceTarget: 0 }, stats: { revenueCents: 0, serviceRevenueCents: 0, membershipRevenueCents: 0, productRevenueCents: 0, productCostCents: 0, productProfitCents: 0, feeCents: 0, expenseCents: 0, commissionCents: 0, myEarningsCents: 0, grossProfitCents: 0, netProfitCents: 0, visitsThisMonth: 0, workedDays: 0, averageTicketCents: 0, active: 0, pending: 0, openSpots: 30 }, membershipSummary: { ownerPayoutCents: 0, ownerVisits: 0, totalUses: 0, shopBalanceCents: 0 }, serviceRanking: [], barberRanking: [], billingOffer: { pixPriceCents: 999, pixPeriodDays: 30, quarterlyDiscountBps: 1000, semiannualDiscountBps: 1500, annualDiscountBps: 2000, pixPlans: [{ code: "monthly", label: "Mensal", months: 1, periodDays: 30, priceCents: 999, discountBps: 0 }, { code: "quarterly", label: "Trimestral", months: 3, periodDays: 90, priceCents: 2697, discountBps: 1000 }, { code: "semiannual", label: "Semestral", months: 6, periodDays: 180, priceCents: 5095, discountBps: 1500 }, { code: "annual", label: "Anual", months: 12, periodDays: 365, priceCents: 9590, discountBps: 2000 }] } };
+  return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: [], plans: [], team: [], teamPayments: [], services: [], agendaSettings: { useServiceDuration: false, openingTime: "08:00", closingTime: "19:00", publicBookingEnabled: true, publicBookingRequiresApproval: true, publicBookingWeekdays: parseBookingWeekdays(null), publicBookingSlug: "" }, paymentMethods: [], membershipPayments: [], records: [], expenses: [], appointments: [], notifications: [], products: [], productSales: [], goal: { revenueCents: 0, grossProfitCents: 0, expenseCents: 0, netProfitCents: 0, attendanceTarget: 0 }, stats: { revenueCents: 0, serviceRevenueCents: 0, membershipRevenueCents: 0, productRevenueCents: 0, productCostCents: 0, productProfitCents: 0, feeCents: 0, expenseCents: 0, commissionCents: 0, myEarningsCents: 0, grossProfitCents: 0, netProfitCents: 0, visitsThisMonth: 0, workedDays: 0, averageTicketCents: 0, active: 0, pending: 0, openSpots: 30 }, membershipSummary: { ownerPayoutCents: 0, ownerVisits: 0, totalUses: 0, shopBalanceCents: 0 }, serviceRanking: [], barberRanking: [], billingOffer: { pixPriceCents: 999, pixPeriodDays: 30, quarterlyDiscountBps: 1000, semiannualDiscountBps: 1500, annualDiscountBps: 2000, pixPlans: [{ code: "monthly", label: "Mensal", months: 1, periodDays: 30, priceCents: 999, discountBps: 0 }, { code: "quarterly", label: "Trimestral", months: 3, periodDays: 90, priceCents: 2697, discountBps: 1000 }, { code: "semiannual", label: "Semestral", months: 6, periodDays: 180, priceCents: 5095, discountBps: 1500 }, { code: "annual", label: "Anual", months: 12, periodDays: 365, priceCents: 9590, discountBps: 2000 }] } };
 }
 
 function timeToMinutes(value: string) {
@@ -239,10 +241,11 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
     ));
     const periodStartMonth = period.start.slice(0, 7);
     const periodEndMonth = period.end.slice(0, 7);
-    const [rawClients, rawPlans, rawTeam, accountRows, serviceList, payments, rawMembershipPayments, expenseList, goalRows, recordList, appointmentList, notificationList, productData, billingOffer] = await Promise.all([
+    const [rawClients, rawPlans, rawTeam, rawTeamPayments, accountRows, serviceList, payments, rawMembershipPayments, expenseList, goalRows, recordList, appointmentList, notificationList, productData, billingOffer] = await Promise.all([
       db.select().from(clients).where(and(eq(clients.organizationId, organizationId), isNull(clients.deletedAt))).orderBy(clients.name),
       db.select().from(plans).where(eq(plans.organizationId, organizationId)).orderBy(plans.id),
       db.select().from(team).where(eq(team.organizationId, organizationId)).orderBy(team.name),
+      access.isOwner ? db.select({ id: teamPayments.id, teamMemberId: teamPayments.teamMemberId, teamMemberName: teamPayments.teamMemberName, occurredAt: teamPayments.occurredAt, kind: teamPayments.kind, reason: teamPayments.reason, valueCents: teamPayments.valueCents }).from(teamPayments).where(and(eq(teamPayments.organizationId, organizationId), gte(teamPayments.occurredAt, period.start), lte(teamPayments.occurredAt, period.end))).orderBy(desc(teamPayments.occurredAt), desc(teamPayments.id)) : Promise.resolve([]),
       access.isOwner ? db.select({ teamMemberId: authAccounts.teamMemberId }).from(authAccounts).where(eq(authAccounts.organizationId, organizationId)) : Promise.resolve([]),
       db.select().from(services).where(and(eq(services.organizationId, organizationId), isNull(services.deletedAt))).orderBy(services.name),
       db.select().from(paymentMethods).where(eq(paymentMethods.organizationId, organizationId)).orderBy(paymentMethods.id),
@@ -271,6 +274,9 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
       : payment);
     const accountTeamIds = new Set(accountRows.map((account) => account.teamMemberId));
     const teamList = access.isOwner ? rawTeam : rawTeam.filter((member) => member.id === access.teamMemberId);
+    const teamPaymentList = rawTeamPayments
+      .filter((entry) => isTeamPaymentKind(entry.kind))
+      .map((entry) => ({ ...entry, kind: entry.kind as TeamPaymentKind }));
     const paymentById = new Map(payments.map((payment) => [payment.id, payment]));
     const knownMembershipPaymentKeys = new Set(normalizedMembershipPayments.map((payment) => `${payment.clientId}:${payment.paidMonth}`));
     const backfilledMembershipPayments = access.isOwner ? (await Promise.all(rawClients
@@ -321,7 +327,7 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
     const activeClientIds = new Set(rawClients.filter((client) => client.status === "Ativo").map((client) => client.id));
     const ownerActiveMembershipRecords = membershipRecords.filter((item) => item.barberId === access.teamMemberId && item.membershipClientId !== null && activeClientIds.has(item.membershipClientId));
     const membershipSummary = access.isOwner ? { ownerPayoutCents: ownerActiveMembershipRecords.reduce((sum, item) => sum + barberPayoutCents(item), 0), ownerVisits: ownerActiveMembershipRecords.reduce((sum, item) => sum + item.quantity, 0), totalUses: activeMembership.uses, shopBalanceCents: activeMembership.revenueCents - activeMembership.payoutCents } : { ownerPayoutCents: 0, ownerVisits: 0, totalUses: activeMembership.uses, shopBalanceCents: 0 };
-    return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: clientsWithUsage, plans: planList, team: visibleTeam, services: serviceList, agendaSettings: { useServiceDuration: organization?.useServiceDurationInAgenda ?? false, openingTime: organization?.openingTime ?? "08:00", closingTime: organization?.closingTime ?? "19:00", publicBookingEnabled: organization?.publicBookingEnabled ?? true, publicBookingRequiresApproval: organization?.publicBookingRequiresApproval ?? true, publicBookingWeekdays: parseBookingWeekdays(organization?.publicBookingWeekdays), publicBookingSlug: organization?.slug ?? "" }, paymentMethods: payments, membershipPayments: membershipPaymentList, records: recordList, expenses: expenseList, appointments: appointmentList, notifications: notificationList, products: productData.products, productSales: productData.sales, goal, stats: { revenueCents, serviceRevenueCents, membershipRevenueCents, productRevenueCents, productCostCents, productProfitCents, feeCents, expenseCents, commissionCents, myEarningsCents: commissionCents, grossProfitCents, netProfitCents, visitsThisMonth: currentRecords.reduce((sum, item) => sum + item.quantity, 0), workedDays: new Set(currentRecords.map((item) => item.occurredAt)).size, averageTicketCents: currentRecords.length ? Math.round(serviceRevenueCents / currentRecords.length) : 0, active, pending, openSpots: Math.max(0, 30 - active) }, membershipSummary, serviceRanking: [...serviceMap.values()].sort((a, b) => b.count - a.count), barberRanking: [...barberMap.values()].sort((a, b) => b.valueCents - a.valueCents), billingOffer };
+    return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: clientsWithUsage, plans: planList, team: visibleTeam, teamPayments: teamPaymentList, services: serviceList, agendaSettings: { useServiceDuration: organization?.useServiceDurationInAgenda ?? false, openingTime: organization?.openingTime ?? "08:00", closingTime: organization?.closingTime ?? "19:00", publicBookingEnabled: organization?.publicBookingEnabled ?? true, publicBookingRequiresApproval: organization?.publicBookingRequiresApproval ?? true, publicBookingWeekdays: parseBookingWeekdays(organization?.publicBookingWeekdays), publicBookingSlug: organization?.slug ?? "" }, paymentMethods: payments, membershipPayments: membershipPaymentList, records: recordList, expenses: expenseList, appointments: appointmentList, notifications: notificationList, products: productData.products, productSales: productData.sales, goal, stats: { revenueCents, serviceRevenueCents, membershipRevenueCents, productRevenueCents, productCostCents, productProfitCents, feeCents, expenseCents, commissionCents, myEarningsCents: commissionCents, grossProfitCents, netProfitCents, visitsThisMonth: currentRecords.reduce((sum, item) => sum + item.quantity, 0), workedDays: new Set(currentRecords.map((item) => item.occurredAt)).size, averageTicketCents: currentRecords.length ? Math.round(serviceRevenueCents / currentRecords.length) : 0, active, pending, openSpots: Math.max(0, 30 - active) }, membershipSummary, serviceRanking: [...serviceMap.values()].sort((a, b) => b.count - a.count), barberRanking: [...barberMap.values()].sort((a, b) => b.valueCents - a.valueCents), billingOffer };
   } catch {
     return emptyDashboard(access, period);
   }
@@ -468,6 +474,46 @@ export async function renewClient(access: AccessContext, clientId: number) {
 }
 export async function saveExpense(access: AccessContext, input: { id?: number; occurredAt: string; type: string; description: string; valueCents: number; paid: boolean }) { requireOwner(access); if (!input.description.trim() || input.valueCents <= 0) throw new Error("Informe a despesa e o valor."); const db = await getDb(); const values = { occurredAt: input.occurredAt, type: input.type, description: input.description.trim(), valueCents: input.valueCents, paid: input.paid }; if (input.id) await db.update(expenses).set(values).where(and(eq(expenses.id, input.id), eq(expenses.organizationId, access.organizationId))); else await db.insert(expenses).values({ ...values, organizationId: access.organizationId }); }
 export async function deleteExpense(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const existing = (await db.select().from(expenses).where(and(eq(expenses.id, id), eq(expenses.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Despesa não encontrada."); await db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.organizationId, access.organizationId))); }
+
+export async function saveTeamPayment(access: AccessContext, input: { id?: number; teamMemberId: number; occurredAt: string; kind: string; reason: string; valueCents: number }) {
+  requireOwner(access);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.occurredAt)) throw new Error("Informe uma data válida.");
+  if (!isTeamPaymentKind(input.kind)) throw new Error("Escolha Vale ou Pagamento.");
+  const valueCents = Math.round(Number(input.valueCents));
+  if (!Number.isFinite(valueCents) || valueCents <= 0 || valueCents > 100_000_000) throw new Error("Informe um valor válido.");
+  const reason = input.reason.trim();
+  if (!reason) throw new Error("Informe o motivo do lançamento.");
+  if (reason.length > 160) throw new Error("O motivo deve ter no máximo 160 caracteres.");
+
+  const db = await getDb();
+  const member = (await db.select({ id: team.id, name: team.name }).from(team).where(and(eq(team.id, input.teamMemberId), eq(team.organizationId, access.organizationId))).limit(1))[0];
+  if (!member) throw new Error("Escolha um funcionário válido.");
+  const values = {
+    teamMemberId: member.id,
+    teamMemberName: member.name,
+    occurredAt: input.occurredAt,
+    kind: input.kind,
+    reason,
+    valueCents,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (input.id) {
+    const existing = (await db.select({ id: teamPayments.id }).from(teamPayments).where(and(eq(teamPayments.id, input.id), eq(teamPayments.organizationId, access.organizationId))).limit(1))[0];
+    if (!existing) throw new Error("Lançamento não encontrado.");
+    await db.update(teamPayments).set(values).where(and(eq(teamPayments.id, input.id), eq(teamPayments.organizationId, access.organizationId)));
+  } else {
+    await db.insert(teamPayments).values({ ...values, organizationId: access.organizationId });
+  }
+}
+
+export async function deleteTeamPayment(access: AccessContext, id: number) {
+  requireOwner(access);
+  const db = await getDb();
+  const existing = (await db.select({ id: teamPayments.id }).from(teamPayments).where(and(eq(teamPayments.id, id), eq(teamPayments.organizationId, access.organizationId))).limit(1))[0];
+  if (!existing) throw new Error("Lançamento não encontrado.");
+  await db.delete(teamPayments).where(and(eq(teamPayments.id, id), eq(teamPayments.organizationId, access.organizationId)));
+}
 
 export async function saveAppointment(access: AccessContext, input: { id?: number; appointmentDate: string; appointmentTime: string; clientName: string; phone?: string; serviceId: number; barberId: number; notes?: string }) {
   if (!input.appointmentDate || !input.appointmentTime) throw new Error("Informe cliente, data e horário.");

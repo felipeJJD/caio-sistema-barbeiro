@@ -159,6 +159,10 @@ svg.app-icon-whatsapp { fill: currentColor; stroke: none; }
   }
   html[data-app-keyboard-open] .help-panel.is-conversation > .help-action-shortcuts,
   html[data-app-keyboard-open] .help-panel.is-conversation .help-note { display: none; }
+  html[data-app-keyboard-open] .app-shell > .content {
+    padding-bottom: calc(112px + env(safe-area-inset-bottom) + var(--app-keyboard-inset, 0px));
+    scroll-padding-bottom: calc(18px + var(--app-keyboard-inset, 0px));
+  }
 }
 
 @media (max-width: 440px) {
