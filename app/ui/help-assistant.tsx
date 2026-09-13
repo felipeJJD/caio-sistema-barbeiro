@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { DashboardData } from "../../db/dashboard";
 import { appDate } from "../../lib/app-date";
 import { SUPPORT_WHATSAPP_URL } from "../../lib/support";
@@ -136,12 +136,12 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const panelRef = useRef<HTMLElement>(null);
   const busy = answerPending || saving;
   function updateInput(text:string) { draftTextRef.current = text; setInput(text); }
-  function stopVoice() { dictationRef.current?.stop(); }
-  function closeHelp() {
+  const stopVoice = useCallback(() => { dictationRef.current?.stop(); }, []);
+  const closeHelp = useCallback(() => {
     stopVoice();
     setOpen(false);
     window.requestAnimationFrame(() => launcherRef.current?.focus({ preventScroll: true }));
-  }
+  }, [stopVoice]);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -188,7 +188,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
       window.removeEventListener("keydown", closeOnEscape);
       window.removeEventListener("cortou-anotou:open-navigation", closeForMenu);
     };
-  }, [open]);
+  }, [open, closeHelp, stopVoice]);
 
   function addMessage(role: Message["role"], text: string, extra:Partial<Message> = {}) {
     const message = { ...extra, id: nextMessageId.current++, role, text };

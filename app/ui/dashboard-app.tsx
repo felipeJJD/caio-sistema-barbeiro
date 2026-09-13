@@ -789,7 +789,7 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
 
   function renderSectionBody(activeSection: string, current: boolean) {
     return <>
-      {activeSection === "Painel" && (viewer.isOwner ? <Overview data={liveData} go={setSection} planAutoOpen={current} /> : <StaffOverview data={liveData} go={setSection} />)}
+      {activeSection === "Painel" && (viewer.isOwner ? <Overview data={liveData} go={setSection} planAutoOpen={current} post={post} pending={isPending} /> : <StaffOverview data={liveData} go={setSection} />)}
       {activeSection === "Registrar" && <section className="form-layout">
         <div className="panel form-card">
           <SectionTitle title={recordType === "Produto" ? "Venda somente de produto" : "Novo atendimento"} copy={recordType === "Produto" ? "Registre a venda sem adicionar corte ou barba." : "Escolha o tipo. O restante é calculado pelo Cortou Anotou."} />
@@ -916,7 +916,7 @@ function RecordProductPicker({ products, items, setItems, standalone = false }: 
   </section>;
 }
 
-function Overview({ data: baseData, go, planAutoOpen }: { data: DashboardData; go: (section: string) => void; planAutoOpen: boolean }) {
+function Overview({ data: baseData, go, planAutoOpen, post, pending }: { data: DashboardData; go: (section: string) => void; planAutoOpen: boolean; post: Post; pending: boolean }) {
   const [start, setStart] = useState(monthStart);
   const [end, setEnd] = useState(today);
   const [showAllPayouts, setShowAllPayouts] = useState(false);
@@ -966,6 +966,7 @@ function Overview({ data: baseData, go, planAutoOpen }: { data: DashboardData; g
     <section className="stat-grid six"><Stat label={`Atendimentos ${ownerName}`} value={String(ownerAttendanceCount)} note={`${ownerWorkedDays} ${ownerWorkedDays === 1 ? "dia trabalhado" : "dias trabalhados"}`} tone="blue" icon={<AppIcon name="scissors" />} /><Stat label="Faturamento total" value={shortMoney(revenueCents)} note={`${progress}% da meta`} tone="gold" icon={<AppIcon name="trend" />} /><Stat label="Lucro líquido" value={shortMoney(netProfitCents)} note="Depois de todos os custos" tone="green" icon={<AppIcon name="money" />} /><Stat label="Mensalistas ativos" value={money(activeMembership.revenueCents)} note={`${data.stats.active} ${data.stats.active === 1 ? "mensalista ativo" : "mensalistas ativos"}`} tone="purple" icon={<AppIcon name="members" />} /><Stat label="Despesas" value={money(expenseCents)} note={`${money(feeCents)} em taxas`} tone="rose" icon={<AppIcon name="trend" className="icon-down" />} /><Stat label="Agendados hoje" value={String(data.appointments.filter((item) => item.appointmentDate === today && isOpenAppointment(item.status)).length)} note="Horários confirmados" tone="cyan" icon={<AppIcon name="calendar" />} /></section>
     <section className="club-summary dynamic-summary">{summaryCards.map((item) => <article key={item.label}><small>{item.label}</small><strong>{item.value}</strong></article>)}</section>
     {teamPayoutCards.length > 2 && <div className="summary-expand"><button type="button" aria-expanded={showAllPayouts} onClick={() => setShowAllPayouts((current) => !current)}>{showAllPayouts ? "Ver menos comissões" : `Ver mais comissões (+${hiddenPayoutCards})`}</button></div>}
+    <OwnerPayoutEditor data={data} post={post} pending={pending} />
       <section className="dashboard-grid"><div className="panel quick-panel" data-tour="quick-actions"><SectionTitle title="Ações rápidas" copy="O que você quer fazer agora?" /><div className="quick-actions"><button onClick={() => go("Registrar")}><b>+</b><span><strong>Novo atendimento</strong><small>Avulso ou mensalista</small></span></button><button onClick={() => go("Agenda")}><b><AppIcon name="calendar" /></b><span><strong>Agendar horário</strong><small>Organizar a agenda</small></span></button><button onClick={() => go("Produtos")}><b><AppIcon name="box" /></b><span><strong>Vender produto</strong><small>Baixar do estoque</small></span></button><button onClick={() => go("Financeiro")}><b><AppIcon name="money" /></b><span><strong>Nova despesa</strong><small>Lançar uma saída</small></span></button><button onClick={() => go("Configurações")}><b><AppIcon name="settings" /></b><span><strong>Editar cadastros</strong><small>Clientes, preços e regras</small></span></button></div></div><div className="panel goal-card"><SectionTitle title="Meta do mês" copy={`${money(revenueCents)} de ${money(data.goal.revenueCents)}`} /><Progress value={progress} /><div className="goal-footer"><span><small>Falta</small><strong>{money(Math.max(0, data.goal.revenueCents - revenueCents))}</strong></span><span><small>Progresso</small><strong>{progress}%</strong></span></div><button className="text-button" onClick={() => go("Financeiro")}>Abrir no Financeiro →</button></div><div className="panel today-panel"><SectionTitle title="Agenda de hoje" copy="Próximos horários" /><div className="schedule-list">{data.appointments.filter((item) => item.appointmentDate === today && isOpenAppointment(item.status)).slice(0, 4).map((item) => <div className="schedule" key={item.id}><time>{item.appointmentTime}</time><i /><div><strong>{item.clientName}</strong><small>{item.serviceName} · {item.barberName}</small></div></div>)}{!data.appointments.some((item) => item.appointmentDate === today && isOpenAppointment(item.status)) && <Empty text="Nenhum horário para hoje." />}</div></div><div className="panel ranking-panel"><SectionTitle title="Equipe no período" copy="Atendimentos, vendas e comissões" /><div className="ranking-list">{teamRanking.map((item, index) => <div className="ranking" key={item.name}><span>{index + 1}</span><div className="avatar">{initials(item.name)}</div><div><strong>{item.name}</strong><small>{item.count} atendimentos · {item.sales} vendas</small></div><b>{money(item.commissionCents)}</b></div>)}{!teamRanking.length && <Empty text="Nenhum atendimento ou venda no período." />}</div></div></section>
   </>;
 }
@@ -1674,18 +1675,16 @@ function UserInvites() {
 }
 
 function TeamHub({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) {
-  const [view, setView] = useState<"Resultados" | "Vales e pagamentos" | "Usuários e convites">("Resultados");
+  const [view, setView] = useState<"Vales e pagamentos" | "Usuários e convites">("Vales e pagamentos");
   const [start, setStart] = useState(data.dataPeriod.start);
   const [end, setEnd] = useState(data.dataPeriod.end);
   const periodData = usePeriodDashboardData(data, start, end);
   return <>
-    <div className="type-switch three team-hub-tabs" aria-label="Áreas da equipe">
-      <button type="button" className={view === "Resultados" ? "active" : ""} onClick={() => setView("Resultados")}>Resultados</button>
+    <div className="type-switch team-hub-tabs" aria-label="Áreas da equipe">
       <button type="button" className={view === "Vales e pagamentos" ? "active" : ""} onClick={() => setView("Vales e pagamentos")}>Vales e pagamentos</button>
       <button type="button" className={view === "Usuários e convites" ? "active" : ""} onClick={() => setView("Usuários e convites")}>Usuários e convites</button>
     </div>
     {view !== "Usuários e convites" && <DateFilter start={start} end={end} setStart={setStart} setEnd={setEnd} />}
-    {view === "Resultados" && <Team data={periodData} post={post} pending={pending} />}
     {view === "Vales e pagamentos" && <TeamPayments data={periodData} post={post} pending={pending} />}
     {view === "Usuários e convites" && <UserInvites />}
   </>;
@@ -2327,7 +2326,7 @@ function PasswordSettings({ post, pending }: { post: Post; pending: boolean }) {
 }
 type SettingProps = { data: DashboardData; post: Post; pending: boolean; editingId: number | null; setEditingId: (id: number | null) => void };
 
-function Team({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) {
+function OwnerPayoutEditor({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) {
   const [editingOwnerPayout, setEditingOwnerPayout] = useState(false);
   const owner = data.team.find((member) => member.id === data.viewer.teamMemberId);
 
@@ -2350,8 +2349,8 @@ function Team({ data, post, pending }: { data: DashboardData; post: Post; pendin
     if (saved) setEditingOwnerPayout(false);
   }
 
-  return <section className="team-grid">
-    {owner && <article className="panel owner-payout-card">
+  if (!owner) return null;
+  return <section className="panel owner-payout-card">
       <div>
         <span>MINHA COMISSÃO COMO BARBEIRO</span>
         <h2>{(owner.commissionRateBps / 100).toFixed(2).replace(".", ",")}%</h2>
@@ -2362,9 +2361,7 @@ function Team({ data, post, pending }: { data: DashboardData; post: Post; pendin
         <small>Exemplo: 65% para você e 35% ficam no resultado da barbearia. Registros já lançados não mudam sozinhos; ao editá-los, o valor é recalculado.</small>
         <div><button className="primary-button" disabled={pending}>{pending ? "Salvando..." : "Salvar comissão"}</button><button type="button" className="cancel-button" onClick={() => setEditingOwnerPayout(false)}>Cancelar</button></div>
       </form>}
-    </article>}
-    {data.team.map((member) => { const records = data.records.filter((record) => record.barberId === member.id); const sales = data.productSales.filter((sale) => sale.sellerTeamMemberId === member.id); const result = { valueCents: records.reduce((sum, record) => sum + record.valueCents, 0) + sales.reduce((sum, sale) => sum + sale.revenueCents, 0), count: records.reduce((sum, record) => sum + record.quantity, 0), commissionCents: records.reduce((sum, record) => sum + barberPayoutCents(record), 0) + sales.reduce((sum, sale) => sum + sale.commissionCents, 0) }; return <article className="panel team-card" key={member.id}><div className="large-avatar">{initials(member.name)}</div><h2>{member.name}{member.id === data.viewer.teamMemberId && <small className="team-owner-label">ADMINISTRADOR</small>}</h2><p>{member.role}</p><span className="commission">{(member.commissionRateBps / 100).toFixed(0)}% no avulso</span><div><span><small>Faturamento</small><b>{money(result.valueCents)}</b></span><span><small>Atendimentos</small><b>{result.count}</b></span><span><small>Comissão</small><b>{money(result.commissionCents)}</b></span></div></article>; })}
-  </section>;
+    </section>;
 }
 function DateFilter({ start, end, setStart, setEnd }: { start: string; end: string; setStart: (value: string) => void; setEnd: (value: string) => void }) {
   const currentDate = appDate();
