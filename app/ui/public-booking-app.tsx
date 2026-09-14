@@ -81,7 +81,7 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
   const [paymentChoice, setPaymentChoice] = useState(paymentOptions[0] ?? "Dinheiro");
   const [isMembership, setIsMembership] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ id: number; status: string; barberName: string; serviceName: string; requiresApproval: boolean; paymentChoice: string; priceCents: number; pixKey: string; paymentToken: string | null } | null>(null);
+  const [result, setResult] = useState<{ id: number; status: string; barberName: string; serviceName: string; requiresApproval: boolean; paymentChoice: string; priceCents: number; pixKey: string; paymentToken: string | null; managementToken: string } | null>(null);
   const service = data.services.find((item) => item.id === serviceId);
   const membershipSchedulingService = data.services.find((item) => {
     const name = item.name.toLocaleLowerCase("pt-BR");
@@ -200,7 +200,7 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
           website: String(form.get("website") ?? ""),
         }),
       });
-      const body = await response.json() as { booking?: { id: number; status: string; barberName: string; serviceName: string; requiresApproval: boolean; paymentChoice: string; priceCents: number; pixKey: string; paymentToken: string | null }; error?: string };
+      const body = await response.json() as { booking?: { id: number; status: string; barberName: string; serviceName: string; requiresApproval: boolean; paymentChoice: string; priceCents: number; pixKey: string; paymentToken: string | null; managementToken: string }; error?: string };
       if (!response.ok || !body.booking) throw new Error(body.error ?? "Não foi possível concluir o agendamento.");
       setResult(body.booking);
     } catch (reason) {
@@ -216,7 +216,7 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
 
   if (result) {
     const isPix = result.paymentChoice === "Pix";
-    return <main className="public-booking-page public-booking-result">{bookingHeader}<section className={`public-booking-success${isPix ? " pix-payment-result" : ""}`}><span className={`booking-success-icon${isPix ? " pix-pending" : ""}`}>{isPix ? "PIX" : "✓"}</span><small>{data.organization.name}</small><h1>{isPix ? "Falta só o pagamento" : result.requiresApproval ? "Solicitação enviada!" : "Horário confirmado!"}</h1><p>{isPix ? "Seu horário foi separado e aguarda o Pix para seguir à confirmação." : result.paymentChoice === "Mensalista" ? "A barbearia recebeu o aviso de que você é mensalista e fará a conferência do seu plano." : result.requiresApproval ? "A barbearia recebeu seu pedido e fará a confirmação." : "Seu horário já entrou na agenda da barbearia."}</p><div className="booking-result-appointment"><span>{result.serviceName}</span><strong>{dayLabel(selectedDate)} às {selectedTime}</strong><small>Profissional: {result.barberName}</small></div>{isPix && <PixBookingPayment slug={data.organization.slug} result={result} />}<button className="booking-new-appointment" onClick={() => { setResult(null); resetDate(); }}>Marcar outro horário</button></section></main>;
+    return <main className="public-booking-page public-booking-result">{bookingHeader}<section className={`public-booking-success${isPix ? " pix-payment-result" : ""}`}><span className={`booking-success-icon${isPix ? " pix-pending" : ""}`}>{isPix ? "PIX" : "✓"}</span><small>{data.organization.name}</small><h1>{isPix ? "Falta só o pagamento" : result.requiresApproval ? "Solicitação enviada!" : "Horário confirmado!"}</h1><p>{isPix ? "Seu horário foi separado e aguarda o Pix para seguir à confirmação." : result.paymentChoice === "Mensalista" ? "A barbearia recebeu o aviso de que você é mensalista e fará a conferência do seu plano." : result.requiresApproval ? "A barbearia recebeu seu pedido e fará a confirmação." : "Seu horário já entrou na agenda da barbearia."}</p><div className="booking-result-appointment"><span>{result.serviceName}</span><strong>{dayLabel(selectedDate)} às {selectedTime}</strong><small>Profissional: {result.barberName}</small></div>{isPix && <PixBookingPayment slug={data.organization.slug} result={result} />}<a className="booking-manage-link" href={`/agendar/${encodeURIComponent(data.organization.slug)}/gerenciar/${encodeURIComponent(result.managementToken)}`}>Cancelar ou remarcar meu horário</a><button className="booking-new-appointment" onClick={() => { setResult(null); resetDate(); }}>Marcar outro horário</button></section></main>;
   }
 
   return <main className="public-booking-page">

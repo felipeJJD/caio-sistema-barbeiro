@@ -7,17 +7,16 @@ function validOrigin(request: Request) {
   return !origin || origin === new URL(request.url).origin;
 }
 
-async function ownerAccess() {
+async function notificationAccess() {
   const access = await getSessionAccess();
   if (!access) return null;
   if (isOrganizationAccessExpired(access)) throw new Error("Renove o plano para configurar os avisos.");
-  if (!access.isOwner) throw new Error("Somente o proprietário pode configurar estes avisos.");
   return access;
 }
 
 export async function GET() {
   try {
-    const access = await ownerAccess();
+    const access = await notificationAccess();
     if (!access) return Response.json({ error: "Sua sessão terminou. Entre novamente." }, { status: 401 });
     const [publicKey, notifications] = await Promise.all([getVapidPublicKey(), listNotifications(access)]);
     return Response.json({ publicKey, configured: Boolean(publicKey), notifications }, { headers: { "cache-control": "no-store" } });
@@ -29,7 +28,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     if (!validOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
-    const access = await ownerAccess();
+    const access = await notificationAccess();
     if (!access) return Response.json({ error: "Sua sessão terminou. Entre novamente." }, { status: 401 });
     const data = await request.json() as {
       action?: string;
@@ -59,7 +58,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     if (!validOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
-    const access = await ownerAccess();
+    const access = await notificationAccess();
     if (!access) return Response.json({ error: "Sua sessão terminou. Entre novamente." }, { status: 401 });
     const data = await request.json() as { endpoint?: string };
     await removePushSubscription(access, String(data.endpoint ?? ""));

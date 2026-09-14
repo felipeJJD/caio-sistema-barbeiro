@@ -1,0 +1,1 @@
+ALTER TABLE `appointments` ADD `management_token_hash` text;
