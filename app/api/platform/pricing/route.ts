@@ -23,12 +23,14 @@ export async function POST(request: Request) {
     if (!access) return noStore({ error: "Sua sessão terminou. Entre novamente." }, 401);
     const data = await request.json() as {
       pixPriceCents?: number;
+      barberPixPriceCents?: number;
       quarterlyDiscountBps?: number;
       semiannualDiscountBps?: number;
       annualDiscountBps?: number;
     };
     const offer = await savePlatformBillingOffer(access, {
       pixPriceCents: Number(data.pixPriceCents),
+      barberPixPriceCents: Number(data.barberPixPriceCents),
       quarterlyDiscountBps: Number(data.quarterlyDiscountBps),
       semiannualDiscountBps: Number(data.semiannualDiscountBps),
       annualDiscountBps: Number(data.annualDiscountBps),
