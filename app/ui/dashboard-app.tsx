@@ -2159,8 +2159,9 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
 }
 
 function Configurations({ data, post, pending, initialTab }: { data: DashboardData; post: Post; pending: boolean; initialTab?:string }) {
-  const [tab, setTab] = useState(initialTab || "Clientes"); const [editingId, setEditingId] = useState<number | null>(null);
-  const tabs = ["Clientes", "Planos", "Serviços", "Agenda", "Agendamento público", "Pagamentos", "Equipe", "Minha senha"];
+  const individual = data.viewer.accountType === "individual";
+  const tabs = individual ? ["Meu ganho", "Serviços", "Agenda", "Agendamento público", "Pagamentos", "Minha senha"] : ["Clientes", "Planos", "Serviços", "Agenda", "Agendamento público", "Pagamentos", "Equipe", "Minha senha"];
+  const [tab, setTab] = useState(individual ? "Meu ganho" : initialTab || "Clientes"); const [editingId, setEditingId] = useState<number | null>(null);
   useEffect(() => {
     const editor = document.querySelector<HTMLElement>(".settings-layout .editor-scroll-target");
     if (editingId === null) {
@@ -2185,6 +2186,7 @@ function Configurations({ data, post, pending, initialTab }: { data: DashboardDa
   }, [editingId, tab]);
   function changeTab(value: string) { setTab(value); setEditingId(null); }
   return <><div className="config-tabs">{tabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => changeTab(item)}>{item}</button>)}</div>
+    {tab === "Meu ganho" && <OwnerPayoutEditor data={data} post={post} pending={pending} />}
     {tab === "Clientes" && <ClientSettings data={data} post={post} pending={pending} editingId={editingId} setEditingId={setEditingId} />}
     {tab === "Planos" && <PlanSettings data={data} post={post} pending={pending} editingId={editingId} setEditingId={setEditingId} />}
     {tab === "Serviços" && <ServiceSettings data={data} post={post} pending={pending} editingId={editingId} setEditingId={setEditingId} />}
