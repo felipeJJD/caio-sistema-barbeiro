@@ -5,6 +5,7 @@ import { organizations, team } from "./schema";
 export type AccessContext = {
   organizationId: number;
   organizationName: string;
+  accountType: "barbershop" | "individual";
   organizationStatus: string;
   trialEndsAt: string | null;
   teamMemberId: number;
@@ -44,6 +45,7 @@ export async function getAccessContext(email: string): Promise<AccessContext | n
   return {
     organizationId: organization.id,
     organizationName: organization.name,
+    accountType: organization.accountType === "individual" ? "individual" : "barbershop",
     organizationStatus: organization.status,
     trialEndsAt: organization.trialEndsAt,
     teamMemberId: member.id,
@@ -72,6 +74,7 @@ export async function getAccessContextByTeamMemberId(teamMemberId: number): Prom
   return {
     organizationId: organization.id,
     organizationName: organization.name,
+    accountType: organization.accountType === "individual" ? "individual" : "barbershop",
     organizationStatus: organization.status,
     trialEndsAt: organization.trialEndsAt,
     teamMemberId: member.id,
