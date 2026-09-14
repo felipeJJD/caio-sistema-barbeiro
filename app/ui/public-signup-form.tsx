@@ -138,7 +138,7 @@ export function PublicSignupForm({ signupSource, referralCode = "" }: { signupSo
       <div className="public-form-heading">
         <span>TESTE GRÁTIS · 14 DIAS</span>
         <h2>{accountType === "individual" ? "Crie seu controle de barbeiro." : "Crie sua barbearia agora."}</h2>
-        <p>{accountType === "individual" ? "Você verá apenas seus atendimentos, ganhos, vales e pagamentos." : "Administre a barbearia e toda a equipe em um só lugar."}</p>
+        <p>{accountType === "individual" ? "Você terá seus atendimentos, ganhos, agenda e configurações em um espaço próprio." : "Administre a barbearia e toda a equipe em um só lugar."}</p>
         {referralCode && <small className="signup-referral-confirmed">✓ Indicação registrada neste cadastro.</small>}
       </div>
       {error && <div className="public-signup-error" role="alert"><span>{error}</span>{loginEmail && <a href={`/?email=${encodeURIComponent(loginEmail)}`}>Fazer login com este e-mail <b>→</b></a>}</div>}
