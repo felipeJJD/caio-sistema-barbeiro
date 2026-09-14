@@ -30,6 +30,13 @@ test("record actions reject duplicates and recover from slow or offline connecti
   assert.match(dashboard, /actionInFlight\.current/);
   assert.match(dashboard, /!navigator\.onLine/);
   assert.match(dashboard, /controller\.abort\(\), 20_000/);
+  assert.match(dashboard, /keepalive: true/);
+});
+
+test("all open sections refresh when another device changes the data", () => {
+  assert.match(dashboard, /const refreshLiveData = async \(\) =>/);
+  assert.match(dashboard, /cortou-anotou:refresh-data/);
+  assert.doesNotMatch(dashboard, /section !== "Agenda" \|\| isPending/);
 });
 
 test("a saved record confirms success without forcing the screen to move", () => {

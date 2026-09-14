@@ -61,7 +61,10 @@ export function NotificationCenter({ notifications, onReplace, onRead, onNavigat
     });
     const payload = await response.json() as NotificationPayload;
     if (!response.ok) throw new Error(payload.error || "Não foi possível atualizar as notificações.");
-    if (payload.notifications) onReplace(payload.notifications);
+    if (payload.notifications) {
+      onReplace(payload.notifications);
+      if (method === "GET") window.dispatchEvent(new Event("cortou-anotou:refresh-data"));
+    }
     return payload;
   }
 

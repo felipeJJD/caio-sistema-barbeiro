@@ -67,6 +67,11 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     assert.equal(dashboard.status, 200);
     const dashboardHtml = await dashboard.text();
     assert.match(dashboardHtml, /Caio Barbearia/);
+    const notifications = await fetch(`${base}/api/notifications`, { headers: { Cookie: cookie } });
+    const notificationsBody = await notifications.json();
+    assert.equal(notifications.status, 200, JSON.stringify(notificationsBody));
+    assert.equal(notificationsBody.configured, true);
+    assert.equal(Buffer.from(notificationsBody.publicKey, 'base64url').length, 65);
     const saved = await jsonPost('/api/action', { action: 'save-service', name: 'Corte de verificação', priceCents: 4500, durationMinutes: 30, active: true }, cookie);
     const savedBody = await saved.json();
     assert.equal(saved.status, 200, JSON.stringify(savedBody));
@@ -116,5 +121,8 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     assert.ok(afterRestartBody.data.services.some(service => service.name === 'Corte de verificação'));
     assert.ok(afterRestartBody.data.teamPayments.some(entry => entry.teamMemberName === 'Davi' && entry.kind === 'Pagamento' && entry.reason === 'Acerto de teste' && entry.valueCents === 4500));
     assert.equal(afterRestartBody.data.teamPayments.some(entry => entry.reason === 'Excluir no teste'), false);
+    const notificationsAfterRestart = await fetch(`${base}/api/notifications`, { headers: { Cookie: cookie } });
+    const notificationsAfterRestartBody = await notificationsAfterRestart.json();
+    assert.equal(notificationsAfterRestartBody.publicKey, notificationsBody.publicKey);
   } finally { await stop(); await rm(directory, { recursive: true, force: true }); }
 });
