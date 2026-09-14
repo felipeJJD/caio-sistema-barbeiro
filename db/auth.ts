@@ -620,6 +620,8 @@ type BarbershopProvisioningOptions = {
   signupSource?: string;
   termsAcceptedAt?: string | null;
   requireEmailVerification?: boolean;
+  accountType?: "barbershop" | "individual";
+  commissionRateBps?: number;
 };
 
 function checkCpf(digits: string) {
@@ -734,6 +736,7 @@ async function createBarbershopWorkspace(input: BarbershopRegistrationInput, opt
     const slug = `${slugBase(registration.organizationName)}-${randomHex(3)}`;
     const createdOrganization = await db.insert(organizations).values({
       name: registration.organizationName,
+      accountType: options.accountType ?? "barbershop",
       slug,
       status: requiresVerification ? "pending_email" : "trial",
       trialEndsAt,
@@ -748,12 +751,12 @@ async function createBarbershopWorkspace(input: BarbershopRegistrationInput, opt
     const createdOwner = await db.insert(team).values({
       organizationId,
       name: registration.ownerName,
-      role: "Proprietário",
+      role: options.accountType === "individual" ? "Barbeiro individual" : "Proprietário",
       loginEmail: registration.email,
       accessRole: "owner",
       platformAdmin: false,
       commissionCents: 0,
-      commissionRateBps: 0,
+      commissionRateBps: options.commissionRateBps ?? 0,
       active: true,
     }).returning({ id: team.id });
 
@@ -1002,6 +1005,52 @@ export async function createPublicBarbershop(input: BarbershopRegistrationInput 
     signupSource: cleanSignupSource(input.signupSource) || "cadastro-publico",
     termsAcceptedAt: new Date().toISOString(),
     requireEmailVerification,
+  });
+  await attachOrganizationReferral(result.organizationId, input.referralCode);
+  return result;
+}
+
+export async function createPublicIndividualBarber(input: {
+  name: string;
+  workplaceName?: string;
+  commissionRateBps: number;
+  ownerDocument: string;
+  email: string;
+  password: string;
+  whatsapp: string;
+  signupSource?: string;
+  referralCode?: string;
+  termsAccepted?: boolean;
+  requestIp?: string;
+}) {
+  if (!input.termsAccepted) throw new Error("Confirme que você leu e concorda com os termos do teste.");
+  const name = input.name.trim().slice(0, 80);
+  if (name.length < 2) throw new Error("Informe seu nome.");
+  const workplaceName = (input.workplaceName ?? "").trim().slice(0, 100);
+  const commissionRateBps = Math.round(Number(input.commissionRateBps));
+  if (!Number.isInteger(commissionRateBps) || commissionRateBps < 0 || commissionRateBps > 10000) {
+    throw new Error("Informe uma comissão entre 0% e 100%.");
+  }
+  const registration = validateBarbershopRegistration({
+    ownerName: name,
+    organizationName: workplaceName ? `${name} · ${workplaceName}` : `${name} · Meu controle`,
+    ownerDocument: input.ownerDocument,
+    email: input.email,
+    password: input.password,
+  });
+  const ownerWhatsapp = validateWhatsapp(input.whatsapp);
+  await assertBarbershopEmailAvailable(registration.email);
+  const documentHash = await ownerDocumentHash(registration.ownerDocument);
+  await assertBarbershopDocumentAvailable(documentHash);
+  await enforcePublicSignupRateLimit(input.requestIp, registration.email);
+  const result = await createBarbershopWorkspace(registration, {
+    trialDays: 14,
+    ownerWhatsapp,
+    signupSource: cleanSignupSource(input.signupSource) || "cadastro-barbeiro-individual",
+    termsAcceptedAt: new Date().toISOString(),
+    requireEmailVerification: await ownerEmailVerificationIsConfigured(),
+    accountType: "individual",
+    commissionRateBps,
   });
   await attachOrganizationReferral(result.organizationId, input.referralCode);
   return result;
