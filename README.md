@@ -21,7 +21,7 @@ O Dockerfile gera o build de produção. Healthcheck: `/api/health`. Porta: `POR
 
 Para criar o primeiro administrador, configurar `INITIAL_ADMIN_EMAIL` e `INITIAL_ADMIN_PASSWORD` pelos secrets do provedor. A senha precisa ter ao menos 12 caracteres. Opcionalmente definir `INITIAL_ADMIN_NAME` e `INITIAL_ORGANIZATION_NAME`. O bootstrap só funciona quando não existe nenhuma conta e nunca redefine senhas. Remover a variável da senha após ativar o administrador.
 
-Configurar `PUBLIC_APP_URL` com a URL pública. Integrações opcionais: `RESEND_API_KEY`, `OWNER_EMAIL_FROM`, `SUPPORT_EMAIL`, `PLATFORM_SECRETS_ENCRYPTION_KEY`, `OPENAI_API_KEY`, `OPENAI_HELP_MODEL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` e credenciais Mercado Pago. Nunca gravar valores no Git. Sem essas configurações, e-mail/cadastro público, pagamentos e notificações externas não estão prontos para operação.
+Configurar `PUBLIC_APP_URL` com a URL pública. Integrações opcionais: `RESEND_API_KEY`, `OWNER_EMAIL_FROM`, `SUPPORT_EMAIL`, `PLATFORM_SECRETS_ENCRYPTION_KEY`, `OPENAI_API_KEY`, `OPENAI_HELP_MODEL` e credenciais Mercado Pago. Nunca gravar valores no Git. Sem essas configurações, e-mail/cadastro público e pagamentos não estão prontos para operação. As notificações geram e preservam suas próprias chaves VAPID no volume quando `VAPID_PUBLIC_KEY` e `VAPID_PRIVATE_KEY` não forem fornecidas; variáveis explícitas continuam aceitas para migrações que precisem manter inscrições existentes.
 
 ## Migração e verificação
 

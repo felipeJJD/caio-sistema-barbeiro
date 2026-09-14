@@ -4,6 +4,7 @@ import type { AccessContext } from "./access";
 import { requireOwner } from "./access";
 import { getDb } from "./index";
 import { appNotifications, pushSubscriptions, team } from "./schema";
+import { getRuntimeVapidConfig } from "@/runtime/vapid-config.mjs";
 
 export type AppNotification = {
   id: number;
@@ -55,12 +56,7 @@ type SubscriptionPaymentNotification = {
 };
 
 async function vapidConfig() {
-  const { env } = await import("@/runtime/env");
-  const runtime = env as unknown as Record<string, unknown>;
-  const publicKey = String(runtime.VAPID_PUBLIC_KEY ?? "");
-  const privateKey = String(runtime.VAPID_PRIVATE_KEY ?? "");
-  const subject = String(runtime.VAPID_SUBJECT ?? "");
-  return { publicKey, privateKey, subject };
+  return getRuntimeVapidConfig();
 }
 
 export async function getVapidPublicKey() {

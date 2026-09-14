@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase, LocalBucket } from '../runtime/storage.mjs';
 import { bootstrapAdmin } from '../scripts/bootstrap-admin.mjs';
 import { randomBytes } from 'node:crypto';
+import { loadVapidConfig } from '../runtime/vapid-config.mjs';
 
 test('migrations, parameter binding, returning, and data survive a restart', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'barber-runtime-'));
@@ -74,5 +75,39 @@ test('photo objects persist and paths cannot escape the upload directory', async
     await assert.rejects(bucket.get('/outside'));
     await bucket.delete('public-gallery/1/image');
     assert.equal(await bucket.get('public-gallery/1/image'), null);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('notification keys are generated once and persist across restarts', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'barber-vapid-'));
+  try {
+    const environment = { PUBLIC_APP_URL: 'https://cortouanotou.com.br/' };
+    const first = await loadVapidConfig({ environment, directory: dir });
+    const second = await loadVapidConfig({ environment, directory: dir });
+    assert.deepEqual(second, first);
+    assert.equal(Buffer.from(first.publicKey, 'base64url').length, 65);
+    assert.equal(Buffer.from(first.privateKey, 'base64url').length, 32);
+    assert.equal(first.subject, 'https://cortouanotou.com.br');
+    const filename = join(dir, 'secrets', 'vapid.json');
+    const stored = JSON.parse(await readFile(filename, 'utf8'));
+    assert.equal(stored.publicKey, first.publicKey);
+    assert.equal(stored.privateKey, first.privateKey);
+    assert.equal((await stat(filename)).mode & 0o777, 0o600);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('explicit notification keys remain available for migrations', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'barber-vapid-env-'));
+  try {
+    const generated = await loadVapidConfig({ environment: {}, directory: dir });
+    const configured = await loadVapidConfig({
+      environment: {
+        VAPID_PUBLIC_KEY: generated.publicKey,
+        VAPID_PRIVATE_KEY: generated.privateKey,
+        VAPID_SUBJECT: 'mailto:admin@example.com',
+      },
+      directory: join(dir, 'unused'),
+    });
+    assert.deepEqual(configured, { ...generated, subject: 'mailto:admin@example.com' });
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

@@ -500,11 +500,11 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
   }, []);
 
   useEffect(() => {
-    if (section !== "Agenda" || isPending) return;
+    if (isPending) return;
     let active = true;
     let controller: AbortController | null = null;
 
-    const refreshAgenda = async () => {
+    const refreshLiveData = async () => {
       controller?.abort();
       controller = new AbortController();
       const query = new URLSearchParams({ start: appMonthStart(), end: appDate() });
@@ -526,20 +526,22 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
     };
 
     const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refreshAgenda();
+      if (document.visibilityState === "visible") void refreshLiveData();
     };
-    void refreshAgenda();
+    void refreshLiveData();
     const timer = window.setInterval(refreshWhenVisible, 60_000);
     window.addEventListener("focus", refreshWhenVisible);
+    window.addEventListener("cortou-anotou:refresh-data", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       active = false;
       controller?.abort();
       window.clearInterval(timer);
       window.removeEventListener("focus", refreshWhenVisible);
+      window.removeEventListener("cortou-anotou:refresh-data", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [isPending, section]);
+  }, [isPending]);
 
   useEffect(() => {
     if (section !== "Registrar") return;
@@ -614,7 +616,7 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
-      const response = await fetch("/api/action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+      const response = await fetch("/api/action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: controller.signal, keepalive: true });
       const payload = await response.json().catch(() => ({})) as { error?: string; data?: DashboardData };
       if (response.status === 401) { window.location.assign("/"); return false; }
       if (response.status === 402) { window.location.assign("/"); return false; }
