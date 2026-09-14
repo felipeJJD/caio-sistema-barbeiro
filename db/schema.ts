@@ -4,6 +4,7 @@ import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqli
 export const organizations = sqliteTable("organizations", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
+    accountType: text("account_type").notNull().default("barbershop"),
   slug: text("slug").notNull(),
   status: text("status").notNull().default("active"),
   statusBeforeBlock: text("status_before_block"),
@@ -42,6 +43,7 @@ export const platformSecrets = sqliteTable("platform_secrets", {
 export const platformBillingSettings = sqliteTable("platform_billing_settings", {
   id: integer("id").primaryKey().default(1),
   pixPriceCents: integer("pix_price_cents").notNull().default(999),
+    barberPixPriceCents: integer("barber_pix_price_cents").notNull().default(999),
   pixPeriodDays: integer("pix_period_days").notNull().default(30),
   quarterlyDiscountBps: integer("quarterly_discount_bps").notNull().default(1000),
   semiannualDiscountBps: integer("semiannual_discount_bps").notNull().default(1500),
