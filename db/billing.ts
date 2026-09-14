@@ -202,7 +202,7 @@ export async function createPixPayment(access: AccessContext, planCode: PixPlanC
 
   const db = await getDb();
   const offer = await getPlatformBillingOffer();
-  const plan = getPixPlan(offer, planCode);
+  const plan = getPixPlan({ ...offer, pixPlans: access.accountType === "individual" ? offer.barberPixPlans : offer.pixPlans }, planCode);
   const now = new Date().toISOString();
   const reusable = (await db.select().from(subscriptionPayments).where(and(
     eq(subscriptionPayments.organizationId, access.organizationId),

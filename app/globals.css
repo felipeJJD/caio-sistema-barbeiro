@@ -775,3 +775,26 @@ html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none;-webkit-text-size-
 .help-form{align-items:flex-end}.help-form textarea{min-width:0;min-height:39px;max-height:112px;flex:1;resize:none;overflow-y:auto;border:1px solid #dcdad1;border-radius:11px;background:#faf9f5;padding:10px 12px;color:#252824;font-size:11px;line-height:1.45;outline:none;transition:height .12s ease}.help-form textarea:focus{border-color:#c99a3b;box-shadow:0 0 0 3px #d7a6421c}@media(max-width:680px){.help-form textarea{font-size:16px}}
 .public-gallery-photo{position:relative;min-width:max-content;padding:0;border:0;border-radius:13px;background:transparent;color:inherit;cursor:zoom-in;text-align:left}.public-gallery-photo figure{transition:transform .18s ease,box-shadow .18s ease}.public-gallery-photo:hover figure,.public-gallery-photo:focus-visible figure{transform:translateY(-2px);box-shadow:0 10px 24px #171b1640}.public-gallery-photo:focus-visible{outline:2px solid #d8aa48;outline-offset:3px}.public-gallery-photo figcaption small{display:block;margin-top:3px;color:#e8bd61;font-size:7px}.public-gallery-photo figure>span{position:absolute;right:8px;bottom:8px;padding:5px 7px;border:1px solid #ffffff45;border-radius:12px;background:#171b16cf;color:#fff;font-size:7px;font-weight:900;letter-spacing:.04em}.public-gallery-lightbox{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:56px 58px 46px;background:#10130ff2;backdrop-filter:blur(8px);animation:gallery-lightbox-in .18s ease}.public-gallery-lightbox>figure{max-width:min(980px,calc(100vw - 116px));max-height:calc(100vh - 105px);display:grid;place-items:center;margin:0}.public-gallery-lightbox>figure img{display:block;max-width:100%;max-height:calc(100vh - 145px);border-radius:15px;object-fit:contain;box-shadow:0 22px 70px #0009}.public-gallery-lightbox>figure figcaption{margin-top:10px;color:#f3efe5;font-size:11px;text-align:center}.public-gallery-lightbox>button{position:absolute;width:42px;height:42px;display:grid;place-items:center;border:1px solid #ffffff35;border-radius:50%;background:#272c26df;color:#fff;font:300 29px/1 Arial;cursor:pointer}.public-gallery-lightbox-close{top:18px;right:18px}.public-gallery-lightbox-previous{left:14px;top:50%;transform:translateY(-50%)}.public-gallery-lightbox-next{right:14px;top:50%;transform:translateY(-50%)}.public-gallery-lightbox>small{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);color:#d4aa51;font-size:9px;font-weight:900}.public-gallery-lightbox>button:focus-visible{outline:2px solid #e7bd62;outline-offset:3px}@keyframes gallery-lightbox-in{from{opacity:0}to{opacity:1}}
 @media(max-width:620px){.public-gallery-lightbox{padding:54px 14px 44px}.public-gallery-lightbox>figure{max-width:100%;max-height:calc(100vh - 98px)}.public-gallery-lightbox>figure img{max-height:calc(100vh - 135px);border-radius:12px}.public-gallery-lightbox>button{width:38px;height:38px;background:#20251ff0}.public-gallery-lightbox-close{top:13px;right:13px}.public-gallery-lightbox-previous{left:8px}.public-gallery-lightbox-next{right:8px}}
+
+/* Cadastro guiado por tipo de uso */
+.guided-signup { min-height: 420px; }
+.guided-options { display: grid; gap: 12px; }
+.guided-option {
+  width: 100%; display: flex; flex-direction: column; gap: 5px; padding: 18px;
+  border: 1px solid rgba(169, 120, 27, .25); border-radius: 18px;
+  background: #fffdf8; color: #1b241d; text-align: left; text-decoration: none;
+  font: inherit; cursor: pointer; transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.guided-option:hover, .guided-option:focus-visible {
+  transform: translateY(-2px); border-color: #d9a82f; box-shadow: 0 10px 24px rgba(46, 35, 12, .09); outline: none;
+}
+.guided-option b { font-size: 1.02rem; }
+.guided-option span { color: #687168; line-height: 1.45; }
+.guided-back {
+  align-self: flex-start; margin: 0 0 16px; padding: 8px 0; border: 0;
+  background: transparent; color: #8c6817; font: inherit; font-weight: 700; cursor: pointer;
+}
+.guided-info {
+  display: flex; flex-direction: column; gap: 6px; margin: 8px 0 20px; padding: 16px;
+  border-radius: 16px; background: #f7f1df; color: #273029; line-height: 1.45;
+}

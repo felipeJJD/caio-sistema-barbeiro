@@ -17,17 +17,20 @@ export type PixPlanOffer = {
 
 export type PlatformBillingOffer = {
   pixPriceCents: number;
+  barberPixPriceCents: number;
   pixPeriodDays: number;
   quarterlyDiscountBps: number;
   semiannualDiscountBps: number;
   annualDiscountBps: number;
   pixPlans: PixPlanOffer[];
+  barberPixPlans: PixPlanOffer[];
 };
 
-type StoredOffer = Omit<PlatformBillingOffer, "pixPlans">;
+type StoredOffer = Omit<PlatformBillingOffer, "pixPlans" | "barberPixPlans">;
 
 const DEFAULT_OFFER: StoredOffer = {
   pixPriceCents: 999,
+  barberPixPriceCents: 999,
   pixPeriodDays: 30,
   quarterlyDiscountBps: 1000,
   semiannualDiscountBps: 1500,
@@ -47,6 +50,12 @@ function withPlans(offer: StoredOffer): PlatformBillingOffer {
       { code: "semiannual", label: "Semestral", months: 6, periodDays: 180, priceCents: discountedPrice(offer.pixPriceCents, 6, offer.semiannualDiscountBps), discountBps: offer.semiannualDiscountBps },
       { code: "annual", label: "Anual", months: 12, periodDays: 365, priceCents: discountedPrice(offer.pixPriceCents, 12, offer.annualDiscountBps), discountBps: offer.annualDiscountBps },
     ],
+    barberPixPlans: [
+      { code: "monthly", label: "Mensal", months: 1, periodDays: offer.pixPeriodDays, priceCents: offer.barberPixPriceCents, discountBps: 0 },
+      { code: "quarterly", label: "Trimestral", months: 3, periodDays: 90, priceCents: discountedPrice(offer.barberPixPriceCents, 3, offer.quarterlyDiscountBps), discountBps: offer.quarterlyDiscountBps },
+      { code: "semiannual", label: "Semestral", months: 6, periodDays: 180, priceCents: discountedPrice(offer.barberPixPriceCents, 6, offer.semiannualDiscountBps), discountBps: offer.semiannualDiscountBps },
+      { code: "annual", label: "Anual", months: 12, periodDays: 365, priceCents: discountedPrice(offer.barberPixPriceCents, 12, offer.annualDiscountBps), discountBps: offer.annualDiscountBps },
+    ],
   };
 }
 
@@ -59,6 +68,7 @@ export async function getPlatformBillingOffer(): Promise<PlatformBillingOffer> {
   const row = (await db.select().from(platformBillingSettings).where(eq(platformBillingSettings.id, 1)).limit(1))[0];
   return withPlans(row ? {
     pixPriceCents: row.pixPriceCents,
+    barberPixPriceCents: row.barberPixPriceCents,
     pixPeriodDays: row.pixPeriodDays,
     quarterlyDiscountBps: row.quarterlyDiscountBps,
     semiannualDiscountBps: row.semiannualDiscountBps,
@@ -68,14 +78,19 @@ export async function getPlatformBillingOffer(): Promise<PlatformBillingOffer> {
 
 export async function savePlatformBillingOffer(access: AccessContext, input: {
   pixPriceCents: number;
+  barberPixPriceCents: number;
   quarterlyDiscountBps: number;
   semiannualDiscountBps: number;
   annualDiscountBps: number;
 }) {
   requirePlatformAdmin(access);
   const pixPriceCents = Math.round(Number(input.pixPriceCents));
+  const barberPixPriceCents = Math.round(Number(input.barberPixPriceCents));
   if (!Number.isInteger(pixPriceCents) || pixPriceCents < 100 || pixPriceCents > 1000000) {
     throw new Error("Informe um preço Pix entre R$ 1,00 e R$ 10.000,00.");
+  }
+  if (!Number.isInteger(barberPixPriceCents) || barberPixPriceCents < 100 || barberPixPriceCents > 1000000) {
+    throw new Error("Informe o preço do barbeiro entre R$ 1,00 e R$ 10.000,00.");
   }
   const discounts = {
     quarterlyDiscountBps: Math.round(Number(input.quarterlyDiscountBps)),
@@ -90,13 +105,14 @@ export async function savePlatformBillingOffer(access: AccessContext, input: {
   await db.insert(platformBillingSettings).values({
     id: 1,
     pixPriceCents,
+    barberPixPriceCents,
     pixPeriodDays: DEFAULT_OFFER.pixPeriodDays,
     ...discounts,
     updatedByTeamMemberId: access.teamMemberId,
     updatedAt: now,
   }).onConflictDoUpdate({
     target: platformBillingSettings.id,
-    set: { pixPriceCents, ...discounts, updatedByTeamMemberId: access.teamMemberId, updatedAt: now },
+    set: { pixPriceCents, barberPixPriceCents, ...discounts, updatedByTeamMemberId: access.teamMemberId, updatedAt: now },
   });
   return getPlatformBillingOffer();
 }
