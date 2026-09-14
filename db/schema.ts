@@ -547,6 +547,7 @@ export const appointments = sqliteTable("appointments", {
   reminderSentAt: text("reminder_sent_at"),
   paymentChoice: text("payment_choice").notNull().default("Dinheiro"),
   paymentConfirmationToken: text("payment_confirmation_token"),
+  managementTokenHash: text("management_token_hash"),
 }, (table) => [
   index("appointments_organization_date_barber_idx").on(table.organizationId, table.appointmentDate, table.barberId),
 ]);

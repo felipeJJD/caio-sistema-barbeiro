@@ -1,8 +1,8 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { appDate } from "../lib/app-date";
+import { appDate, clientCanChangeAppointment } from "../lib/app-date";
 import { appointments, organizations, services, team } from "./schema";
 import { getDb } from "./index";
-import { notifyOwnersOfPublicBooking } from "./notifications";
+import { notifyBookingChange, notifyOwnersOfPublicBooking } from "./notifications";
 import { accessPeriodHasEnded } from "./access";
 import { listPublicGalleryImages, type PublicGalleryImage } from "./public-gallery";
 import { getBookingPaymentSettings } from "./booking-payments";
@@ -28,6 +28,21 @@ export type PublicBookingData = {
 
 export type PublicBookingSlot = { time: string; barberId: number; barberName: string };
 
+export type PublicBookingManagement = {
+  appointmentId: number;
+  organizationName: string;
+  slug: string;
+  clientName: string;
+  date: string;
+  time: string;
+  serviceId: number;
+  serviceName: string;
+  barberId: number;
+  barberName: string;
+  status: string;
+  canChange: boolean;
+};
+
 type D1Statement = {
   bind(...values: Array<string | number | null>): D1Statement;
   first<T>(): Promise<T | null>;
@@ -44,6 +59,12 @@ const toTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart
 
 function cleanSlug(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 80);
+}
+
+async function hashManagementToken(token: string) {
+  const bytes = new TextEncoder().encode(token);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
 function assertBookingDate(value: string) {
@@ -162,6 +183,8 @@ export async function createPublicBooking(slug: string, input: { date: string; t
   const isPix = paymentChoice === "Pix";
   const status = isPix ? "Aguardando pagamento" : data.organization.requiresApproval ? "Aguardando" : "Agendado";
   const paymentToken = isPix ? crypto.randomUUID() : null;
+  const managementToken = crypto.randomUUID();
+  const managementTokenHash = await hashManagementToken(managementToken);
   const { env } = await import("@/runtime/env");
   const database = (env as unknown as { DB?: D1DatabaseLike }).DB;
   if (!database) throw new Error("Não foi possível concluir o agendamento.");
@@ -170,9 +193,9 @@ export async function createPublicBooking(slug: string, input: { date: string; t
   const inserted = await database.prepare(`
     INSERT INTO appointments (
       organization_id, appointment_date, appointment_time, client_name, phone,
-      service_id, barber_id, notes, status, payment_choice, payment_confirmation_token
+      service_id, barber_id, notes, status, payment_choice, payment_confirmation_token, management_token_hash
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     WHERE NOT EXISTS (
       SELECT 1
       FROM appointments AS existing
@@ -204,6 +227,7 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     status,
     paymentChoice,
     paymentToken,
+    managementTokenHash,
     data.organization.id,
     input.date,
     selected.barberId,
@@ -212,12 +236,13 @@ export async function createPublicBooking(slug: string, input: { date: string; t
   ).first<{ id: number }>();
   const appointmentId = inserted?.id;
   if (!appointmentId) throw new Error("Esse horário acabou de ser ocupado. Escolha outro disponível.");
-  if (!isPix) await notifyOwnersOfPublicBooking({
+  await notifyOwnersOfPublicBooking({
     organizationId: data.organization.id,
     appointmentId,
     clientName,
     serviceName: input.isMembership ? "Mensalista" : service.name,
     barberName: selected.barberName,
+    barberId: selected.barberId,
     date: input.date,
     time: input.time,
     status,
@@ -233,6 +258,7 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     priceCents: service.priceCents,
     pixKey: isPix ? data.payments.pixKey : "",
     paymentToken,
+    managementToken,
   };
 }
 
@@ -240,9 +266,105 @@ export async function reportPublicBookingPix(slugValue: string, appointmentId: n
   const data = await getPublicBookingData(slugValue);
   if (!data) throw new Error("Barbearia não encontrada.");
   const db = await getDb();
-  const row = (await db.select({ id: appointments.id, clientName: appointments.clientName, appointmentDate: appointments.appointmentDate, appointmentTime: appointments.appointmentTime, status: appointments.status, token: appointments.paymentConfirmationToken, serviceName: services.name, barberName: team.name }).from(appointments).innerJoin(services, eq(appointments.serviceId, services.id)).innerJoin(team, eq(appointments.barberId, team.id)).where(and(eq(appointments.id, appointmentId), eq(appointments.organizationId, data.organization.id))).limit(1))[0];
+  const row = (await db.select({ id: appointments.id, clientName: appointments.clientName, appointmentDate: appointments.appointmentDate, appointmentTime: appointments.appointmentTime, status: appointments.status, token: appointments.paymentConfirmationToken, serviceName: services.name, barberId: appointments.barberId, barberName: team.name }).from(appointments).innerJoin(services, eq(appointments.serviceId, services.id)).innerJoin(team, eq(appointments.barberId, team.id)).where(and(eq(appointments.id, appointmentId), eq(appointments.organizationId, data.organization.id))).limit(1))[0];
   if (!row || row.token !== token || row.status !== "Aguardando pagamento") throw new Error("Não foi possível confirmar esta solicitação.");
   await db.update(appointments).set({ status: "Aguardando", paymentConfirmationToken: null }).where(and(eq(appointments.id, row.id), eq(appointments.organizationId, data.organization.id)));
-  await notifyOwnersOfPublicBooking({ organizationId: data.organization.id, appointmentId: row.id, clientName: row.clientName, serviceName: row.serviceName, barberName: row.barberName, date: row.appointmentDate, time: row.appointmentTime, status: "Aguardando" });
+  await notifyOwnersOfPublicBooking({ organizationId: data.organization.id, appointmentId: row.id, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date: row.appointmentDate, time: row.appointmentTime, status: "Aguardando" });
   return { ok: true };
+}
+
+async function findManagedBooking(slugValue: string, token: string) {
+  const slug = cleanSlug(slugValue);
+  if (!slug || token.length < 20 || token.length > 100) return null;
+  const tokenHash = await hashManagementToken(token);
+  const db = await getDb();
+  return (await db.select({
+    appointmentId: appointments.id,
+    organizationId: appointments.organizationId,
+    organizationName: organizations.name,
+    slug: organizations.slug,
+    clientName: appointments.clientName,
+    date: appointments.appointmentDate,
+    time: appointments.appointmentTime,
+    serviceId: appointments.serviceId,
+    serviceName: services.name,
+    durationMinutes: services.durationMinutes,
+    barberId: appointments.barberId,
+    barberName: team.name,
+    status: appointments.status,
+  }).from(appointments)
+    .innerJoin(organizations, eq(appointments.organizationId, organizations.id))
+    .innerJoin(services, eq(appointments.serviceId, services.id))
+    .innerJoin(team, eq(appointments.barberId, team.id))
+    .where(and(
+      eq(organizations.slug, slug),
+      eq(appointments.managementTokenHash, tokenHash),
+    )).limit(1))[0] ?? null;
+}
+
+export async function getPublicBookingManagement(slug: string, token: string): Promise<PublicBookingManagement | null> {
+  const row = await findManagedBooking(slug, token);
+  if (!row) return null;
+  return {
+    appointmentId: row.appointmentId,
+    organizationName: row.organizationName,
+    slug: row.slug,
+    clientName: row.clientName,
+    date: row.date,
+    time: row.time,
+    serviceId: row.serviceId,
+    serviceName: row.serviceName,
+    barberId: row.barberId,
+    barberName: row.barberName,
+    status: row.status,
+    canChange: row.status !== "Cancelado" && clientCanChangeAppointment(row.date, row.time),
+  };
+}
+
+export async function cancelPublicBooking(slug: string, token: string) {
+  const row = await findManagedBooking(slug, token);
+  if (!row) throw new Error("Este link não é válido ou já expirou.");
+  if (row.status === "Cancelado") throw new Error("Este horário já foi cancelado.");
+  if (!clientCanChangeAppointment(row.date, row.time)) throw new Error("Faltam menos de 2 horas para o atendimento. Entre em contato diretamente com a barbearia.");
+  const db = await getDb();
+  await db.update(appointments).set({ status: "Cancelado" }).where(and(
+    eq(appointments.id, row.appointmentId),
+    eq(appointments.organizationId, row.organizationId),
+  ));
+  await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date: row.date, time: row.time, status: "Cancelado" }, "cancelled");
+  return getPublicBookingManagement(slug, token);
+}
+
+export async function reschedulePublicBooking(slug: string, token: string, date: string, time: string) {
+  const row = await findManagedBooking(slug, token);
+  if (!row) throw new Error("Este link não é válido ou já expirou.");
+  if (row.status === "Cancelado") throw new Error("Um horário cancelado não pode ser remarcado por este link.");
+  if (!clientCanChangeAppointment(row.date, row.time)) throw new Error("Faltam menos de 2 horas para o atendimento. Entre em contato diretamente com a barbearia.");
+  const slots = await getPublicBookingSlots(slug, date, row.serviceId, row.barberId);
+  if (!slots.some((slot) => slot.time === time && slot.barberId === row.barberId)) throw new Error("Esse horário não está mais disponível. Escolha outro.");
+  const data = await getPublicBookingData(slug);
+  if (!data) throw new Error("Barbearia não encontrada.");
+  const newStatus = data.organization.requiresApproval ? "Aguardando" : "Agendado";
+  const { env } = await import("@/runtime/env");
+  const database = (env as unknown as { DB?: D1DatabaseLike }).DB;
+  if (!database) throw new Error("Não foi possível remarcar o horário.");
+  const requestedStart = toMinutes(time);
+  const requestedEnd = requestedStart + row.durationMinutes;
+  const updated = await database.prepare(`
+    UPDATE appointments
+    SET appointment_date = ?, appointment_time = ?, status = ?
+    WHERE id = ? AND organization_id = ? AND status <> 'Cancelado'
+      AND NOT EXISTS (
+        SELECT 1 FROM appointments AS existing
+        INNER JOIN services AS existing_service ON existing_service.id = existing.service_id
+        WHERE existing.organization_id = ? AND existing.appointment_date = ?
+          AND existing.barber_id = ? AND existing.id <> ? AND existing.status <> 'Cancelado'
+          AND (CAST(SUBSTR(existing.appointment_time, 1, 2) AS INTEGER) * 60 + CAST(SUBSTR(existing.appointment_time, 4, 2) AS INTEGER)) < ?
+          AND ? < (CAST(SUBSTR(existing.appointment_time, 1, 2) AS INTEGER) * 60 + CAST(SUBSTR(existing.appointment_time, 4, 2) AS INTEGER) + existing_service.duration_minutes)
+      )
+    RETURNING id
+  `).bind(date, time, newStatus, row.appointmentId, row.organizationId, row.organizationId, date, row.barberId, row.appointmentId, requestedEnd, requestedStart).first<{ id: number }>();
+  if (!updated) throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
+  await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date, time, status: newStatus }, "rescheduled");
+  return getPublicBookingManagement(slug, token);
 }

@@ -1,7 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import { sendPushBatch, topicFromString, type PushSubscriptionData } from "@mmmike/web-push/send";
 import type { AccessContext } from "./access";
-import { requireOwner } from "./access";
 import { getDb } from "./index";
 import { appNotifications, pushSubscriptions, team } from "./schema";
 import { getRuntimeVapidConfig } from "@/runtime/vapid-config.mjs";
@@ -36,6 +35,7 @@ type PublicBookingNotification = {
   clientName: string;
   serviceName: string;
   barberName: string;
+  barberId: number;
   date: string;
   time: string;
   status: string;
@@ -93,7 +93,6 @@ async function removeExpiredNotifications(organizationId: number) {
 }
 
 export async function listNotifications(access: AccessContext): Promise<AppNotification[]> {
-  if (!access.isOwner) return [];
   const db = await getDb();
   const cutoff = notificationCutoff();
   await removeExpiredNotifications(access.organizationId);
@@ -114,7 +113,6 @@ export async function listNotifications(access: AccessContext): Promise<AppNotif
 }
 
 export async function savePushSubscription(access: AccessContext, subscription: SubscriptionInput, userAgent: string) {
-  requireOwner(access);
   if (!validPushEndpoint(subscription.endpoint)) throw new Error("Este aparelho não forneceu uma inscrição de notificação válida.");
   if (!subscription.keys?.p256dh || !subscription.keys?.auth) throw new Error("Não foi possível identificar as chaves deste aparelho.");
   if (subscription.endpoint.length > 4096 || subscription.keys.p256dh.length > 512 || subscription.keys.auth.length > 256) throw new Error("A inscrição de notificação é inválida.");
@@ -143,7 +141,6 @@ export async function savePushSubscription(access: AccessContext, subscription: 
 }
 
 export async function removePushSubscription(access: AccessContext, endpoint: string) {
-  requireOwner(access);
   if (!endpoint) return;
   const db = await getDb();
   await db.delete(pushSubscriptions).where(and(
@@ -154,7 +151,6 @@ export async function removePushSubscription(access: AccessContext, endpoint: st
 }
 
 export async function markNotificationsRead(access: AccessContext) {
-  requireOwner(access);
   const db = await getDb();
   await db.update(appNotifications).set({ readAt: new Date().toISOString() }).where(and(
     eq(appNotifications.organizationId, access.organizationId),
@@ -164,7 +160,6 @@ export async function markNotificationsRead(access: AccessContext) {
 }
 
 export async function deleteNotification(access: AccessContext, notificationId: number) {
-  requireOwner(access);
   if (!Number.isInteger(notificationId) || notificationId <= 0) throw new Error("Notificação inválida.");
   const db = await getDb();
   await db.delete(appNotifications).where(and(
@@ -178,8 +173,9 @@ function money(cents: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
 }
 
-async function deliverOwnerNotification(input: {
+async function deliverNotification(input: {
   organizationId: number;
+  additionalRecipientTeamMemberId?: number;
   actorTeamMemberId?: number;
   kind: string;
   title: string;
@@ -199,20 +195,25 @@ async function deliverOwnerNotification(input: {
   if (!owners.length) return;
 
   const ownerIds = owners.map((owner) => owner.id);
+  const allRecipientIds = [...new Set([
+    ...ownerIds,
+    ...(input.additionalRecipientTeamMemberId ? [input.additionalRecipientTeamMemberId] : []),
+  ])];
+  if (!allRecipientIds.length) return;
   const existing = await db.select({ recipientTeamMemberId: appNotifications.recipientTeamMemberId }).from(appNotifications).where(and(
     eq(appNotifications.organizationId, input.organizationId),
     eq(appNotifications.kind, input.kind),
     eq(appNotifications.relatedRecordId, input.relatedRecordId),
-    inArray(appNotifications.recipientTeamMemberId, ownerIds),
+    inArray(appNotifications.recipientTeamMemberId, allRecipientIds),
   ));
   const existingRecipients = new Set(existing.map((item) => item.recipientTeamMemberId));
-  const recipientIds = ownerIds.filter((id) => !existingRecipients.has(id));
+  const recipientIds = allRecipientIds.filter((id) => !existingRecipients.has(id));
   if (!recipientIds.length) return;
 
   await db.insert(appNotifications).values(recipientIds.map((recipientTeamMemberId) => ({
     organizationId: input.organizationId,
     recipientTeamMemberId,
-    actorTeamMemberId: input.actorTeamMemberId ?? ownerIds[0],
+    actorTeamMemberId: input.actorTeamMemberId ?? ownerIds[0] ?? input.additionalRecipientTeamMemberId,
     kind: input.kind,
     title: input.title,
     body: input.body,
@@ -247,7 +248,7 @@ export async function notifyOwnersOfAppointmentCancellation(access: AccessContex
   if (access.isOwner) return;
   try {
     const date = appointment.date.split("-").reverse().join("/");
-    await deliverOwnerNotification({
+    await deliverNotification({
       organizationId: access.organizationId,
       actorTeamMemberId: access.teamMemberId,
       kind: "appointment-cancelled",
@@ -265,7 +266,7 @@ export async function notifyOwnersOfAppointmentCancellation(access: AccessContex
 
 export async function notifyOwnersOfSubscriptionPayment(payment: SubscriptionPaymentNotification) {
   try {
-    await deliverOwnerNotification({
+    await deliverNotification({
       organizationId: payment.organizationId,
       kind: "subscription-payment",
       title: "Pagamento Pix confirmado",
@@ -345,52 +346,41 @@ export async function notifyOwnersOfAttendance(access: AccessContext, attendance
 
 export async function notifyOwnersOfPublicBooking(booking: PublicBookingNotification) {
   try {
-    const db = await getDb();
-    const owners = await db.select({ id: team.id }).from(team).where(and(
-      eq(team.organizationId, booking.organizationId),
-      eq(team.accessRole, "owner"),
-      eq(team.active, true),
-    ));
-    if (!owners.length) return;
-
-    const ownerIds = owners.map((owner) => owner.id);
-    const title = booking.status === "Aguardando" ? "Novo horário aguardando confirmação" : "Novo horário agendado pelo site";
+    const title = booking.status === "Aguardando pagamento" ? "Novo horário aguardando Pix" : booking.status === "Aguardando" ? "Novo horário aguardando confirmação" : "Novo horário agendado pelo site";
     const body = `${booking.clientName} solicitou ${booking.serviceName} com ${booking.barberName} em ${booking.date.split("-").reverse().join("/")} às ${booking.time}`;
-    const target = `/?section=Agenda&appointment=${booking.appointmentId}`;
-
-    await db.insert(appNotifications).values(ownerIds.map((recipientTeamMemberId) => ({
+    await deliverNotification({
       organizationId: booking.organizationId,
-      recipientTeamMemberId,
-      actorTeamMemberId: ownerIds[0],
-      kind: "public-booking",
+      additionalRecipientTeamMemberId: booking.barberId,
+      kind: booking.status === "Aguardando pagamento" ? "public-booking-payment-pending" : "public-booking",
       title,
       body,
-      target,
+      target: `/?section=Agenda&appointment=${booking.appointmentId}`,
       relatedRecordId: booking.appointmentId,
-    }))).onConflictDoNothing();
-
-    const vapid = await vapidConfig();
-    if (!vapid.publicKey || !vapid.privateKey || !vapid.subject) return;
-    const stored = await db.select().from(pushSubscriptions).where(and(
-      eq(pushSubscriptions.organizationId, booking.organizationId),
-      inArray(pushSubscriptions.teamMemberId, ownerIds),
-    ));
-    if (!stored.length) return;
-    const subscriptions: PushSubscriptionData[] = stored.map((item) => ({ endpoint: item.endpoint, keys: { p256dh: item.p256dh, auth: item.auth } }));
-    const result = await sendPushBatch(subscriptions, {
-      title,
-      body,
-      url: target,
       tag: `public-booking-${booking.appointmentId}`,
-    }, vapid, {
-      ttl: 60 * 60 * 12,
-      urgency: "normal",
-      topic: await topicFromString(`public-booking:${booking.appointmentId}`),
-      concurrency: 10,
-      timeoutMs: 8000,
+      topic: `public-booking:${booking.status}:${booking.appointmentId}`,
     });
-    if (result.gone.length) await db.delete(pushSubscriptions).where(inArray(pushSubscriptions.endpoint, result.gone));
   } catch {
     // O agendamento nunca deve falhar por causa de uma notificação.
+  }
+}
+
+export async function notifyBookingChange(booking: PublicBookingNotification, action: "cancelled" | "rescheduled") {
+  try {
+    const cancelled = action === "cancelled";
+    await deliverNotification({
+      organizationId: booking.organizationId,
+      additionalRecipientTeamMemberId: booking.barberId,
+      kind: cancelled ? "public-booking-cancelled" : "public-booking-rescheduled",
+      title: cancelled ? "Cliente cancelou o horário" : "Cliente remarcou o horário",
+      body: cancelled
+        ? `${booking.clientName} cancelou ${booking.serviceName} com ${booking.barberName} em ${booking.date.split("-").reverse().join("/")} às ${booking.time}`
+        : `${booking.clientName} remarcou ${booking.serviceName} com ${booking.barberName} para ${booking.date.split("-").reverse().join("/")} às ${booking.time}`,
+      target: `/?section=Agenda&appointment=${booking.appointmentId}`,
+      relatedRecordId: booking.appointmentId,
+      tag: `public-booking-${action}-${booking.appointmentId}`,
+      topic: `public-booking-${action}:${booking.appointmentId}`,
+    });
+  } catch {
+    // A alteração do cliente nunca deve falhar por causa de uma notificação.
   }
 }

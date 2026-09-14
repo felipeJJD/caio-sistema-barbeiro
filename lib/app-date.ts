@@ -1,4 +1,16 @@
 const APP_TIME_ZONE = "America/Sao_Paulo";
+const CLIENT_CHANGE_LIMIT_MS = 2 * 60 * 60 * 1000;
+
+export function appointmentStartTimestamp(date: string, time: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return Number.NaN;
+  // O Brasil não adota horário de verão desde 2019; São Paulo permanece em UTC-3.
+  return Date.parse(`${date}T${time}:00-03:00`);
+}
+
+export function clientCanChangeAppointment(date: string, time: string, now = Date.now()) {
+  const start = appointmentStartTimestamp(date, time);
+  return Number.isFinite(start) && start - now >= CLIENT_CHANGE_LIMIT_MS;
+}
 
 export function appDate(value = new Date(), dayOffset = 0) {
   const shifted = new Date(value.getTime() + dayOffset * 86400000);

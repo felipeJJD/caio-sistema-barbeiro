@@ -1,5 +1,6 @@
 import { generateVapidKeys } from "@mmmike/web-push/vapid";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dataDirectory } from "./storage.mjs";
 
@@ -55,14 +56,18 @@ export async function loadVapidConfig({ environment = process.env, directory = d
 
   const generated = await generateVapidKeys();
   const persisted = { version: 1, ...generated };
+  const temporaryFilename = `${filename}.${randomUUID()}.tmp`;
   try {
-    await writeFile(filename, `${JSON.stringify(persisted)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    await writeFile(temporaryFilename, `${JSON.stringify(persisted)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    await link(temporaryFilename, filename);
     return { ...generated, subject: subjectFromEnvironment(environment) };
   } catch (error) {
     if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) throw error;
     const stored = JSON.parse(await readFile(filename, "utf8"));
     if (!validKeys(stored)) throw new Error("A configuração persistida de notificações é inválida.");
     return { publicKey: stored.publicKey, privateKey: stored.privateKey, subject: subjectFromEnvironment(environment) };
+  } finally {
+    await unlink(temporaryFilename).catch(() => undefined);
   }
 }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { appDaysUntil, membershipRenewalDates, nextMonthDueDate } from "../lib/app-date.ts";
+import { appDaysUntil, clientCanChangeAppointment, membershipRenewalDates, nextMonthDueDate } from "../lib/app-date.ts";
 
 test("keeps the payment day for the next monthly due date", () => {
   assert.equal(nextMonthDueDate("2026-08-26"), "2026-09-26");
@@ -35,4 +35,16 @@ test("an overdue membership renewal catches up and keeps its billing day", () =>
     paidMonth: "2026-09",
     dueDate: "2026-10-08",
   });
+});
+
+test("allows the client to change an appointment until two hours before", () => {
+  const now = Date.parse("2026-09-14T10:00:00-03:00");
+  assert.equal(clientCanChangeAppointment("2026-09-14", "12:00", now), true);
+  assert.equal(clientCanChangeAppointment("2026-09-14", "11:59", now), false);
+});
+
+test("rejects invalid or already started appointments", () => {
+  const now = Date.parse("2026-09-14T10:00:00-03:00");
+  assert.equal(clientCanChangeAppointment("data inválida", "12:00", now), false);
+  assert.equal(clientCanChangeAppointment("2026-09-14", "09:00", now), false);
 });
