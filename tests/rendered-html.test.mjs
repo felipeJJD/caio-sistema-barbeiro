@@ -20,12 +20,19 @@ test('production server: login, dashboard, writes, authorization, photos, and re
   const password = randomBytes(24).toString('hex');
   const db = openDatabase(join(directory, 'app.sqlite'));
   await bootstrapAdmin(db, { email: 'admin@example.invalid', password });
+  await db.batch([
+    db.prepare("INSERT INTO organizations (id, name, slug) VALUES (999, 'Other shop', 'other-shop')"),
+    db.prepare("INSERT INTO team (id, organization_id, name, role, commission_cents) VALUES (999, 999, 'Other barber', 'Barbeiro', 0)"),
+    db.prepare("INSERT INTO services (id, organization_id, name, price_cents) VALUES (999, 999, 'Other service', 9900)"),
+    db.prepare("INSERT INTO payment_methods (id, organization_id, name) VALUES (999, 999, 'Other payment')"),
+    db.prepare("INSERT INTO daily_records (organization_id, occurred_at, client_name, barber_id, service_id, payment_method_id, value_cents, commission_rate_bps, commission_cents) VALUES (999, ?, 'Other tenant private record', 999, 999, 999, 9900, 5000, 4950)").bind(appDate()),
+  ]);
   db.close();
   let server;
   let diagnostics = '';
   const start = async () => {
     server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], {
-      env: { ...process.env, DATA_DIR: directory, NODE_ENV: 'production' }, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, DATA_DIR: directory, NODE_ENV: 'production', PUBLIC_APP_URL: 'https://shop.example.invalid' }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     server.stdout.on('data', chunk => { diagnostics = (diagnostics + chunk).slice(-4000); });
     server.stderr.on('data', chunk => { diagnostics = (diagnostics + chunk).slice(-4000); });
@@ -72,6 +79,18 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     assert.equal(notifications.status, 200, JSON.stringify(notificationsBody));
     assert.equal(notificationsBody.configured, true);
     assert.equal(Buffer.from(notificationsBody.publicKey, 'base64url').length, 65);
+    for (const [origin, expectedStatus] of [['https://shop.example.invalid', 200], ['https://evil.invalid', 403]]) {
+      const response = await fetch(`${base}/api/notifications`, {
+        method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'mark-read' }),
+      });
+      assert.equal(response.status, expectedStatus, await response.text());
+    }
+    const unauthenticatedNotification = await fetch(`${base}/api/notifications`, {
+      method: 'POST', headers: { Origin: 'https://shop.example.invalid', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mark-read' }),
+    });
+    assert.equal(unauthenticatedNotification.status, 401);
     const saved = await jsonPost('/api/action', { action: 'save-service', name: 'Corte de verificação', priceCents: 4500, durationMinutes: 30, active: true }, cookie);
     const savedBody = await saved.json();
     assert.equal(saved.status, 200, JSON.stringify(savedBody));
@@ -81,6 +100,57 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     assert.equal(employeeResponse.status, 200, JSON.stringify(employeeBody));
     const employee = employeeBody.data.team.find(member => member.name === 'Davi');
     assert.ok(employee);
+    // Independent logins model separate devices; all fixtures stay in the temporary database.
+    const secondLogin = await jsonPost('/api/auth/login', { email: 'admin@example.invalid', password });
+    assert.equal(secondLogin.status, 200);
+    const secondOwnerCookie = secondLogin.headers.get('set-cookie').split(';')[0];
+    assert.notEqual(secondOwnerCookie, cookie);
+    const readDashboard = async (session) => {
+      const response = await fetch(`${base}/api/dashboard-period`, { headers: { Cookie: session } });
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get('cache-control'), /no-store/);
+      return (await response.json()).data;
+    };
+    const staffSessions = [];
+    for (const name of ['Davi', 'Eduardo']) {
+      const invitation = await jsonPost('/api/invites', {
+        action: 'create', ...(name === 'Davi' ? { teamMemberId: employee.id } : { invitedName: name }),
+      }, cookie);
+      const invitationBody = await invitation.json();
+      assert.equal(invitation.status, 200, JSON.stringify(invitationBody));
+      const inviteToken = new URL(invitationBody.inviteUrl).pathname.split('/').pop();
+      const accepted = await jsonPost('/api/auth/invite', {
+        inviteToken, name, email: `${name.toLowerCase()}@example.invalid`, password,
+      });
+      assert.equal(accepted.status, 200, await accepted.clone().text());
+      const staffCookie = accepted.headers.get('set-cookie').split(';')[0];
+      const staffData = await readDashboard(staffCookie);
+      assert.equal(staffData.viewer.isOwner, false);
+      const record = await jsonPost('/api/action', {
+        action: 'daily-record', occurredAt: appDate(), recordType: 'Avulso',
+        clientName: `Sync ${name}`, barberId: staffData.viewer.teamMemberId,
+        serviceId: staffData.services[0].id, paymentMethodId: staffData.paymentMethods[0].id,
+      }, staffCookie);
+      assert.equal(record.status, 200, await record.clone().text());
+      staffSessions.push(staffCookie);
+    }
+    for (const ownerSession of [cookie, secondOwnerCookie]) {
+      const data = await readDashboard(ownerSession);
+      assert.equal(data.viewer.isOwner, true);
+      assert.equal(data.records.some(row => row.clientName === 'Other tenant private record'), false);
+      assert.equal(data.team.some(member => member.id === 999), false);
+      assert.deepEqual(data.records.filter(row => row.clientName.startsWith('Sync ')).map(row => row.clientName).sort(), ['Sync Davi', 'Sync Eduardo']);
+    }
+    for (const [index, staffSession] of staffSessions.entries()) {
+      const data = await readDashboard(staffSession);
+      assert.deepEqual(data.records.map(row => row.clientName), [`Sync ${['Davi', 'Eduardo'][index]}`]);
+      const forbidden = await jsonPost('/api/action', {
+        action: 'daily-record', occurredAt: appDate(), recordType: 'Avulso',
+        clientName: 'Forbidden', barberId: savedBody.data.viewer.teamMemberId,
+        serviceId: data.services[0].id, paymentMethodId: data.paymentMethods[0].id,
+      }, staffSession);
+      assert.equal(forbidden.ok, false);
+    }
     const teamPaymentResponse = await jsonPost('/api/action', { action: 'team-payment', teamMemberId: employee.id, occurredAt: appDate(), kind: 'Vale', reason: 'Adiantamento de teste', valueCents: 5000 }, cookie);
     const teamPaymentBody = await teamPaymentResponse.json();
     assert.equal(teamPaymentResponse.status, 200, JSON.stringify(teamPaymentBody));
@@ -118,6 +188,7 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     const afterRestart = await fetch(`${base}/api/dashboard-period`, { headers: { Cookie: cookie } });
     assert.equal(afterRestart.status, 200);
     const afterRestartBody = await afterRestart.json();
+    assert.deepEqual(afterRestartBody.data.records.filter(row => row.clientName.startsWith('Sync ')).map(row => row.clientName).sort(), ['Sync Davi', 'Sync Eduardo']);
     assert.ok(afterRestartBody.data.services.some(service => service.name === 'Corte de verificação'));
     assert.ok(afterRestartBody.data.teamPayments.some(entry => entry.teamMemberName === 'Davi' && entry.kind === 'Pagamento' && entry.reason === 'Acerto de teste' && entry.valueCents === 4500));
     assert.equal(afterRestartBody.data.teamPayments.some(entry => entry.reason === 'Excluir no teste'), false);
