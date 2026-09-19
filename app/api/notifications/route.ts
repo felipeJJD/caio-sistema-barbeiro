@@ -1,11 +1,7 @@
 import { getSessionAccess } from "../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../db/access";
+import { validNotificationOrigin as validOrigin } from "../../../lib/request-origin";
 import { deleteNotification, getVapidPublicKey, listNotifications, markNotificationsRead, removePushSubscription, savePushSubscription } from "../../../db/notifications";
-
-function validOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  return !origin || origin === new URL(request.url).origin;
-}
 
 async function notificationAccess() {
   const access = await getSessionAccess();
