@@ -143,7 +143,7 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
             {!row.openEntries.length && <p className="team-money-empty">Nenhum vale ou pagamento em aberto.</p>}
           </div>
         </section>
-        <ClosureHistory data={data} />
+        {data && <ClosureHistory data={data} />}
       </> : <section className="panel team-money-loading">Seu cadastro não possui saldo de equipe.</section>}
     </div>;
   }
