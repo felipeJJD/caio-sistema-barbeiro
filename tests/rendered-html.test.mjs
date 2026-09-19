@@ -151,6 +151,17 @@ test('production server: login, dashboard, writes, authorization, photos, and re
       }, staffSession);
       assert.equal(forbidden.ok, false);
     }
+    const beforeDiagnostic = await readDashboard(cookie);
+    const diagnosticResponse = await fetch(`${base}/diagnostico-sincronizacao`, { headers: { Cookie: cookie } });
+    assert.equal(diagnosticResponse.status, 200);
+    const diagnosticHtml = await diagnosticResponse.text();
+    assert.match(diagnosticHtml, /authAccountId/);
+    assert.match(diagnosticHtml, /selectedByDashboardQuery/);
+    assert.doesNotMatch(diagnosticHtml, /Sync Davi|Sync Eduardo/);
+    const forbiddenDiagnostic = await fetch(`${base}/diagnostico-sincronizacao`, { headers: { Cookie: staffSessions[0] } });
+    assert.doesNotMatch(await forbiddenDiagnostic.text(), /authAccountId|selectedByDashboardQuery/);
+    const afterDiagnostic = await readDashboard(cookie);
+    assert.deepEqual(afterDiagnostic.records.map(record => record.id), beforeDiagnostic.records.map(record => record.id));
     const teamPaymentResponse = await jsonPost('/api/action', { action: 'team-payment', teamMemberId: employee.id, occurredAt: appDate(), kind: 'Vale', reason: 'Adiantamento de teste', valueCents: 5000 }, cookie);
     const teamPaymentBody = await teamPaymentResponse.json();
     assert.equal(teamPaymentResponse.status, 200, JSON.stringify(teamPaymentBody));

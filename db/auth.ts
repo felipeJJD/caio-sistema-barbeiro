@@ -109,6 +109,28 @@ export async function getSessionAccess(): Promise<AccessContext | null> {
   return getAccessContextByTeamMemberId(account.teamMemberId);
 }
 
+/** Read-only identity of the exact cookie used by this request. Never return a token. */
+export async function getOwnerSessionIdentity() {
+  const access = await getSessionAccess();
+  if (!access?.isOwner || !access.isPlatformAdmin) return null;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  const db = await getDb();
+  const session = (await db.select({ accountId: authSessions.accountId }).from(authSessions).where(and(
+    eq(authSessions.tokenHash, await sha256(token)),
+    gt(authSessions.expiresAt, new Date().toISOString()),
+  )).limit(1))[0];
+  if (!session) return null;
+  const account = (await db.select({ id: authAccounts.id, organizationId: authAccounts.organizationId, teamMemberId: authAccounts.teamMemberId })
+    .from(authAccounts).where(eq(authAccounts.id, session.accountId)).limit(1))[0];
+  if (!account) return null;
+  const member = (await db.select({ organizationId: team.organizationId, accessRole: team.accessRole })
+    .from(team).where(eq(team.id, account.teamMemberId)).limit(1))[0];
+  if (!member) return null;
+  return { access, authAccountId: account.id, accountOrganizationId: account.organizationId,
+    accountTeamMemberId: account.teamMemberId, teamOrganizationId: member.organizationId, accessRole: member.accessRole };
+}
+
 export async function loginWithPassword(emailValue: string, password: string) {
   const email = normalizeEmail(emailValue);
   if (!email || !password) throw new Error("Informe seu e-mail e sua senha.");
