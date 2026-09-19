@@ -1,7 +1,10 @@
-/** Use the configured public origin, not Next's internal reverse-proxy URL. */
+/** Use the canonical app origin, not an obsolete configuration or Next's internal URL. */
 export function validNotificationOrigin(
   request: Request,
-  publicAppUrl = process.env.PUBLIC_APP_URL || "https://cortouanotou.com.br",
+  // The notification UI runs on the canonical app domain. An older
+  // PUBLIC_APP_URL can still point at the retired BarberFlow deployment;
+  // it must never prevent the current app from changing notification state.
+  publicAppUrl = "https://cortouanotou.com.br",
 ) {
   const origin = request.headers.get("origin");
   // Non-browser clients may omit Origin; authentication is still required.
