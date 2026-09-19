@@ -13,7 +13,8 @@ test('migrations, parameter binding, returning, and data survive a restart', asy
   let db;
   try {
     db = openDatabase(join(dir, 'app.sqlite'));
-    assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM _railway_migrations').first()).n, 36);
+    const migrationCount = JSON.parse(await readFile(join(process.cwd(), 'drizzle', 'meta', '_journal.json'), 'utf8')).entries.length;
+    assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM _railway_migrations').first()).n, migrationCount);
     const row = await db.prepare('INSERT INTO services (organization_id, name, price_cents) VALUES (?, ?, ?) RETURNING id, name')
       .bind(1, "Corte d'água", 3500).first();
     assert.equal(row.name, "Corte d'água");
@@ -24,7 +25,7 @@ test('migrations, parameter binding, returning, and data survive a restart', asy
     db = openDatabase(join(dir, 'app.sqlite'));
     assert.equal(await db.prepare('SELECT name FROM services WHERE id = ?').bind(row.id).first('name'), "Corte d'água");
     assert.deepEqual(await db.prepare('SELECT kind, value_cents FROM team_payments WHERE id = ?').bind(teamPayment.id).raw(), [['Vale', 5000]]);
-    assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM _railway_migrations').first()).n, 36);
+    assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM _railway_migrations').first()).n, migrationCount);
   } finally { db?.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
