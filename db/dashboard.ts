@@ -13,6 +13,7 @@ import { activeMembershipTotals, membershipPayoutCentsForAccessRole } from "../l
 import { validClientName } from "../lib/client-name";
 import { parseBookingWeekdays, serializeBookingWeekdays } from "../lib/booking-weekdays";
 import { isTeamPaymentKind, type TeamPaymentKind } from "../lib/team-payments";
+import { assertTeamPaymentOpen } from "./team-money";
 
 export type DashboardData = {
   dataPeriod: { start: string; end: string };
@@ -499,8 +500,9 @@ export async function saveTeamPayment(access: AccessContext, input: { id?: numbe
   };
 
   if (input.id) {
-    const existing = (await db.select({ id: teamPayments.id }).from(teamPayments).where(and(eq(teamPayments.id, input.id), eq(teamPayments.organizationId, access.organizationId))).limit(1))[0];
+    const existing = (await db.select({ id: teamPayments.id, teamMemberId: teamPayments.teamMemberId }).from(teamPayments).where(and(eq(teamPayments.id, input.id), eq(teamPayments.organizationId, access.organizationId))).limit(1))[0];
     if (!existing) throw new Error("Lançamento não encontrado.");
+    await assertTeamPaymentOpen(access.organizationId, existing.teamMemberId, existing.id);
     await db.update(teamPayments).set(values).where(and(eq(teamPayments.id, input.id), eq(teamPayments.organizationId, access.organizationId)));
   } else {
     await db.insert(teamPayments).values({ ...values, organizationId: access.organizationId });
@@ -510,8 +512,9 @@ export async function saveTeamPayment(access: AccessContext, input: { id?: numbe
 export async function deleteTeamPayment(access: AccessContext, id: number) {
   requireOwner(access);
   const db = await getDb();
-  const existing = (await db.select({ id: teamPayments.id }).from(teamPayments).where(and(eq(teamPayments.id, id), eq(teamPayments.organizationId, access.organizationId))).limit(1))[0];
+  const existing = (await db.select({ id: teamPayments.id, teamMemberId: teamPayments.teamMemberId }).from(teamPayments).where(and(eq(teamPayments.id, id), eq(teamPayments.organizationId, access.organizationId))).limit(1))[0];
   if (!existing) throw new Error("Lançamento não encontrado.");
+  await assertTeamPaymentOpen(access.organizationId, existing.teamMemberId, existing.id);
   await db.delete(teamPayments).where(and(eq(teamPayments.id, id), eq(teamPayments.organizationId, access.organizationId)));
 }
 
