@@ -19,6 +19,7 @@ export const organizations = sqliteTable("organizations", {
   publicBookingEnabled: integer("public_booking_enabled", { mode: "boolean" }).notNull().default(true),
   publicBookingRequiresApproval: integer("public_booking_requires_approval", { mode: "boolean" }).notNull().default(true),
   publicBookingWeekdays: text("public_booking_weekdays").notNull().default("1,2,3,4,5,6"),
+  weeklyBookingHours: text("weekly_booking_hours").notNull().default(""),
   bookingPixEnabled: integer("booking_pix_enabled", { mode: "boolean" }).notNull().default(false),
   bookingPixKey: text("booking_pix_key").notNull().default(""),
   bookingCashEnabled: integer("booking_cash_enabled", { mode: "boolean" }).notNull().default(true),

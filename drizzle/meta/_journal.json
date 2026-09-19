@@ -267,6 +267,13 @@
       "when": 1790000000000,
       "tag": "0037_team_money_closures",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1790001000000,
+      "tag": "0038_weekly_booking_hours",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,21 @@ import { cancelAppointment, completeAppointment, confirmAppointment, createDaily
 import { deleteProduct, deleteProductSale, registerProductSale, registerProductSaleBundle, saveProduct } from "../../../db/products";
 import { appMonth } from "../../../lib/app-date";
 
+function weeklyHoursInput(value: string | number | boolean | undefined) {
+  if (typeof value !== "string" || !value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map((item) => ({
+      day: Number(item?.day),
+      enabled: Boolean(item?.enabled),
+      openingTime: String(item?.openingTime ?? ""),
+      closingTime: String(item?.closingTime ?? ""),
+    })) : undefined;
+  } catch {
+    throw new Error("Não foi possível ler os horários da semana.");
+  }
+}
+
 function productItems(value: string | number | boolean | undefined) {
   if (typeof value !== "string" || !value) return undefined;
   try {
@@ -56,7 +71,7 @@ export async function POST(request: Request) {
     else if (data.action === "delete-plan") await deletePlan(access, Number(data.id));
     else if (data.action === "save-service") await saveService(access, { id: data.id ? Number(data.id) : undefined, name: String(data.name ?? ""), priceCents: Number(data.priceCents), durationMinutes: Number(data.durationMinutes), active: Boolean(data.active) });
     else if (data.action === "delete-service") await deleteService(access, Number(data.id));
-    else if (data.action === "save-agenda-settings") await saveAgendaSettings(access, { useServiceDuration: Boolean(data.useServiceDuration), openingTime: String(data.openingTime ?? "08:00"), closingTime: String(data.closingTime ?? "19:00"), publicBookingEnabled: typeof data.publicBookingEnabled === "boolean" ? data.publicBookingEnabled : undefined, publicBookingRequiresApproval: typeof data.publicBookingRequiresApproval === "boolean" ? data.publicBookingRequiresApproval : undefined, publicBookingWeekdays: typeof data.publicBookingWeekdays === "string" ? String(data.publicBookingWeekdays).split(",").map(Number) : undefined });
+    else if (data.action === "save-agenda-settings") await saveAgendaSettings(access, { useServiceDuration: Boolean(data.useServiceDuration), openingTime: String(data.openingTime ?? "08:00"), closingTime: String(data.closingTime ?? "19:00"), weeklyHours: weeklyHoursInput(data.weeklyHours), publicBookingEnabled: typeof data.publicBookingEnabled === "boolean" ? data.publicBookingEnabled : undefined, publicBookingRequiresApproval: typeof data.publicBookingRequiresApproval === "boolean" ? data.publicBookingRequiresApproval : undefined, publicBookingWeekdays: typeof data.publicBookingWeekdays === "string" ? String(data.publicBookingWeekdays).split(",").map(Number) : undefined });
     else if (data.action === "save-payment") await savePayment(access, { id: data.id ? Number(data.id) : undefined, name: String(data.name ?? ""), feeBps: Number(data.feeBps) });
     else if (data.action === "save-team") await saveTeamMember(access, { id: data.id ? Number(data.id) : undefined, name: String(data.name ?? ""), role: String(data.role ?? "Barbeiro"), loginEmail: String(data.loginEmail ?? ""), accessRole: String(data.accessRole ?? "barber"), commissionRateBps: Number(data.commissionRateBps), active: Boolean(data.active) });
     else if (data.action === "set-team-password") await setPasswordForTeamMember(access, Number(data.teamMemberId), String(data.password ?? ""));

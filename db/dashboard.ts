@@ -11,7 +11,8 @@ import { appDate, appMonth, appTimeMinutes, membershipRenewalDates, nextMonthDue
 import { barberPayoutCents } from "../lib/earnings";
 import { activeMembershipTotals, membershipPayoutCentsForAccessRole } from "../lib/membership-summary";
 import { validClientName } from "../lib/client-name";
-import { parseBookingWeekdays, serializeBookingWeekdays } from "../lib/booking-weekdays";
+import { parseBookingWeekdays } from "../lib/booking-weekdays";
+import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWeekdaysTextFromHours, normalizeWeeklyBookingHours, parseWeeklyBookingHours, serializeWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
 import { isTeamPaymentKind, type TeamPaymentKind } from "../lib/team-payments";
 import { assertTeamPaymentOpen } from "./team-money";
 
@@ -23,7 +24,7 @@ export type DashboardData = {
   team: Array<{ id: number; name: string; role: string; loginEmail: string | null; accessRole: string; commissionCents: number; commissionRateBps: number; active: boolean; hasPassword: boolean }>;
   teamPayments: Array<{ id: number; teamMemberId: number; teamMemberName: string; occurredAt: string; kind: TeamPaymentKind; reason: string; valueCents: number }>;
   services: Array<{ id: number; name: string; priceCents: number; durationMinutes: number; active: boolean }>;
-  agendaSettings: { useServiceDuration: boolean; openingTime: string; closingTime: string; publicBookingEnabled: boolean; publicBookingRequiresApproval: boolean; publicBookingWeekdays: number[]; publicBookingSlug: string };
+  agendaSettings: { useServiceDuration: boolean; openingTime: string; closingTime: string; weeklyHours: WeeklyBookingHours; publicBookingEnabled: boolean; publicBookingRequiresApproval: boolean; publicBookingWeekdays: number[]; publicBookingSlug: string };
   paymentMethods: Array<{ id: number; name: string; feeBps: number }>;
   membershipPayments: Array<{ id: number; clientId: number; clientName: string; planName: string; planKind: string; paymentMethodId: number; paymentName: string; paidMonth: string; occurredAt: string; amountCents: number; feeCents: number }>;
   records: Array<{ id: number; occurredAt: string; clientName: string; barberId: number; barberName: string; serviceId: number; serviceName: string; paymentMethodId: number; paymentName: string; quantity: number; valueCents: number; commissionCents: number; feeCents: number; tipCents: number; origin: string; recordType: string; membershipClientId: number | null }>;
@@ -121,7 +122,7 @@ export async function ensureDemoData() {
 }
 
 function emptyDashboard(access: AccessContext, period = dashboardPeriod()): DashboardData {
-  return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, accountType: access.accountType, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: [], plans: [], team: [], teamPayments: [], services: [], agendaSettings: { useServiceDuration: false, openingTime: "08:00", closingTime: "19:00", publicBookingEnabled: true, publicBookingRequiresApproval: true, publicBookingWeekdays: parseBookingWeekdays(null), publicBookingSlug: "" }, paymentMethods: [], membershipPayments: [], records: [], expenses: [], appointments: [], notifications: [], products: [], productSales: [], goal: { revenueCents: 0, grossProfitCents: 0, expenseCents: 0, netProfitCents: 0, attendanceTarget: 0 }, stats: { revenueCents: 0, serviceRevenueCents: 0, membershipRevenueCents: 0, productRevenueCents: 0, productCostCents: 0, productProfitCents: 0, feeCents: 0, expenseCents: 0, commissionCents: 0, myEarningsCents: 0, grossProfitCents: 0, netProfitCents: 0, visitsThisMonth: 0, workedDays: 0, averageTicketCents: 0, active: 0, pending: 0, openSpots: 30 }, membershipSummary: { ownerPayoutCents: 0, ownerVisits: 0, totalUses: 0, shopBalanceCents: 0 }, serviceRanking: [], barberRanking: [], billingOffer: { pixPriceCents: 999, barberPixPriceCents: 999, pixPeriodDays: 30, quarterlyDiscountBps: 1000, semiannualDiscountBps: 1500, annualDiscountBps: 2000, pixPlans: [{ code: "monthly", label: "Mensal", months: 1, periodDays: 30, priceCents: 999, discountBps: 0 }, { code: "quarterly", label: "Trimestral", months: 3, periodDays: 90, priceCents: 2697, discountBps: 1000 }, { code: "semiannual", label: "Semestral", months: 6, periodDays: 180, priceCents: 5095, discountBps: 1500 }, { code: "annual", label: "Anual", months: 12, periodDays: 365, priceCents: 9590, discountBps: 2000 }], barberPixPlans: [{ code: "monthly", label: "Mensal", months: 1, periodDays: 30, priceCents: 999, discountBps: 0 }, { code: "quarterly", label: "Trimestral", months: 3, periodDays: 90, priceCents: 2697, discountBps: 1000 }, { code: "semiannual", label: "Semestral", months: 6, periodDays: 180, priceCents: 5095, discountBps: 1500 }, { code: "annual", label: "Anual", months: 12, periodDays: 365, priceCents: 9590, discountBps: 2000 }] } };
+  return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, accountType: access.accountType, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: [], plans: [], team: [], teamPayments: [], services: [], agendaSettings: { useServiceDuration: false, openingTime: "08:00", closingTime: "19:00", weeklyHours: parseWeeklyBookingHours(null, parseBookingWeekdays(null), "08:00", "19:00"), publicBookingEnabled: true, publicBookingRequiresApproval: true, publicBookingWeekdays: parseBookingWeekdays(null), publicBookingSlug: "" }, paymentMethods: [], membershipPayments: [], records: [], expenses: [], appointments: [], notifications: [], products: [], productSales: [], goal: { revenueCents: 0, grossProfitCents: 0, expenseCents: 0, netProfitCents: 0, attendanceTarget: 0 }, stats: { revenueCents: 0, serviceRevenueCents: 0, membershipRevenueCents: 0, productRevenueCents: 0, productCostCents: 0, productProfitCents: 0, feeCents: 0, expenseCents: 0, commissionCents: 0, myEarningsCents: 0, grossProfitCents: 0, netProfitCents: 0, visitsThisMonth: 0, workedDays: 0, averageTicketCents: 0, active: 0, pending: 0, openSpots: 30 }, membershipSummary: { ownerPayoutCents: 0, ownerVisits: 0, totalUses: 0, shopBalanceCents: 0 }, serviceRanking: [], barberRanking: [], billingOffer: { pixPriceCents: 999, barberPixPriceCents: 999, pixPeriodDays: 30, quarterlyDiscountBps: 1000, semiannualDiscountBps: 1500, annualDiscountBps: 2000, pixPlans: [{ code: "monthly", label: "Mensal", months: 1, periodDays: 30, priceCents: 999, discountBps: 0 }, { code: "quarterly", label: "Trimestral", months: 3, periodDays: 90, priceCents: 2697, discountBps: 1000 }, { code: "semiannual", label: "Semestral", months: 6, periodDays: 180, priceCents: 5095, discountBps: 1500 }, { code: "annual", label: "Anual", months: 12, periodDays: 365, priceCents: 9590, discountBps: 2000 }], barberPixPlans: [{ code: "monthly", label: "Mensal", months: 1, periodDays: 30, priceCents: 999, discountBps: 0 }, { code: "quarterly", label: "Trimestral", months: 3, periodDays: 90, priceCents: 2697, discountBps: 1000 }, { code: "semiannual", label: "Semestral", months: 6, periodDays: 180, priceCents: 5095, discountBps: 1500 }, { code: "annual", label: "Anual", months: 12, periodDays: 365, priceCents: 9590, discountBps: 2000 }] } };
 }
 
 function timeToMinutes(value: string) {
@@ -328,7 +329,7 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
     const activeClientIds = new Set(rawClients.filter((client) => client.status === "Ativo").map((client) => client.id));
     const ownerActiveMembershipRecords = membershipRecords.filter((item) => item.barberId === access.teamMemberId && item.membershipClientId !== null && activeClientIds.has(item.membershipClientId));
     const membershipSummary = access.isOwner ? { ownerPayoutCents: ownerActiveMembershipRecords.reduce((sum, item) => sum + barberPayoutCents(item), 0), ownerVisits: ownerActiveMembershipRecords.reduce((sum, item) => sum + item.quantity, 0), totalUses: activeMembership.uses, shopBalanceCents: activeMembership.revenueCents - activeMembership.payoutCents } : { ownerPayoutCents: 0, ownerVisits: 0, totalUses: activeMembership.uses, shopBalanceCents: 0 };
-    return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, accountType: access.accountType, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: clientsWithUsage, plans: planList, team: visibleTeam, teamPayments: teamPaymentList, services: serviceList, agendaSettings: { useServiceDuration: organization?.useServiceDurationInAgenda ?? false, openingTime: organization?.openingTime ?? "08:00", closingTime: organization?.closingTime ?? "19:00", publicBookingEnabled: organization?.publicBookingEnabled ?? true, publicBookingRequiresApproval: organization?.publicBookingRequiresApproval ?? true, publicBookingWeekdays: parseBookingWeekdays(organization?.publicBookingWeekdays), publicBookingSlug: organization?.slug ?? "" }, paymentMethods: payments, membershipPayments: membershipPaymentList, records: recordList, expenses: expenseList, appointments: appointmentList, notifications: notificationList, products: productData.products, productSales: productData.sales, goal, stats: { revenueCents, serviceRevenueCents, membershipRevenueCents, productRevenueCents, productCostCents, productProfitCents, feeCents, expenseCents, commissionCents, myEarningsCents: commissionCents, grossProfitCents, netProfitCents, visitsThisMonth: currentRecords.reduce((sum, item) => sum + item.quantity, 0), workedDays: new Set(currentRecords.map((item) => item.occurredAt)).size, averageTicketCents: currentRecords.length ? Math.round(serviceRevenueCents / currentRecords.length) : 0, active, pending, openSpots: Math.max(0, 30 - active) }, membershipSummary, serviceRanking: [...serviceMap.values()].sort((a, b) => b.count - a.count), barberRanking: [...barberMap.values()].sort((a, b) => b.valueCents - a.valueCents), billingOffer };
+    return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, accountType: access.accountType, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: clientsWithUsage, plans: planList, team: visibleTeam, teamPayments: teamPaymentList, services: serviceList, agendaSettings: { useServiceDuration: organization?.useServiceDurationInAgenda ?? false, openingTime: organization?.openingTime ?? "08:00", closingTime: organization?.closingTime ?? "19:00", weeklyHours: parseWeeklyBookingHours(organization?.weeklyBookingHours, parseBookingWeekdays(organization?.publicBookingWeekdays), organization?.openingTime ?? "08:00", organization?.closingTime ?? "19:00"), publicBookingEnabled: organization?.publicBookingEnabled ?? true, publicBookingRequiresApproval: organization?.publicBookingRequiresApproval ?? true, publicBookingWeekdays: bookingWeekdaysFromHours(parseWeeklyBookingHours(organization?.weeklyBookingHours, parseBookingWeekdays(organization?.publicBookingWeekdays), organization?.openingTime ?? "08:00", organization?.closingTime ?? "19:00")), publicBookingSlug: organization?.slug ?? "" }, paymentMethods: payments, membershipPayments: membershipPaymentList, records: recordList, expenses: expenseList, appointments: appointmentList, notifications: notificationList, products: productData.products, productSales: productData.sales, goal, stats: { revenueCents, serviceRevenueCents, membershipRevenueCents, productRevenueCents, productCostCents, productProfitCents, feeCents, expenseCents, commissionCents, myEarningsCents: commissionCents, grossProfitCents, netProfitCents, visitsThisMonth: currentRecords.reduce((sum, item) => sum + item.quantity, 0), workedDays: new Set(currentRecords.map((item) => item.occurredAt)).size, averageTicketCents: currentRecords.length ? Math.round(serviceRevenueCents / currentRecords.length) : 0, active, pending, openSpots: Math.max(0, 30 - active) }, membershipSummary, serviceRanking: [...serviceMap.values()].sort((a, b) => b.count - a.count), barberRanking: [...barberMap.values()].sort((a, b) => b.valueCents - a.valueCents), billingOffer };
   } catch {
     return emptyDashboard(access, period);
   }
@@ -537,9 +538,17 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
   const intelligentAgenda = organization?.useServiceDurationInAgenda ?? false;
   const endMinutes = startMinutes + service.durationMinutes;
   if (intelligentAgenda) {
-    const openingMinutes = toMinutes(organization?.openingTime ?? "08:00");
-    const closingMinutes = toMinutes(organization?.closingTime ?? "19:00");
-    if (startMinutes < openingMinutes || endMinutes > closingMinutes) throw new Error(`Escolha um horário entre ${organization?.openingTime ?? "08:00"} e ${organization?.closingTime ?? "19:00"}. Este serviço dura ${service.durationMinutes} minutos.`);
+    const weeklyHours = parseWeeklyBookingHours(
+      organization?.weeklyBookingHours,
+      parseBookingWeekdays(organization?.publicBookingWeekdays),
+      organization?.openingTime ?? "08:00",
+      organization?.closingTime ?? "19:00",
+    );
+    const dayHours = bookingHoursForDate(weeklyHours, input.appointmentDate);
+    if (!dayHours?.enabled) throw new Error("A barbearia não atende neste dia.");
+    const openingMinutes = toMinutes(dayHours.openingTime);
+    const closingMinutes = toMinutes(dayHours.closingTime);
+    if (startMinutes < openingMinutes || endMinutes > closingMinutes) throw new Error(`Escolha um horário entre ${dayHours.openingTime} e ${dayHours.closingTime}. Este serviço dura ${service.durationMinutes} minutos.`);
   }
   const conflict = agendaRows.find((item) => {
     if (item.id === input.id || item.status === "Cancelado") return false;
@@ -567,7 +576,7 @@ export async function cancelAppointment(access: AccessContext, id: number) {
     time: existing.appointmentTime,
   });
 }
-export async function confirmAppointment(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Agendamento não encontrado."); if (existing.status !== "Aguardando") return; await db.update(appointments).set({ status: "Agendado" }).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))); }
+export async function confirmAppointment(access: AccessContext, id: number) { const db = await getDb(); const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Agendamento não encontrado."); requireOwnBarber(access, existing.barberId); if (existing.status !== "Aguardando") return; await db.update(appointments).set({ status: "Agendado" }).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))); }
 export async function completeAppointment(access: AccessContext, input: { id: number; occurredAt: string; paymentMethodId: number; membershipClientId?: number; tipCents?: number }) {
   const db = await getDb();
   const appointment = (await db.select().from(appointments).where(and(eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId))).limit(1))[0];
@@ -613,19 +622,55 @@ export async function deleteClient(access: AccessContext, id: number) { requireO
 export async function deleteMembershipPayment(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const deleted = await db.delete(membershipPayments).where(and(eq(membershipPayments.id, id), eq(membershipPayments.organizationId, access.organizationId))).returning({ id: membershipPayments.id }); if (!deleted.length) throw new Error("Lançamento mensal não encontrado."); }
 export async function saveService(access: AccessContext, input: { id?: number; name: string; priceCents: number; durationMinutes: number; active: boolean }) { requireOwner(access); if (!input.name.trim() || input.priceCents < 0 || !Number.isInteger(input.durationMinutes) || input.durationMinutes < 5 || input.durationMinutes > 480) throw new Error("Informe serviço, preço e duração entre 5 e 480 minutos."); const db = await getDb(); const values = { name: input.name.trim(), priceCents: input.priceCents, durationMinutes: input.durationMinutes, active: input.active }; if (input.id) { const updated = await db.update(services).set(values).where(and(eq(services.id, input.id), eq(services.organizationId, access.organizationId), isNull(services.deletedAt))).returning({ id: services.id }); if (!updated.length) throw new Error("Serviço não encontrado."); } else await db.insert(services).values({ ...values, organizationId: access.organizationId }); }
 export async function deleteService(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const service = (await db.select().from(services).where(and(eq(services.id, id), eq(services.organizationId, access.organizationId), isNull(services.deletedAt))).limit(1))[0]; if (!service) throw new Error("Serviço não encontrado."); const activePlans = await db.select({ id: plans.id }).from(plans).where(and(eq(plans.organizationId, access.organizationId), eq(plans.active, true), sql`lower(${plans.planKind}) = lower(${service.name})`)).limit(1); if (activePlans.length) throw new Error("Este serviço está ligado a um plano mensalista ativo. Altere ou desative o plano antes de excluir."); await db.update(services).set({ active: false, deletedAt: new Date().toISOString() }).where(and(eq(services.id, id), eq(services.organizationId, access.organizationId), isNull(services.deletedAt))); }
-export async function saveAgendaSettings(access: AccessContext, input: { useServiceDuration: boolean; openingTime: string; closingTime: string; publicBookingEnabled?: boolean; publicBookingRequiresApproval?: boolean; publicBookingWeekdays?: number[] }) {
+export async function saveAgendaSettings(access: AccessContext, input: { useServiceDuration: boolean; openingTime: string; closingTime: string; weeklyHours?: WeeklyBookingHours; publicBookingEnabled?: boolean; publicBookingRequiresApproval?: boolean; publicBookingWeekdays?: number[] }) {
   requireOwner(access);
   const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (!timePattern.test(input.openingTime) || !timePattern.test(input.closingTime) || input.openingTime >= input.closingTime) throw new Error("Informe um horário de abertura e fechamento válido.");
-  const weekdays = input.publicBookingWeekdays === undefined ? undefined : serializeBookingWeekdays(input.publicBookingWeekdays);
-  if (weekdays === "") throw new Error("Escolha pelo menos um dia de atendimento público.");
   const db = await getDb();
-  const values: { useServiceDurationInAgenda: boolean; openingTime: string; closingTime: string; publicBookingEnabled?: boolean; publicBookingRequiresApproval?: boolean; publicBookingWeekdays?: string } = { useServiceDurationInAgenda: input.useServiceDuration, openingTime: input.openingTime, closingTime: input.closingTime };
+  const values: {
+    useServiceDurationInAgenda: boolean;
+    openingTime: string;
+    closingTime: string;
+    weeklyBookingHours?: string;
+    publicBookingEnabled?: boolean;
+    publicBookingRequiresApproval?: boolean;
+    publicBookingWeekdays?: string;
+  } = {
+    useServiceDurationInAgenda: input.useServiceDuration,
+    openingTime: input.openingTime,
+    closingTime: input.closingTime,
+  };
+
+  if (input.weeklyHours !== undefined) {
+    const normalizedHours = normalizeWeeklyBookingHours(input.weeklyHours, [], input.openingTime, input.closingTime);
+    if (!normalizedHours.some((row) => row.enabled)) throw new Error("Escolha pelo menos um dia de atendimento.");
+    values.weeklyBookingHours = serializeWeeklyBookingHours(normalizedHours);
+    values.publicBookingWeekdays = bookingWeekdaysTextFromHours(normalizedHours);
+    const firstEnabled = normalizedHours.find((row) => row.enabled);
+    if (firstEnabled) {
+      values.openingTime = firstEnabled.openingTime;
+      values.closingTime = firstEnabled.closingTime;
+    }
+  } else if (input.publicBookingWeekdays !== undefined) {
+    const current = (await db.select({
+      weeklyBookingHours: organizations.weeklyBookingHours,
+      publicBookingWeekdays: organizations.publicBookingWeekdays,
+      openingTime: organizations.openingTime,
+      closingTime: organizations.closingTime,
+    }).from(organizations).where(eq(organizations.id, access.organizationId)).limit(1))[0];
+    const enabledDays = new Set(input.publicBookingWeekdays.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6));
+    if (!enabledDays.size) throw new Error("Escolha pelo menos um dia de atendimento público.");
+    const currentHours = parseWeeklyBookingHours(current?.weeklyBookingHours, parseBookingWeekdays(current?.publicBookingWeekdays), current?.openingTime ?? input.openingTime, current?.closingTime ?? input.closingTime);
+    const updatedHours = currentHours.map((row) => ({ ...row, enabled: enabledDays.has(row.day) }));
+    values.weeklyBookingHours = serializeWeeklyBookingHours(updatedHours);
+    values.publicBookingWeekdays = bookingWeekdaysTextFromHours(updatedHours);
+  }
+
   if (typeof input.publicBookingEnabled === "boolean") values.publicBookingEnabled = input.publicBookingEnabled;
   if (typeof input.publicBookingRequiresApproval === "boolean") values.publicBookingRequiresApproval = input.publicBookingRequiresApproval;
-  if (weekdays !== undefined) values.publicBookingWeekdays = weekdays;
   await db.update(organizations).set(values).where(eq(organizations.id, access.organizationId));
 }
+
 export async function savePayment(access: AccessContext, input: { id?: number; name: string; feeBps: number }) { requireOwner(access); if (!input.name.trim() || input.feeBps < 0) throw new Error("Informe pagamento e taxa."); const db = await getDb(); const values = { name: input.name.trim(), feeBps: input.feeBps }; if (input.id) await db.update(paymentMethods).set(values).where(and(eq(paymentMethods.id, input.id), eq(paymentMethods.organizationId, access.organizationId))); else await db.insert(paymentMethods).values({ ...values, organizationId: access.organizationId }); }
 export async function saveTeamMember(access: AccessContext, input: { id?: number; name: string; role: string; loginEmail?: string; accessRole?: string; commissionRateBps: number; active: boolean }) {
   requireOwner(access);
