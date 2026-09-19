@@ -105,3 +105,48 @@ export function bookingHoursForDate(hours: WeeklyBookingHours, date: string) {
   const weekday = bookingWeekday(date);
   return weekday < 0 ? null : hours.find((row) => row.day === weekday) ?? null;
 }
+
+
+export function normalizeTeamWeeklyBookingHours(value: unknown, fallbackHours: WeeklyBookingHours): WeeklyBookingHours {
+  if (!Array.isArray(value)) return fallbackHours.map((row) => ({ ...row }));
+  const rows = new Map<number, BookingDayHours>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const candidate = item as Partial<BookingDayHours>;
+    const day = Number(candidate.day);
+    const openingTime = String(candidate.openingTime ?? "");
+    const closingTime = String(candidate.closingTime ?? "");
+    if (!Number.isInteger(day) || day < 0 || day > 6) continue;
+    if (!validTime(openingTime) || !validTime(closingTime) || openingTime >= closingTime) continue;
+    rows.set(day, { day, enabled: Boolean(candidate.enabled), openingTime, closingTime });
+  }
+  if (rows.size !== 7) return fallbackHours.map((row) => ({ ...row }));
+  return Array.from({ length: 7 }, (_, day) => rows.get(day)!);
+}
+
+export function parseTeamWeeklyBookingHours(serialized: string | null | undefined, fallbackHours: WeeklyBookingHours): WeeklyBookingHours {
+  if (!serialized) return fallbackHours.map((row) => ({ ...row }));
+  try {
+    return normalizeTeamWeeklyBookingHours(JSON.parse(serialized), fallbackHours);
+  } catch {
+    return fallbackHours.map((row) => ({ ...row }));
+  }
+}
+
+export function serializeTeamWeeklyBookingHours(hours: WeeklyBookingHours) {
+  const fallback = fallbackWeeklyBookingHours([], "08:00", "19:00");
+  const normalized = normalizeTeamWeeklyBookingHours(hours, fallback);
+  if (normalized.length !== 7) throw new Error("Informe os horários do profissional.");
+  return JSON.stringify(normalized);
+}
+
+export function teamBookingHoursForDate(teamHours: WeeklyBookingHours, date: string) {
+  return bookingHoursForDate(teamHours, date);
+}
+
+export function bookingWindowAllows(dayHours: BookingDayHours | null | undefined, startMinutes: number, durationMinutes: number) {
+  if (!dayHours?.enabled) return false;
+  const opening = Number(dayHours.openingTime.slice(0, 2)) * 60 + Number(dayHours.openingTime.slice(3, 5));
+  const closing = Number(dayHours.closingTime.slice(0, 2)) * 60 + Number(dayHours.closingTime.slice(3, 5));
+  return Number.isFinite(opening) && Number.isFinite(closing) && startMinutes >= opening && startMinutes + durationMinutes <= closing;
+}
