@@ -2296,10 +2296,27 @@ function AgendaSettings({ data, post, pending }: { data: DashboardData; post: Po
 function PaymentSettings({ data, post, pending, editingId, setEditingId }: SettingProps) { const item = data.paymentMethods.find((x) => x.id === editingId); async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); if (await post({ action: "save-payment", id: editingId ?? 0, name: String(f.get("name")), feeBps: Math.round(Number(f.get("fee")) * 100) }, "Forma de pagamento salva.")) setEditingId(null); } return <SettingsLayout title="Formas de pagamento" copy="Taxas descontadas automaticamente." list={<div className="edit-list">{data.paymentMethods.map((x) => <EditRow key={x.id} title={x.name} detail={`${(x.feeBps / 100).toFixed(2).replace(".", ",")}% de taxa`} onEdit={() => setEditingId(x.id)} />)}</div>} form={<><SectionTitle title={item ? "Editar pagamento" : "Novo pagamento"} copy="Informe a taxa cobrada." /><form className="app-form" onSubmit={submit} key={item?.id ?? "new"}><Field label="Nome"><input name="name" defaultValue={item?.name ?? ""} required /></Field><Field label="Taxa (%)"><input name="fee" type="number" step="0.01" defaultValue={(item?.feeBps ?? 0) / 100} /></Field><button className="primary-button" disabled={pending}>Salvar pagamento</button></form></>} />; }
 function TeamSettings({ data, post, pending, editingId, setEditingId }: SettingProps) {
   const item = data.team.find((x) => x.id === editingId);
+  const defaultHours = item?.weeklyHours ?? data.agendaSettings.weeklyHours;
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    const saved = await post({ action: "save-team", id: editingId ?? 0, name: String(f.get("name")), role: String(f.get("role")), loginEmail: String(f.get("loginEmail") ?? ""), accessRole: String(f.get("accessRole") ?? "barber"), commissionRateBps: Math.round(Number(f.get("commission")) * 100), active: f.get("active") === "on" }, "Profissional e acesso salvos.");
+    const weeklyHours = BOOKING_WEEKDAY_OPTIONS.map((day) => ({
+      day: day.value,
+      enabled: f.get(`team-day-${day.value}-enabled`) === "on",
+      openingTime: String(f.get(`team-day-${day.value}-opening`) ?? "08:00"),
+      closingTime: String(f.get(`team-day-${day.value}-closing`) ?? "19:00"),
+    }));
+    const saved = await post({
+      action: "save-team",
+      id: editingId ?? 0,
+      name: String(f.get("name")),
+      role: String(f.get("role")),
+      loginEmail: String(f.get("loginEmail") ?? ""),
+      accessRole: String(f.get("accessRole") ?? "barber"),
+      commissionRateBps: Math.round(Number(f.get("commission")) * 100),
+      active: f.get("active") === "on",
+      weeklyHours: JSON.stringify(weeklyHours),
+    }, "Profissional, acesso e horários salvos.");
     if (!saved) return;
     const password = String(f.get("teamPassword") ?? "");
     if (editingId && password) {
@@ -2308,8 +2325,42 @@ function TeamSettings({ data, post, pending, editingId, setEditingId }: SettingP
     }
     setEditingId(null);
   }
-  return <SettingsLayout title="Equipe e acessos" copy="Cada profissional entra com seu próprio e-mail e senha." list={<div className="edit-list">{data.team.map((x) => <EditRow key={x.id} title={x.name} detail={`${x.role} · ${x.loginEmail ? `${x.loginEmail} · ${x.hasPassword ? "login ativo" : "senha pendente"}` : "e-mail de acesso pendente"}`} active={x.active} onEdit={() => setEditingId(x.id)} />)}</div>} form={<><SectionTitle title={item ? "Editar profissional" : "Novo profissional"} copy={item ? "Altere o cadastro ou crie uma nova senha provisória." : "Cadastre primeiro o profissional; depois edite para criar a senha."} /><form className="app-form" onSubmit={submit} key={item?.id ?? "new"}><Field label="Nome"><input name="name" defaultValue={item?.name ?? ""} required /></Field><Field label="Função"><input name="role" defaultValue={item?.role ?? "Barbeiro"} /></Field><Field label="E-mail de acesso"><input name="loginEmail" type="email" autoCapitalize="none" autoComplete="off" placeholder="exemplo@icloud.com" defaultValue={item?.loginEmail ?? ""} /></Field><Field label="Permissão"><select name="accessRole" defaultValue={item?.accessRole ?? "barber"}><option value="barber">Barbeiro — somente os próprios dados</option><option value="owner">Administrador — acesso completo</option></select></Field>{item && item.id !== data.viewer.teamMemberId && <Field label={item.hasPassword ? "Nova senha provisória (opcional)" : "Senha provisória"}><PasswordInput name="teamPassword" minLength={6} maxLength={128} autoComplete="new-password" placeholder="Mínimo de 6 caracteres" /></Field>}<Field label="Comissão avulso (%)"><input name="commission" type="number" step="0.01" defaultValue={(item?.commissionRateBps ?? 0) / 100} /></Field><label className="check"><input name="active" type="checkbox" defaultChecked={item?.active ?? true} /> Profissional ativo</label><button className="primary-button" disabled={pending}>Salvar profissional e acesso</button></form></>} />;
+  return <SettingsLayout
+    title="Equipe e acessos"
+    copy="Cada profissional entra com seu próprio e-mail e pode ter dias e horários diferentes."
+    list={<div className="edit-list">{data.team.map((x) => {
+      const sunday = x.weeklyHours.find((row) => row.day === 0);
+      return <EditRow key={x.id} title={x.name} detail={`${x.role} · ${x.loginEmail ? `${x.loginEmail} · ${x.hasPassword ? "login ativo" : "senha pendente"}` : "e-mail de acesso pendente"} · Domingo: ${sunday?.enabled ? `${sunday.openingTime}–${sunday.closingTime}` : "folga"}`} active={x.active} onEdit={() => setEditingId(x.id)} />;
+    })}</div>}
+    form={<>
+      <SectionTitle title={item ? "Editar profissional" : "Novo profissional"} copy={item ? "Altere cadastro, acesso e expediente." : "Cadastre o profissional e defina quando ele aparece no agendamento."} />
+      <form className="app-form" onSubmit={submit} key={item?.id ?? "new"}>
+        <Field label="Nome"><input name="name" defaultValue={item?.name ?? ""} required /></Field>
+        <Field label="Função"><input name="role" defaultValue={item?.role ?? "Barbeiro"} /></Field>
+        <Field label="E-mail de acesso"><input name="loginEmail" type="email" autoCapitalize="none" autoComplete="off" placeholder="exemplo@icloud.com" defaultValue={item?.loginEmail ?? ""} /></Field>
+        <Field label="Permissão"><select name="accessRole" defaultValue={item?.accessRole ?? "barber"}><option value="barber">Barbeiro — somente os próprios dados</option><option value="owner">Administrador — acesso completo</option></select></Field>
+        {item && item.id !== data.viewer.teamMemberId && <Field label={item.hasPassword ? "Nova senha provisória (opcional)" : "Senha provisória"}><PasswordInput name="teamPassword" minLength={6} maxLength={128} autoComplete="new-password" placeholder="Mínimo de 6 caracteres" /></Field>}
+        <Field label="Comissão avulso (%)"><input name="commission" type="number" step="0.01" defaultValue={(item?.commissionRateBps ?? 0) / 100} /></Field>
+        <div className="team-hours-editor">
+          <div className="team-hours-heading"><strong>Horários no agendamento</strong><small>Desmarque o dia quando este profissional não trabalha. O horário nunca passa do expediente da barbearia.</small></div>
+          <div className="weekly-hours-list">
+            {BOOKING_WEEKDAY_OPTIONS.map((day) => {
+              const row = defaultHours.find((candidate) => candidate.day === day.value) ?? { day: day.value, enabled: false, openingTime: "08:00", closingTime: "19:00" };
+              return <div className="weekly-hours-row" key={day.value}>
+                <label className="weekly-hours-enabled"><input name={`team-day-${day.value}-enabled`} type="checkbox" defaultChecked={row.enabled} /><span>{day.shortLabel}</span><small>{day.label}</small></label>
+                <Field label="Entra"><input name={`team-day-${day.value}-opening`} type="time" step="60" defaultValue={row.openingTime} required /></Field>
+                <Field label="Sai"><input name={`team-day-${day.value}-closing`} type="time" step="60" defaultValue={row.closingTime} required /></Field>
+              </div>;
+            })}
+          </div>
+        </div>
+        <label className="check"><input name="active" type="checkbox" defaultChecked={item?.active ?? true} /> Profissional ativo</label>
+        <button className="primary-button" disabled={pending}>{pending ? "Salvando..." : "Salvar profissional, acesso e horários"}</button>
+      </form>
+    </>}
+  />;
 }
+
 function GoalSettings({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) { async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); await post({ action: "save-goal", revenueCents: Math.round(Number(f.get("revenue")) * 100), grossProfitCents: Math.round(Number(f.get("gross")) * 100), expenseCents: Math.round(Number(f.get("expense")) * 100), netProfitCents: Math.round(Number(f.get("net")) * 100), attendanceTarget: Number(f.get("attendance")) }, "Metas atualizadas."); } return <section className="panel form-card config-goal"><SectionTitle title={`Metas de ${appMonthLabel()}`} copy="Altere os objetivos sempre que quiser." /><form className="app-form field-grid" onSubmit={submit}><Field label="Faturamento (R$)"><input name="revenue" type="number" step="0.01" defaultValue={data.goal.revenueCents / 100} /></Field><Field label="Lucro bruto (R$)"><input name="gross" type="number" step="0.01" defaultValue={data.goal.grossProfitCents / 100} /></Field><Field label="Despesas (R$)"><input name="expense" type="number" step="0.01" defaultValue={data.goal.expenseCents / 100} /></Field><Field label="Lucro líquido (R$)"><input name="net" type="number" step="0.01" defaultValue={data.goal.netProfitCents / 100} /></Field><Field label="Atendimentos"><input name="attendance" type="number" defaultValue={data.goal.attendanceTarget} /></Field><button className="primary-button" disabled={pending}>Salvar metas</button></form></section>; }
 function PasswordSettings({ post, pending }: { post: Post; pending: boolean }) {
   const [localError, setLocalError] = useState<string | null>(null);
