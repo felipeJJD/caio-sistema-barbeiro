@@ -33,5 +33,6 @@ test("calendário e servidor aplicam a mesma regra de dias fechados", async () =
     readFile(new URL("../db/public-booking.ts", import.meta.url), "utf8"),
   ]);
   assert.match(publicApp, /const closed = !isPublicBookingDateAllowed/);
-  assert.match(bookingDb, /if \(!isPublicBookingDateAllowed\(date, data\.organization\.weekdays\)\)/);
+  assert.match(bookingDb, /const dayHours = bookingHoursForDate\(data\.organization\.weeklyHours, date\)/);
+  assert.match(bookingDb, /if \(!dayHours\?\.enabled\)/);
 });
