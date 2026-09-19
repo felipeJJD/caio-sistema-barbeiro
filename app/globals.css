@@ -819,3 +819,11 @@ html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none;-webkit-text-size-
   .weekly-hours-row { grid-template-columns: 1fr 1fr; }
   .weekly-hours-enabled { grid-column: 1 / -1; }
 }
+
+
+.team-hours-editor { display: grid; gap: 10px; padding-top: 4px; }
+.team-hours-heading { display: grid; gap: 3px; }
+.team-hours-heading strong { font-size: 12px; color: #20261f; }
+.team-hours-heading small { font-size: 10px; line-height: 1.45; color: #697168; }
+.booking-option-grid.barbers button.unavailable { opacity: .48; cursor: not-allowed; }
+.booking-option-grid.barbers button.unavailable b { display: none; }
