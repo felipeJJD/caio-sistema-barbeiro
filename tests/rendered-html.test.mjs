@@ -80,7 +80,7 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     assert.equal(notifications.status, 200, JSON.stringify(notificationsBody));
     assert.equal(notificationsBody.configured, true);
     assert.equal(Buffer.from(notificationsBody.publicKey, 'base64url').length, 65);
-    for (const [origin, expectedStatus] of [['https://shop.example.invalid', 200], ['https://evil.invalid', 403]]) {
+    for (const [origin, expectedStatus] of [['https://cortouanotou.com.br', 200], ['https://shop.example.invalid', 403], ['https://evil.invalid', 403]]) {
       const response = await fetch(`${base}/api/notifications`, {
         method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'mark-read' }),
@@ -88,7 +88,7 @@ test('production server: login, dashboard, writes, authorization, photos, and re
       assert.equal(response.status, expectedStatus, await response.text());
     }
     const unauthenticatedNotification = await fetch(`${base}/api/notifications`, {
-      method: 'POST', headers: { Origin: 'https://shop.example.invalid', 'Content-Type': 'application/json' },
+      method: 'POST', headers: { Origin: 'https://cortouanotou.com.br', 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'mark-read' }),
     });
     assert.equal(unauthenticatedNotification.status, 401);
@@ -142,6 +142,16 @@ test('production server: login, dashboard, writes, authorization, photos, and re
       assert.equal(data.team.some(member => member.id === 999), false);
       assert.deepEqual(data.records.filter(row => row.clientName.startsWith('Sync ')).map(row => row.clientName).sort(), ['Sync Davi', 'Sync Eduardo']);
     }
+    const ownerNotices = (await readDashboard(cookie)).notifications;
+    const noticeToDelete = ownerNotices.find(item => item.kind === 'attendance' && item.body.includes('Sync Davi'));
+    assert.ok(noticeToDelete);
+    const deleteNotice = await fetch(`${base}/api/notifications`, {
+      method: 'POST', headers: { Cookie: cookie, Origin: 'https://cortouanotou.com.br', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete-notification', notificationId: noticeToDelete.id }),
+    });
+    assert.equal(deleteNotice.status, 200, await deleteNotice.clone().text());
+    assert.equal((await readDashboard(secondOwnerCookie)).notifications.some(item => item.id === noticeToDelete.id), false);
+    assert.equal((await readDashboard(secondOwnerCookie)).records.some(row => row.clientName === 'Sync Davi'), true);
     for (const [index, staffSession] of staffSessions.entries()) {
       const data = await readDashboard(staffSession);
       assert.deepEqual(data.records.map(row => row.clientName), [`Sync ${['Davi', 'Eduardo'][index]}`]);
