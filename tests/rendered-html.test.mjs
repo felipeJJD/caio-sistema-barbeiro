@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -162,6 +163,40 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     assert.doesNotMatch(await forbiddenDiagnostic.text(), /authAccountId|selectedByDashboardQuery/);
     const afterDiagnostic = await readDashboard(cookie);
     assert.deepEqual(afterDiagnostic.records.map(record => record.id), beforeDiagnostic.records.map(record => record.id));
+    const recoveredRecord = {
+      id: 90001, organization_id: 1, occurred_at: appDate(), client_name: 'Recovered Davi',
+      barber_id: employee.id, service_id: savedBody.data.services.find(service => service.name === 'Corte de verificação').id,
+      payment_method_id: beforeDiagnostic.paymentMethods[0].id, quantity: 1,
+      value_cents: 4500, commission_rate_bps: 5000, commission_cents: 2250,
+      tip_cents: 0, fee_cents: 0, origin: 'Retorno', record_type: 'Avulso',
+      membership_client_id: null, created_at: new Date().toISOString(),
+    };
+    const importRequest = (session, mode, records, origin = 'https://cortouanotou.com.br') => fetch(`${base}/api/admin/legacy-record-import`, {
+      method: 'POST', headers: { Cookie: session, Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, rows: records }),
+    });
+    assert.equal((await importRequest(staffSessions[0], 'preview', [recoveredRecord])).status, 403);
+    assert.equal((await importRequest(cookie, 'preview', [recoveredRecord], 'https://evil.invalid')).status, 403);
+    assert.equal((await importRequest(cookie, 'preview', [{ ...recoveredRecord, organization_id: 999 }])).status, 400);
+    const preview = await importRequest(cookie, 'preview', [recoveredRecord]);
+    assert.equal(preview.status, 200, await preview.clone().text());
+    assert.deepEqual((await preview.json()).pendingIds, [90001]);
+    assert.equal((await readDashboard(secondOwnerCookie)).records.some(record => record.clientName === 'Recovered Davi'), false);
+    const importedResponse = await importRequest(cookie, 'apply', [recoveredRecord]);
+    assert.equal(importedResponse.status, 200, await importedResponse.clone().text());
+    assert.equal((await importedResponse.json()).imported, 1);
+    const backupFiles = await readdir(join(directory, 'legacy-import-backups'));
+    assert.equal(backupFiles.length, 1);
+    const beforeImport = new DatabaseSync(join(directory, 'legacy-import-backups', backupFiles[0]), { readOnly: true });
+    try { assert.equal(beforeImport.prepare("SELECT count(*) AS total FROM daily_records WHERE client_name = 'Recovered Davi'").get().total, 0); }
+    finally { beforeImport.close(); }
+    for (const ownerSession of [cookie, secondOwnerCookie]) {
+      assert.equal((await readDashboard(ownerSession)).records.filter(record => record.clientName === 'Recovered Davi').length, 1);
+    }
+    const duplicatePreview = await importRequest(cookie, 'preview', [recoveredRecord]);
+    assert.deepEqual((await duplicatePreview.json()).alreadyImported, [90001]);
+    assert.equal((await importRequest(cookie, 'apply', [recoveredRecord])).status, 409);
+    assert.equal((await readDashboard(staffSessions[1])).records.some(record => record.clientName === 'Recovered Davi'), false);
     const teamPaymentResponse = await jsonPost('/api/action', { action: 'team-payment', teamMemberId: employee.id, occurredAt: appDate(), kind: 'Vale', reason: 'Adiantamento de teste', valueCents: 5000 }, cookie);
     const teamPaymentBody = await teamPaymentResponse.json();
     assert.equal(teamPaymentResponse.status, 200, JSON.stringify(teamPaymentBody));

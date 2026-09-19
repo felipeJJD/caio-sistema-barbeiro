@@ -533,6 +533,18 @@ export const goals = sqliteTable("goals", {
   attendanceTarget: integer("attendance_target").notNull().default(0),
 });
 
+/** Idempotency marker for records copied from the retired Sites database. */
+export const legacyRecordImports = sqliteTable("legacy_record_imports", {
+  sourceSystem: text("source_system").notNull(),
+  sourceRecordId: integer("source_record_id").notNull(),
+  organizationId: integer("organization_id").notNull(),
+  dailyRecordId: integer("daily_record_id").notNull(),
+  importedAt: text("imported_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("legacy_record_imports_source_unique").on(table.sourceSystem, table.sourceRecordId),
+  uniqueIndex("legacy_record_imports_target_unique").on(table.dailyRecordId),
+]);
+
 export const appointments = sqliteTable("appointments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   organizationId: integer("organization_id").notNull().default(1),
