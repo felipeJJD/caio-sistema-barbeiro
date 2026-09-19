@@ -248,6 +248,7 @@ export const team = sqliteTable("team", {
   platformAdmin: integer("platform_admin", { mode: "boolean" }).notNull().default(false),
   commissionCents: integer("commission_cents").notNull(),
   commissionRateBps: integer("commission_rate_bps").notNull().default(0),
+  paymentDay: integer("payment_day").notNull().default(10),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
 }, (table) => [uniqueIndex("team_login_email_unique").on(table.loginEmail)]);
 
@@ -265,6 +266,34 @@ export const teamPayments = sqliteTable("team_payments", {
 }, (table) => [
   index("team_payments_organization_date_idx").on(table.organizationId, table.occurredAt),
   index("team_payments_member_date_idx").on(table.teamMemberId, table.occurredAt),
+]);
+
+export const teamPaymentClosures = sqliteTable("team_payment_closures", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  organizationId: integer("organization_id").notNull(),
+  teamMemberId: integer("team_member_id").notNull(),
+  teamMemberName: text("team_member_name").notNull(),
+  periodStartDate: text("period_start_date").notNull(),
+  periodEndDate: text("period_end_date").notNull(),
+  closedAt: text("closed_at").notNull(),
+  paymentDay: integer("payment_day").notNull().default(10),
+  earnedCents: integer("earned_cents").notNull().default(0),
+  tipCents: integer("tip_cents").notNull().default(0),
+  valeCents: integer("vale_cents").notNull().default(0),
+  paidCents: integer("paid_cents").notNull().default(0),
+  settlementCents: integer("settlement_cents").notNull().default(0),
+  recordCount: integer("record_count").notNull().default(0),
+  lastDailyRecordId: integer("last_daily_record_id").notNull().default(0),
+  lastProductSaleId: integer("last_product_sale_id").notNull().default(0),
+  lastTeamPaymentId: integer("last_team_payment_id").notNull().default(0),
+  snapshotJson: text("snapshot_json").notNull(),
+  createdByTeamMemberId: integer("created_by_team_member_id").notNull(),
+  isBaseline: integer("is_baseline", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("team_payment_closures_org_member_closed_idx").on(table.organizationId, table.teamMemberId, table.closedAt),
+  index("team_payment_closures_member_closed_idx").on(table.teamMemberId, table.closedAt),
+  uniqueIndex("team_payment_closures_cycle_unique").on(table.organizationId, table.teamMemberId, table.lastDailyRecordId, table.lastProductSaleId, table.lastTeamPaymentId),
 ]);
 
 export const publicGalleryImages = sqliteTable("public_gallery_images", {
