@@ -225,6 +225,61 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     const deletedTeamPaymentBody = await deletedTeamPaymentResponse.json();
     assert.equal(deletedTeamPaymentResponse.status, 200, JSON.stringify(deletedTeamPaymentBody));
     assert.equal(deletedTeamPaymentBody.data.teamPayments.some(entry => entry.id === disposableTeamPayment.id), false);
+    const teamMoneyBefore = await fetch(`${base}/api/team-money`, { headers: { Cookie: cookie } });
+    const teamMoneyBeforeBody = await teamMoneyBefore.json();
+    assert.equal(teamMoneyBefore.status, 200, JSON.stringify(teamMoneyBeforeBody));
+    const daviMoneyBefore = teamMoneyBeforeBody.data.rows.find(row => row.teamMemberId === employee.id);
+    assert.ok(daviMoneyBefore);
+    assert.equal(daviMoneyBefore.paidCents, 4500);
+
+    const staffTeamMoney = await fetch(`${base}/api/team-money`, { headers: { Cookie: staffSessions[0] } });
+    const staffTeamMoneyBody = await staffTeamMoney.json();
+    assert.equal(staffTeamMoney.status, 200, JSON.stringify(staffTeamMoneyBody));
+    assert.deepEqual(staffTeamMoneyBody.data.rows.map(row => row.teamMemberName), ['Davi']);
+
+    const forbiddenPaymentDay = await jsonPost('/api/team-money', { action: 'save-payment-day', teamMemberId: employee.id, paymentDay: 15 }, staffSessions[0]);
+    assert.equal(forbiddenPaymentDay.status, 400);
+
+    const paymentDayResponse = await jsonPost('/api/team-money', { action: 'save-payment-day', teamMemberId: employee.id, paymentDay: 15 }, cookie);
+    const paymentDayBody = await paymentDayResponse.json();
+    assert.equal(paymentDayResponse.status, 200, JSON.stringify(paymentDayBody));
+    assert.equal(paymentDayBody.data.rows.find(row => row.teamMemberId === employee.id).paymentDay, 15);
+
+    const closeResponse = await jsonPost('/api/team-money', { action: 'close', teamMemberId: employee.id }, cookie);
+    const closeBody = await closeResponse.json();
+    assert.equal(closeResponse.status, 200, JSON.stringify(closeBody));
+    assert.ok(closeBody.closureId);
+    assert.equal(closeBody.data.rows.find(row => row.teamMemberId === employee.id).currentBalanceCents, 0);
+
+    const closedEntryEdit = await jsonPost('/api/action', { action: 'team-payment', id: teamPayment.id, teamMemberId: employee.id, occurredAt: appDate(), kind: 'Pagamento', reason: 'Não pode mudar fechamento', valueCents: 1 }, cookie);
+    assert.equal(closedEntryEdit.status, 400);
+
+    for (const session of [cookie, staffSessions[0]]) {
+      const pdfResponse = await fetch(`${base}/api/team-money/closures/${closeBody.closureId}/pdf`, { headers: { Cookie: session } });
+      assert.equal(pdfResponse.status, 200, await pdfResponse.clone().text());
+      assert.match(pdfResponse.headers.get('content-type') ?? '', /application\/pdf/);
+      const pdfBytes = Buffer.from(await pdfResponse.arrayBuffer());
+      assert.equal(pdfBytes.subarray(0, 8).toString('latin1'), '%PDF-1.4');
+    }
+
+    const daviAfterClose = await readDashboard(staffSessions[0]);
+    const postCloseCut = await jsonPost('/api/action', {
+      action: 'daily-record', occurredAt: appDate(), recordType: 'Avulso',
+      clientName: 'Depois do fechamento', barberId: daviAfterClose.viewer.teamMemberId,
+      serviceId: daviAfterClose.services[0].id, paymentMethodId: daviAfterClose.paymentMethods[0].id,
+      tipCents: 700,
+    }, staffSessions[0]);
+    const postCloseCutBody = await postCloseCut.json();
+    assert.equal(postCloseCut.status, 200, JSON.stringify(postCloseCutBody));
+    const newRecord = postCloseCutBody.data.records.find(row => row.clientName === 'Depois do fechamento');
+    assert.ok(newRecord);
+    const expectedNewBalance = newRecord.commissionCents + newRecord.tipCents;
+    const teamMoneyAfter = await fetch(`${base}/api/team-money`, { headers: { Cookie: staffSessions[0] } });
+    const teamMoneyAfterBody = await teamMoneyAfter.json();
+    assert.equal(teamMoneyAfter.status, 200, JSON.stringify(teamMoneyAfterBody));
+    assert.equal(teamMoneyAfterBody.data.rows[0].currentBalanceCents, expectedNewBalance);
+    assert.equal(teamMoneyAfterBody.data.rows[0].tipCents, 700);
+
     const form = new FormData();
     form.set('kind', 'shop');
     form.set('consent', 'true');
