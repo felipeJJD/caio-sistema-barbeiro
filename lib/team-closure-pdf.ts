@@ -22,7 +22,7 @@ function pdfText(value: string) {
 
 function trimText(value: string, max = 44) {
   const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length <= max ? normalized : `${normalized.slice(0, Math.max(1, max - 1))}…`;
+  return normalized.length <= max ? normalized : `${normalized.slice(0, Math.max(1, max - 3))}...`;
 }
 
 function buildPage() {
