@@ -28,6 +28,8 @@ CREATE INDEX `team_payment_closures_org_member_closed_idx` ON `team_payment_clos
 --> statement-breakpoint
 CREATE INDEX `team_payment_closures_member_closed_idx` ON `team_payment_closures` (`team_member_id`, `closed_at`);
 --> statement-breakpoint
+CREATE UNIQUE INDEX `team_payment_closures_cycle_unique` ON `team_payment_closures` (`organization_id`, `team_member_id`, `last_daily_record_id`, `last_product_sale_id`, `last_team_payment_id`);
+--> statement-breakpoint
 INSERT INTO `team_payment_closures` (
   `organization_id`, `team_member_id`, `team_member_name`,
   `period_start_date`, `period_end_date`, `closed_at`, `payment_day`,
