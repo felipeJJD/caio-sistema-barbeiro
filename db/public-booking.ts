@@ -7,7 +7,8 @@ import { accessPeriodHasEnded } from "./access";
 import { listPublicGalleryImages, type PublicGalleryImage } from "./public-gallery";
 import { getBookingPaymentSettings } from "./booking-payments";
 import { validClientName } from "../lib/client-name";
-import { isPublicBookingDateAllowed, parseBookingWeekdays } from "../lib/booking-weekdays";
+import { parseBookingWeekdays } from "../lib/booking-weekdays";
+import { bookingHoursForDate, bookingWeekdaysFromHours, parseWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
 
 export type PublicBookingData = {
   organization: {
@@ -19,6 +20,7 @@ export type PublicBookingData = {
     openingTime: string;
     closingTime: string;
     weekdays: number[];
+    weeklyHours: WeeklyBookingHours;
   };
   services: Array<{ id: number; name: string; priceCents: number; durationMinutes: number }>;
   barbers: Array<{ id: number; name: string; photoUrl: string | null }>;
@@ -89,6 +91,12 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
     listPublicGalleryImages(organization.id),
     getBookingPaymentSettings(organization.id),
   ]);
+  const weeklyHours = parseWeeklyBookingHours(
+    organization.weeklyBookingHours,
+    parseBookingWeekdays(organization.publicBookingWeekdays),
+    organization.openingTime,
+    organization.closingTime,
+  );
   return {
     organization: {
       id: organization.id,
@@ -98,7 +106,8 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
       requiresApproval: organization.publicBookingRequiresApproval,
       openingTime: organization.openingTime,
       closingTime: organization.closingTime,
-      weekdays: parseBookingWeekdays(organization.publicBookingWeekdays),
+      weekdays: bookingWeekdaysFromHours(weeklyHours),
+      weeklyHours,
     },
     services: serviceList,
     barbers: barberList.map((barber) => ({ ...barber, photoUrl: gallery.find((image) => image.kind === "barber" && image.teamMemberId === barber.id)?.url ?? null })),
@@ -120,7 +129,8 @@ async function availabilityContext(slug: string, date: string, serviceId: number
   assertBookingDate(date);
   const data = await getPublicBookingData(slug);
   if (!data || !data.organization.enabled) throw new Error("O agendamento online desta barbearia não está disponível agora.");
-  if (!isPublicBookingDateAllowed(date, data.organization.weekdays)) throw new Error("A barbearia não atende neste dia da semana.");
+  const dayHours = bookingHoursForDate(data.organization.weeklyHours, date);
+  if (!dayHours?.enabled) throw new Error("A barbearia não atende neste dia da semana.");
   const service = data.services.find((item) => item.id === serviceId);
   if (!service) throw new Error("Escolha um serviço disponível.");
   const candidateBarbers = requestedBarberId
@@ -152,8 +162,10 @@ function barberIsFree(barberId: number, start: number, duration: number, rows: A
 
 export async function getPublicBookingSlots(slug: string, date: string, serviceId: number, barberId = 0): Promise<PublicBookingSlot[]> {
   const context = await availabilityContext(slug, date, serviceId, barberId);
-  const opening = toMinutes(context.data.organization.openingTime);
-  const closing = toMinutes(context.data.organization.closingTime);
+  const dayHours = bookingHoursForDate(context.data.organization.weeklyHours, date);
+  if (!dayHours?.enabled) return [];
+  const opening = toMinutes(dayHours.openingTime);
+  const closing = toMinutes(dayHours.closingTime);
   if (!Number.isFinite(opening) || !Number.isFinite(closing) || opening >= closing) return [];
   const nowParts = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
   const minimumTodayStart = Number(nowParts.find((part) => part.type === "hour")?.value ?? 0) * 60 + Number(nowParts.find((part) => part.type === "minute")?.value ?? 0);
