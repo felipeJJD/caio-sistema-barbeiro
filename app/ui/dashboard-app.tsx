@@ -1433,7 +1433,7 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
         <span>{data.agendaSettings.useServiceDuration ? "✓" : "○"}</span>
         <div>
           <strong>{data.agendaSettings.useServiceDuration ? "Duração inteligente ligada" : "Duração inteligente desligada"}</strong>
-          <small>{data.agendaSettings.useServiceDuration ? `Expediente de ${data.agendaSettings.openingTime} até ${data.agendaSettings.closingTime}` : "Os registros avulsos continuam funcionando normalmente"}</small>
+          <small>{data.agendaSettings.useServiceDuration ? "Expediente configurado por dia da semana" : "Os registros avulsos continuam funcionando normalmente"}</small>
         </div>
       </div>
       <div className="appointment-list">
@@ -1443,7 +1443,7 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
           <div className="appointment-info"><strong>{item.clientName}</strong><p>{item.paymentChoice === "Mensalista" ? "Mensalista" : item.serviceName} com {item.barberName}</p><small>{item.phone}{item.notes ? ` · ${item.notes}` : ""}</small><small>{item.paymentChoice === "Mensalista" ? "Uso do plano mensal · conferir cadastro" : `Pagamento escolhido: ${item.paymentChoice}`}</small>{item.reminderSentAt && <small className="appointment-reminder-status">✓ {reminderSentLabel(item.reminderSentAt)}</small>}</div>
           <span className={`status ${item.status.toLowerCase()}`}>{item.status}</span>
           <div className="appointment-actions">
-            {data.viewer.isOwner && item.status === "Aguardando" && <button className="confirm whatsapp-confirm" disabled={pending} title="Confirmar este horário" onClick={() => confirm(item)}>Confirmar horário</button>}
+            {(data.viewer.isOwner || item.barberId === data.viewer.teamMemberId) && item.status === "Aguardando" && <button className="confirm whatsapp-confirm" disabled={pending} title="Confirmar este horário" onClick={() => confirm(item)}>Confirmar horário</button>}
             {item.status === "Agendado" && whatsappPhone(item.phone) && <a className="whatsapp-message" href={whatsappConfirmationUrl(item, data.viewer.organizationName)} target="_blank" rel="noreferrer"><AppIcon name="whatsapp" /> Avisar no WhatsApp</a>}
             {item.status === "Agendado" && whatsappPhone(item.phone) && <button className={item.reminderSentAt ? "reminder sent" : "reminder"} disabled={pending} title={item.reminderSentAt ? reminderSentLabel(item.reminderSentAt) : "Abrir lembrete no WhatsApp"} onClick={() => sendReminder(item)}>{item.reminderSentAt ? "Reenviar lembrete" : "Enviar lembrete"}</button>}
             {item.status === "Agendado" && <button className="complete-appointment" disabled={pending} onClick={() => setCompletingId(item.id)}>Concluir atendimento</button>}
@@ -2173,7 +2173,6 @@ function PublicBookingSettings({ data, post, pending }: { data: DashboardData; p
       closingTime: data.agendaSettings.closingTime,
       publicBookingEnabled: form.get("publicBookingEnabled") === "on",
       publicBookingRequiresApproval: form.get("publicBookingRequiresApproval") === "on",
-      publicBookingWeekdays: form.getAll("publicBookingWeekday").map(Number).join(","),
     }, "Configuração do agendamento público atualizada.");
   }
 
@@ -2191,8 +2190,8 @@ function PublicBookingSettings({ data, post, pending }: { data: DashboardData; p
     </div>
     <div className="panel form-card compact public-booking-config"><SectionTitle title="Controlar agendamentos" copy="Você decide se o link fica ativo e se cada pedido precisa de aprovação." /><form className="app-form" onSubmit={submit}>
       <label className="agenda-toggle"><input name="publicBookingEnabled" type="checkbox" defaultChecked={data.agendaSettings.publicBookingEnabled} /><span /><div><strong>Link público ativo</strong><small>Clientes podem abrir o calendário e solicitar horários</small></div></label>
-      <label className="agenda-toggle"><input name="publicBookingRequiresApproval" type="checkbox" defaultChecked={data.agendaSettings.publicBookingRequiresApproval} /><span /><div><strong>Confirmar antes de aceitar</strong><small>O pedido entra como “Aguardando” e você confirma na Agenda</small></div></label>
-      <fieldset className="booking-weekday-settings"><legend>Dias disponíveis no link público</legend><div>{BOOKING_WEEKDAY_OPTIONS.map((day) => <label key={day.value}><input name="publicBookingWeekday" type="checkbox" value={day.value} defaultChecked={data.agendaSettings.publicBookingWeekdays.includes(day.value)} /><span>{day.shortLabel}</span></label>)}</div><small>Dias desmarcados ficam bloqueados no calendário. Os agendamentos já existentes não são alterados.</small></fieldset>
+      <label className="agenda-toggle"><input name="publicBookingRequiresApproval" type="checkbox" defaultChecked={data.agendaSettings.publicBookingRequiresApproval} /><span /><div><strong>Confirmar antes de aceitar</strong><small>O pedido chega para o proprietário e para o barbeiro escolhido. Qualquer um dos dois pode confirmar.</small></div></label>
+      <div className="public-booking-rules"><span>7</span><div><strong>Dias e horários vêm da Agenda</strong><small>Altere o expediente na aba Agenda. O link público acompanha automaticamente.</small></div></div>
       <div className="public-booking-rules"><span>30</span><div><strong>Horários a cada meia hora</strong><small>A duração real vem do serviço cadastrado. Corte de 60 minutos, por exemplo, bloqueia dois intervalos.</small></div></div>
       <button className="primary-button" disabled={pending}>{pending ? "Salvando..." : "Salvar agendamento público"}</button>
     </form></div>
@@ -2244,7 +2243,56 @@ function ServiceSettings({ data, post, pending, editingId, setEditingId }: Setti
   async function remove(id: number, name: string) { if (!window.confirm(`Excluir o serviço ${name}? Ele sairá das novas marcações, mas os registros e agendamentos antigos continuarão no histórico.`)) return; const ok = await post({ action: "delete-service", id }, "Serviço excluído. O histórico foi preservado."); if (ok && editingId === id) setEditingId(null); }
   return <SettingsLayout title="Serviços e preços" copy="Preço do atendimento e duração usada somente na agenda inteligente." list={<div className="edit-list">{data.services.map((x) => <EditRow key={x.id} title={x.name} detail={`${money(x.priceCents)} · ${x.durationMinutes} min na agenda`} active={x.active} onEdit={() => setEditingId(x.id)} onDelete={() => void remove(x.id, x.name)} pending={pending} />)}</div>} form={<><SectionTitle title={item ? "Editar serviço" : "Novo serviço"} copy="A duração não interfere nos registros avulsos." /><form className="app-form" onSubmit={submit} key={item?.id ?? "new"}><Field label="Serviço"><input name="name" defaultValue={item?.name ?? ""} required /></Field><Field label="Preço (R$)"><input name="price" type="number" step="0.01" defaultValue={(item?.priceCents ?? 0) / 100} /></Field><Field label="Duração na agenda (minutos)"><input name="durationMinutes" type="number" min="5" max="480" step="5" defaultValue={item?.durationMinutes ?? 30} required /></Field><label className="check"><input name="active" type="checkbox" defaultChecked={item?.active ?? true} /> Serviço ativo</label><button className="primary-button" disabled={pending}>Salvar serviço</button></form></>} />;
 }
-function AgendaSettings({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) { async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); await post({ action: "save-agenda-settings", useServiceDuration: f.get("useServiceDuration") === "on", openingTime: String(f.get("openingTime")), closingTime: String(f.get("closingTime")) }, "Configuração da agenda atualizada."); } return <section className="settings-layout agenda-settings-layout"><div className="panel agenda-settings-info"><SectionTitle title="Agenda inteligente" copy="Cada barbearia escolhe como prefere trabalhar." /><div className="agenda-choice-list"><article><span>Ligada</span><strong>Horários por duração</strong><small>Evita sobreposição e respeita o expediente.</small></article><article><span>Desligada</span><strong>Agenda simples</strong><small>Bloqueia apenas horários exatamente iguais.</small></article><article><span>Sempre livre</span><strong>Registros avulsos</strong><small>Nunca são afetados por esta configuração.</small></article></div></div><div className="panel form-card compact"><SectionTitle title="Configurar agenda" copy="Você pode mudar esta opção quando quiser." /><form className="app-form" onSubmit={submit}><label className="agenda-toggle"><input name="useServiceDuration" type="checkbox" defaultChecked={data.agendaSettings.useServiceDuration} /><span /><div><strong>Usar duração dos serviços</strong><small>Calcula automaticamente o fim de cada horário marcado</small></div></label><div className="field-grid"><Field label="Abertura"><input name="openingTime" type="time" step="60" defaultValue={data.agendaSettings.openingTime} required /></Field><Field label="Fechamento"><input name="closingTime" type="time" step="60" defaultValue={data.agendaSettings.closingTime} required /></Field></div><p className="agenda-settings-help">Esses horários só serão aplicados quando a duração inteligente estiver ligada.</p><button className="primary-button" disabled={pending}>{pending ? "Salvando..." : "Salvar configuração da agenda"}</button></form></div></section>; }
+function AgendaSettings({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const weeklyHours = BOOKING_WEEKDAY_OPTIONS.map((day) => ({
+      day: day.value,
+      enabled: f.get(`day-${day.value}-enabled`) === "on",
+      openingTime: String(f.get(`day-${day.value}-opening`) ?? "08:00"),
+      closingTime: String(f.get(`day-${day.value}-closing`) ?? "19:00"),
+    }));
+    const firstEnabled = weeklyHours.find((row) => row.enabled) ?? weeklyHours[1];
+    await post({
+      action: "save-agenda-settings",
+      useServiceDuration: f.get("useServiceDuration") === "on",
+      openingTime: firstEnabled.openingTime,
+      closingTime: firstEnabled.closingTime,
+      weeklyHours: JSON.stringify(weeklyHours),
+    }, "Horários da barbearia atualizados.");
+  }
+
+  return <section className="settings-layout agenda-settings-layout">
+    <div className="panel agenda-settings-info">
+      <SectionTitle title="Horários da barbearia" copy="Configure uma vez os dias e o expediente. O link público passa a respeitar esses horários automaticamente." />
+      <div className="agenda-choice-list">
+        <article><span>7 dias</span><strong>Expediente por dia</strong><small>Domingo pode ter um horário diferente dos outros dias.</small></article>
+        <article><span>✓</span><strong>Duração dos serviços</strong><small>O último horário só aparece se o serviço terminar antes do fechamento.</small></article>
+        <article><span>Equipe</span><strong>Agenda compartilhada</strong><small>Cada barbeiro enxerga apenas os horários marcados para ele.</small></article>
+      </div>
+    </div>
+    <div className="panel form-card compact weekly-hours-card">
+      <SectionTitle title="Configurar expediente" copy="Desative um dia para fechar a agenda naquele dia." />
+      <form className="app-form" onSubmit={submit}>
+        <label className="agenda-toggle"><input name="useServiceDuration" type="checkbox" defaultChecked={data.agendaSettings.useServiceDuration} /><span /><div><strong>Usar duração dos serviços</strong><small>Evita sobreposição e respeita o horário de fechamento</small></div></label>
+        <div className="weekly-hours-list">
+          {BOOKING_WEEKDAY_OPTIONS.map((day) => {
+            const row = data.agendaSettings.weeklyHours.find((item) => item.day === day.value) ?? { day: day.value, enabled: false, openingTime: "08:00", closingTime: "19:00" };
+            return <div className="weekly-hours-row" key={day.value}>
+              <label className="weekly-hours-enabled"><input name={`day-${day.value}-enabled`} type="checkbox" defaultChecked={row.enabled} /><span>{day.shortLabel}</span><small>{day.label}</small></label>
+              <Field label="Abre"><input name={`day-${day.value}-opening`} type="time" step="60" defaultValue={row.openingTime} required /></Field>
+              <Field label="Fecha"><input name={`day-${day.value}-closing`} type="time" step="60" defaultValue={row.closingTime} required /></Field>
+            </div>;
+          })}
+        </div>
+        <p className="agenda-settings-help">Esses horários valem para o link público e, com a duração inteligente ligada, também para horários lançados pela equipe.</p>
+        <button className="primary-button" disabled={pending}>{pending ? "Salvando..." : "Salvar horários da barbearia"}</button>
+      </form>
+    </div>
+  </section>;
+}
+
 function PaymentSettings({ data, post, pending, editingId, setEditingId }: SettingProps) { const item = data.paymentMethods.find((x) => x.id === editingId); async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); if (await post({ action: "save-payment", id: editingId ?? 0, name: String(f.get("name")), feeBps: Math.round(Number(f.get("fee")) * 100) }, "Forma de pagamento salva.")) setEditingId(null); } return <SettingsLayout title="Formas de pagamento" copy="Taxas descontadas automaticamente." list={<div className="edit-list">{data.paymentMethods.map((x) => <EditRow key={x.id} title={x.name} detail={`${(x.feeBps / 100).toFixed(2).replace(".", ",")}% de taxa`} onEdit={() => setEditingId(x.id)} />)}</div>} form={<><SectionTitle title={item ? "Editar pagamento" : "Novo pagamento"} copy="Informe a taxa cobrada." /><form className="app-form" onSubmit={submit} key={item?.id ?? "new"}><Field label="Nome"><input name="name" defaultValue={item?.name ?? ""} required /></Field><Field label="Taxa (%)"><input name="fee" type="number" step="0.01" defaultValue={(item?.feeBps ?? 0) / 100} /></Field><button className="primary-button" disabled={pending}>Salvar pagamento</button></form></>} />; }
 function TeamSettings({ data, post, pending, editingId, setEditingId }: SettingProps) {
   const item = data.team.find((x) => x.id === editingId);
