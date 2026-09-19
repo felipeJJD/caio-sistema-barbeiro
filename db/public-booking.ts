@@ -8,7 +8,7 @@ import { listPublicGalleryImages, type PublicGalleryImage } from "./public-galle
 import { getBookingPaymentSettings } from "./booking-payments";
 import { validClientName } from "../lib/client-name";
 import { parseBookingWeekdays } from "../lib/booking-weekdays";
-import { bookingHoursForDate, bookingWeekdaysFromHours, parseWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
+import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWindowAllows, parseTeamWeeklyBookingHours, parseWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
 
 export type PublicBookingData = {
   organization: {
@@ -23,7 +23,7 @@ export type PublicBookingData = {
     weeklyHours: WeeklyBookingHours;
   };
   services: Array<{ id: number; name: string; priceCents: number; durationMinutes: number }>;
-  barbers: Array<{ id: number; name: string; photoUrl: string | null }>;
+  barbers: Array<{ id: number; name: string; photoUrl: string | null; weeklyHours: WeeklyBookingHours }>;
   gallery: PublicGalleryImage[];
   payments: { pixEnabled: boolean; pixKey: string; cashEnabled: boolean; debitEnabled: boolean; creditEnabled: boolean };
 };
@@ -87,7 +87,7 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
   if (!organization) return null;
   const [serviceList, barberList, gallery, payments] = await Promise.all([
     db.select({ id: services.id, name: services.name, priceCents: services.priceCents, durationMinutes: services.durationMinutes }).from(services).where(and(eq(services.organizationId, organization.id), eq(services.active, true), isNull(services.deletedAt))).orderBy(services.name),
-    db.select({ id: team.id, name: team.name }).from(team).where(and(eq(team.organizationId, organization.id), eq(team.active, true))).orderBy(team.name),
+    db.select({ id: team.id, name: team.name, weeklyBookingHours: team.weeklyBookingHours }).from(team).where(and(eq(team.organizationId, organization.id), eq(team.active, true))).orderBy(team.name),
     listPublicGalleryImages(organization.id),
     getBookingPaymentSettings(organization.id),
   ]);
@@ -110,7 +110,7 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
       weeklyHours,
     },
     services: serviceList,
-    barbers: barberList.map((barber) => ({ ...barber, photoUrl: gallery.find((image) => image.kind === "barber" && image.teamMemberId === barber.id)?.url ?? null })),
+    barbers: barberList.map((barber) => ({ id: barber.id, name: barber.name, photoUrl: gallery.find((image) => image.kind === "barber" && image.teamMemberId === barber.id)?.url ?? null, weeklyHours: parseTeamWeeklyBookingHours(barber.weeklyBookingHours, weeklyHours) })),
     gallery,
     payments,
   };
@@ -133,10 +133,11 @@ async function availabilityContext(slug: string, date: string, serviceId: number
   if (!dayHours?.enabled) throw new Error("A barbearia não atende neste dia da semana.");
   const service = data.services.find((item) => item.id === serviceId);
   if (!service) throw new Error("Escolha um serviço disponível.");
-  const candidateBarbers = requestedBarberId
+  const selectedBarbers = requestedBarberId
     ? data.barbers.filter((item) => item.id === requestedBarberId)
     : data.barbers;
-  if (!candidateBarbers.length) throw new Error("Escolha um profissional disponível.");
+  if (requestedBarberId && !selectedBarbers.length) throw new Error("Escolha um profissional disponível.");
+  const candidateBarbers = selectedBarbers.filter((barber) => bookingHoursForDate(barber.weeklyHours, date)?.enabled);
   const db = await getDb();
   const appointmentRows = await db.select({
     id: appointments.id,
@@ -172,7 +173,7 @@ export async function getPublicBookingSlots(slug: string, date: string, serviceI
   const slots: PublicBookingSlot[] = [];
   for (let start = opening; start + context.service.durationMinutes <= closing; start += 30) {
     if (date === appDate() && start <= minimumTodayStart) continue;
-    const available = context.candidateBarbers.find((barber) => barberIsFree(barber.id, start, context.service.durationMinutes, context.appointmentRows));
+    const available = context.candidateBarbers.find((barber) => bookingWindowAllows(bookingHoursForDate(barber.weeklyHours, date), start, context.service.durationMinutes) && barberIsFree(barber.id, start, context.service.durationMinutes, context.appointmentRows));
     if (available) slots.push({ time: toTime(start), barberId: available.id, barberName: available.name });
   }
   return slots;
