@@ -1,6 +1,6 @@
-import { getSessionAccess } from "../../../../../db/auth";
-import { getTeamPaymentClosureForAccess } from "../../../../../db/team-money";
-import { buildTeamClosurePdf } from "../../../../../lib/team-closure-pdf";
+import { getSessionAccess } from "../../../../../../db/auth";
+import { getTeamPaymentClosureForAccess } from "../../../../../../db/team-money";
+import { buildTeamClosurePdf } from "../../../../../../lib/team-closure-pdf";
 
 const filePart = (value: string) => value
   .normalize("NFD")
