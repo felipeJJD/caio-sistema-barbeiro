@@ -1,5 +1,3 @@
-import { bookingWeekday, serializeBookingWeekdays } from "./booking-weekdays";
-
 export type BookingDayHours = {
   day: number;
   enabled: boolean;
@@ -8,6 +6,24 @@ export type BookingDayHours = {
 };
 
 export type WeeklyBookingHours = BookingDayHours[];
+
+function bookingWeekday(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return -1;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return -1;
+  return date.getUTCDay();
+}
+
+function serializeBookingWeekdays(days: readonly number[]) {
+  return [...new Set(days)]
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+    .sort((a, b) => a - b)
+    .join(",");
+}
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 
