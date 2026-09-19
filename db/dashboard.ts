@@ -12,7 +12,7 @@ import { barberPayoutCents } from "../lib/earnings";
 import { activeMembershipTotals, membershipPayoutCentsForAccessRole } from "../lib/membership-summary";
 import { validClientName } from "../lib/client-name";
 import { parseBookingWeekdays } from "../lib/booking-weekdays";
-import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWeekdaysTextFromHours, normalizeWeeklyBookingHours, parseWeeklyBookingHours, serializeWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
+import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWeekdaysTextFromHours, bookingWindowAllows, normalizeWeeklyBookingHours, parseTeamWeeklyBookingHours, parseWeeklyBookingHours, serializeTeamWeeklyBookingHours, serializeWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
 import { isTeamPaymentKind, type TeamPaymentKind } from "../lib/team-payments";
 import { assertTeamPaymentOpen } from "./team-money";
 
@@ -21,7 +21,7 @@ export type DashboardData = {
   viewer: { name: string; email: string; role: "owner" | "barber"; isOwner: boolean; isPlatformAdmin: boolean; teamMemberId: number; organizationName: string; accountType: "barbershop" | "individual"; organizationStatus: string; trialEndsAt: string | null };
   clients: Array<{ id: number; name: string; phone: string; plan: string; planKind: string; planId: number; paymentMethodId: number; paymentName: string; balance: number; maxBalance: number; dueDate: string; status: string; monthlyValueCents: number; paidMonth: string; usedThisMonth: number; remaining: number; overLimit: boolean }>;
   plans: Array<{ id: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }>;
-  team: Array<{ id: number; name: string; role: string; loginEmail: string | null; accessRole: string; commissionCents: number; commissionRateBps: number; active: boolean; hasPassword: boolean }>;
+  team: Array<{ id: number; name: string; role: string; loginEmail: string | null; accessRole: string; commissionCents: number; commissionRateBps: number; active: boolean; hasPassword: boolean; weeklyHours: WeeklyBookingHours }>;
   teamPayments: Array<{ id: number; teamMemberId: number; teamMemberName: string; occurredAt: string; kind: TeamPaymentKind; reason: string; valueCents: number }>;
   services: Array<{ id: number; name: string; priceCents: number; durationMinutes: number; active: boolean }>;
   agendaSettings: { useServiceDuration: boolean; openingTime: string; closingTime: string; weeklyHours: WeeklyBookingHours; publicBookingEnabled: boolean; publicBookingRequiresApproval: boolean; publicBookingWeekdays: number[]; publicBookingSlug: string };
@@ -227,6 +227,12 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
     const month = appMonth();
     const organizationId = access.organizationId;
     const organization = (await db.select().from(organizations).where(eq(organizations.id, organizationId)).limit(1))[0];
+    const organizationWeeklyHours = parseWeeklyBookingHours(
+      organization?.weeklyBookingHours,
+      parseBookingWeekdays(organization?.publicBookingWeekdays),
+      organization?.openingTime ?? "08:00",
+      organization?.closingTime ?? "19:00",
+    );
     const recordOwnershipCondition = access.isOwner
       ? eq(dailyRecords.organizationId, organizationId)
       : and(eq(dailyRecords.organizationId, organizationId), eq(dailyRecords.barberId, access.teamMemberId));
@@ -292,7 +298,7 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
     const currentRecords = recordList.filter((item) => item.occurredAt.startsWith(month));
     const clientsWithUsage = rawClients.map((client) => { const usedThisMonth = currentRecords.filter((record) => record.recordType === "Mensalista" && record.membershipClientId === client.id).reduce((sum, record) => sum + record.quantity, 0); return { ...client, paymentName: paymentById.get(client.paymentMethodId)?.name ?? "Não informado", monthlyValueCents: access.isOwner ? client.monthlyValueCents : 0, usedThisMonth, remaining: Math.max(0, client.maxBalance - usedThisMonth), overLimit: usedThisMonth > client.maxBalance }; });
     const planList = rawPlans.map((plan) => ({ ...plan, monthlyValueCents: access.isOwner ? plan.monthlyValueCents : 0 }));
-    const visibleTeam = teamList.map((member) => ({ ...member, loginEmail: access.isOwner ? member.loginEmail : null, hasPassword: accountTeamIds.has(member.id) }));
+    const visibleTeam = teamList.map((member) => ({ ...member, loginEmail: access.isOwner ? member.loginEmail : null, hasPassword: accountTeamIds.has(member.id), weeklyHours: parseTeamWeeklyBookingHours(member.weeklyBookingHours, organizationWeeklyHours) }));
     const membershipRecords = currentRecords.filter((item) => item.recordType === "Mensalista");
     const currentMembershipPayments = membershipPaymentList.filter((payment) => payment.paidMonth === month);
     const activeMembership = activeMembershipTotals(rawClients, currentMembershipPayments, membershipRecords);
@@ -329,7 +335,7 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
     const activeClientIds = new Set(rawClients.filter((client) => client.status === "Ativo").map((client) => client.id));
     const ownerActiveMembershipRecords = membershipRecords.filter((item) => item.barberId === access.teamMemberId && item.membershipClientId !== null && activeClientIds.has(item.membershipClientId));
     const membershipSummary = access.isOwner ? { ownerPayoutCents: ownerActiveMembershipRecords.reduce((sum, item) => sum + barberPayoutCents(item), 0), ownerVisits: ownerActiveMembershipRecords.reduce((sum, item) => sum + item.quantity, 0), totalUses: activeMembership.uses, shopBalanceCents: activeMembership.revenueCents - activeMembership.payoutCents } : { ownerPayoutCents: 0, ownerVisits: 0, totalUses: activeMembership.uses, shopBalanceCents: 0 };
-    return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, accountType: access.accountType, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: clientsWithUsage, plans: planList, team: visibleTeam, teamPayments: teamPaymentList, services: serviceList, agendaSettings: { useServiceDuration: organization?.useServiceDurationInAgenda ?? false, openingTime: organization?.openingTime ?? "08:00", closingTime: organization?.closingTime ?? "19:00", weeklyHours: parseWeeklyBookingHours(organization?.weeklyBookingHours, parseBookingWeekdays(organization?.publicBookingWeekdays), organization?.openingTime ?? "08:00", organization?.closingTime ?? "19:00"), publicBookingEnabled: organization?.publicBookingEnabled ?? true, publicBookingRequiresApproval: organization?.publicBookingRequiresApproval ?? true, publicBookingWeekdays: bookingWeekdaysFromHours(parseWeeklyBookingHours(organization?.weeklyBookingHours, parseBookingWeekdays(organization?.publicBookingWeekdays), organization?.openingTime ?? "08:00", organization?.closingTime ?? "19:00")), publicBookingSlug: organization?.slug ?? "" }, paymentMethods: payments, membershipPayments: membershipPaymentList, records: recordList, expenses: expenseList, appointments: appointmentList, notifications: notificationList, products: productData.products, productSales: productData.sales, goal, stats: { revenueCents, serviceRevenueCents, membershipRevenueCents, productRevenueCents, productCostCents, productProfitCents, feeCents, expenseCents, commissionCents, myEarningsCents: commissionCents, grossProfitCents, netProfitCents, visitsThisMonth: currentRecords.reduce((sum, item) => sum + item.quantity, 0), workedDays: new Set(currentRecords.map((item) => item.occurredAt)).size, averageTicketCents: currentRecords.length ? Math.round(serviceRevenueCents / currentRecords.length) : 0, active, pending, openSpots: Math.max(0, 30 - active) }, membershipSummary, serviceRanking: [...serviceMap.values()].sort((a, b) => b.count - a.count), barberRanking: [...barberMap.values()].sort((a, b) => b.valueCents - a.valueCents), billingOffer };
+    return { dataPeriod: period, viewer: { name: access.name, email: access.email, role: access.role, isOwner: access.isOwner, isPlatformAdmin: access.isPlatformAdmin, teamMemberId: access.teamMemberId, organizationName: access.organizationName, accountType: access.accountType, organizationStatus: access.organizationStatus, trialEndsAt: access.trialEndsAt }, clients: clientsWithUsage, plans: planList, team: visibleTeam, teamPayments: teamPaymentList, services: serviceList, agendaSettings: { useServiceDuration: organization?.useServiceDurationInAgenda ?? false, openingTime: organization?.openingTime ?? "08:00", closingTime: organization?.closingTime ?? "19:00", weeklyHours: organizationWeeklyHours, publicBookingEnabled: organization?.publicBookingEnabled ?? true, publicBookingRequiresApproval: organization?.publicBookingRequiresApproval ?? true, publicBookingWeekdays: bookingWeekdaysFromHours(organizationWeeklyHours), publicBookingSlug: organization?.slug ?? "" }, paymentMethods: payments, membershipPayments: membershipPaymentList, records: recordList, expenses: expenseList, appointments: appointmentList, notifications: notificationList, products: productData.products, productSales: productData.sales, goal, stats: { revenueCents, serviceRevenueCents, membershipRevenueCents, productRevenueCents, productCostCents, productProfitCents, feeCents, expenseCents, commissionCents, myEarningsCents: commissionCents, grossProfitCents, netProfitCents, visitsThisMonth: currentRecords.reduce((sum, item) => sum + item.quantity, 0), workedDays: new Set(currentRecords.map((item) => item.occurredAt)).size, averageTicketCents: currentRecords.length ? Math.round(serviceRevenueCents / currentRecords.length) : 0, active, pending, openSpots: Math.max(0, 30 - active) }, membershipSummary, serviceRanking: [...serviceMap.values()].sort((a, b) => b.count - a.count), barberRanking: [...barberMap.values()].sort((a, b) => b.valueCents - a.valueCents), billingOffer };
   } catch {
     return emptyDashboard(access, period);
   }
@@ -549,6 +555,9 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
     const openingMinutes = toMinutes(dayHours.openingTime);
     const closingMinutes = toMinutes(dayHours.closingTime);
     if (startMinutes < openingMinutes || endMinutes > closingMinutes) throw new Error(`Escolha um horário entre ${dayHours.openingTime} e ${dayHours.closingTime}. Este serviço dura ${service.durationMinutes} minutos.`);
+    const barberHours = parseTeamWeeklyBookingHours(barber.weeklyBookingHours, weeklyHours);
+    const barberDayHours = bookingHoursForDate(barberHours, input.appointmentDate);
+    if (!bookingWindowAllows(barberDayHours, startMinutes, service.durationMinutes)) throw new Error(`${barber.name} não trabalha neste dia ou horário.`);
   }
   const conflict = agendaRows.find((item) => {
     if (item.id === input.id || item.status === "Cancelado") return false;
@@ -672,7 +681,7 @@ export async function saveAgendaSettings(access: AccessContext, input: { useServ
 }
 
 export async function savePayment(access: AccessContext, input: { id?: number; name: string; feeBps: number }) { requireOwner(access); if (!input.name.trim() || input.feeBps < 0) throw new Error("Informe pagamento e taxa."); const db = await getDb(); const values = { name: input.name.trim(), feeBps: input.feeBps }; if (input.id) await db.update(paymentMethods).set(values).where(and(eq(paymentMethods.id, input.id), eq(paymentMethods.organizationId, access.organizationId))); else await db.insert(paymentMethods).values({ ...values, organizationId: access.organizationId }); }
-export async function saveTeamMember(access: AccessContext, input: { id?: number; name: string; role: string; loginEmail?: string; accessRole?: string; commissionRateBps: number; active: boolean }) {
+export async function saveTeamMember(access: AccessContext, input: { id?: number; name: string; role: string; loginEmail?: string; accessRole?: string; commissionRateBps: number; active: boolean; weeklyHours?: WeeklyBookingHours }) {
   requireOwner(access);
   if (!input.name.trim() || input.commissionRateBps < 0) throw new Error("Informe o profissional e a comissão.");
   const db = await getDb();
@@ -681,7 +690,16 @@ export async function saveTeamMember(access: AccessContext, input: { id?: number
   const members = await db.select().from(team).where(eq(team.organizationId, access.organizationId));
   if (requestedEmail && members.some((member) => member.id !== input.id && member.loginEmail?.toLowerCase() === requestedEmail)) throw new Error("Este e-mail já está ligado a outro profissional.");
   const isSelf = input.id === access.teamMemberId;
-  const values = {
+  const values: {
+    name: string;
+    role: string;
+    loginEmail: string | null;
+    accessRole: string;
+    commissionRateBps: number;
+    active: boolean;
+    commissionCents: number;
+    weeklyBookingHours?: string;
+  } = {
     name: input.name.trim(),
     role: input.role.trim(),
     loginEmail: isSelf ? access.email : requestedEmail,
@@ -690,11 +708,13 @@ export async function saveTeamMember(access: AccessContext, input: { id?: number
     active: isSelf ? true : input.active,
     commissionCents: 0,
   };
+  if (input.weeklyHours !== undefined) values.weeklyBookingHours = serializeTeamWeeklyBookingHours(input.weeklyHours);
   if (input.id) {
     await db.update(team).set(values).where(and(eq(team.id, input.id), eq(team.organizationId, access.organizationId)));
     await syncTeamAccount(input.id, values.loginEmail, values.active);
   } else {
-    await db.insert(team).values({ ...values, organizationId: access.organizationId });
+    await db.insert(team).values({ ...values, organizationId: access.organizationId, weeklyBookingHours: values.weeklyBookingHours ?? "" });
   }
 }
+
 export async function saveGoal(access: AccessContext, input: { revenueCents: number; grossProfitCents: number; expenseCents: number; netProfitCents: number; attendanceTarget: number }) { requireOwner(access); const db = await getDb(); const month = appMonth(); const existing = (await db.select().from(goals).where(and(eq(goals.organizationId, access.organizationId), eq(goals.month, month))).limit(1))[0]; const values = { ...input, month }; if (existing) await db.update(goals).set(values).where(and(eq(goals.id, existing.id), eq(goals.organizationId, access.organizationId), eq(goals.month, month))); else await db.insert(goals).values({ ...values, organizationId: access.organizationId }); }

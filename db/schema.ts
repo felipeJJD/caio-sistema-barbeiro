@@ -250,6 +250,7 @@ export const team = sqliteTable("team", {
   commissionCents: integer("commission_cents").notNull(),
   commissionRateBps: integer("commission_rate_bps").notNull().default(0),
   paymentDay: integer("payment_day").notNull().default(10),
+  weeklyBookingHours: text("weekly_booking_hours").notNull().default(""),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
 }, (table) => [uniqueIndex("team_login_email_unique").on(table.loginEmail)]);
 
