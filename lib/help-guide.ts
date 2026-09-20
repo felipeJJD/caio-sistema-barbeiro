@@ -1,7 +1,7 @@
 import type { HelpActionProposal } from "./help-actions";
 
 export type HelpDestination = { section: string; tab?: string; label: string };
-export type HelpReply = { answer: string; destination?: HelpDestination; suggestions?: string[]; action?: HelpActionProposal };
+export type HelpReply = { answer: string; destination?: HelpDestination; suggestions?: string[]; action?: HelpActionProposal; details?: string; insight?: string; contextMessage?: string };
 export type HelpMessage = { role: "user" | "assistant"; content: string };
 export const HELP_MESSAGE_LIMIT = 2400;
 export function normalizeHelp(value: string) {
@@ -28,7 +28,7 @@ export const helpTopics = [
   { id: "subscription", terms: ["assinar", "assinar o plano", "meu plano", "pagar o app", "pagar o aplicativo", "renovar o app", "teste gratis", "assinatura do app", "preco do app", "quanto custa"], answer: "Em Meu plano você confere os planos disponíveis e as opções para renovar seu acesso. Escolha uma opção e confira o valor antes de pagar.", section: "Meu plano", label: "Ver Meu plano", owner: true },
   { id: "dashboard", terms: ["painel", "resultado", "faturamento", "lucro", "dinheiro", "numeros"], answer: "O Painel mostra os resultados do período escolhido. Faturamento é o valor registrado; a sobra desconta comissões, taxas, custo dos produtos e despesas lançadas. Também posso consultar os números por aqui: pergunte quanto a barbearia fez hoje.", section: "Painel", label: "Abrir Painel" },
   { id: "settings", terms: ["configuracao", "configuracoes", "ajustes"], answer: "Nas Configurações você ajusta serviços, pagamentos, equipe, mensalistas e agendamento público. O que você quer mudar?", section: "Configurações", label: "Abrir Configurações", owner: true },
-  { id: "voice", terms: ["voz", "microfone", "falar", "gravacao"], answer: "Toque no microfone, fale e faça as pausas que precisar. Toque novamente para parar, confira o texto e envie. Você também pode ditar pelo microfone do teclado. A autorização do microfone é controlada pelo navegador.", section: "", label: "" },
+  { id: "voice", terms: ["voz", "microfone", "falar", "gravacao"], answer: "Toque no microfone e grave seu áudio. Durante a gravação você pode pausar, apagar ou enviar. Depois do envio, a transcrição fica escondida e só aparece se você tocar em Ver transcrição. A autorização do microfone é controlada pelo navegador.", section: "", label: "" },
   { id: "support", terms: ["suporte", "ajuda humana", "erro", "nao funciona", "travou"], answer: "Me conte o que você tentou fazer e o que apareceu. Se precisar de atendimento humano, toque em Falar com o suporte aqui embaixo.", section: "", label: "" },
   { id: "affiliates", terms: ["afiliado", "afiliados", "indicacao"], answer: "O afiliado recebe um convite para entrar na central dele. Lá pode gerar links de indicação e acompanhar as barbearias indicadas e as comissões. Para participar, fale com o suporte.", section: "", label: "" },
 ] as const;

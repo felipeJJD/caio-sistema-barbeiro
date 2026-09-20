@@ -7,11 +7,12 @@ import { SUPPORT_WHATSAPP_URL } from "../../lib/support";
 import { AppIcon } from "./app-icon";
 
 import { destinationAllowed, HELP_MESSAGE_LIMIT, requestedHelpAction, type HelpDestination, type HelpReply } from "../../lib/help-guide";
+import { appendHelpConversation, helpConversationKey, parseHelpConversationMemory, type HelpConversationMemory } from "../../lib/help-conversation";
 import type { HelpActionProposal, HelpScheduleChange } from "../../lib/help-actions";
 import { HelpVoiceBubble, HelpVoiceWave, formatHelpVoiceTime, useHelpVoiceRecorder, type HelpVoicePayload } from "./help-voice";
 
 type VoiceAttachment = { url: string; durationSeconds: number; transcript: string; showTranscript: boolean; status: "processing" | "ready" | "error" };
-type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string; link?: { label: string; url: string }; audio?: VoiceAttachment };
+type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string; link?: { label: string; url: string }; audio?: VoiceAttachment; details?: string; insight?: string; showDetails?: boolean };
 type Post = (body: Record<string, string | number | boolean>, success: string) => Promise<boolean>;
 type ActionKind = "record" | "appointment" | "expense";
 type ActionField = "recordType" | "clientName" | "membershipClient" | "service" | "payment" | "barber" | "appointmentDate" | "appointmentTime" | "expenseDescription" | "expenseValue" | "expenseType" | "expensePaid";
@@ -127,7 +128,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const [actionDraft, setActionDraft] = useState<ActionDraft | null>(null);
   const [activeField, setActiveField] = useState<ActionField | null>(null);
   const [configAction, setConfigAction] = useState<HelpActionProposal | null>(null);
-  const [messages, setMessages] = useState<Message[]>([{ id: 1, role: "assistant", text: "Olá! Posso tirar dúvidas, mostrar onde fazer algo e consultar seus resultados. O que você precisa?" }]);
+  const [messages, setMessages] = useState<Message[]>([{ id: 1, role: "assistant", text: "Olá! Pode falar comigo do seu jeito. Eu consulto seus números, ajudo com o app e preparo alterações para você confirmar." }]);
   const nextMessageId = useRef(2);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -138,6 +139,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const panelRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioUrlsRef = useRef(new Set<string>());
+  const conversationRef = useRef<HelpConversationMemory>({ updatedAt: 0, messages: [] });
   const voice = useHelpVoiceRecorder({ onSend: sendVoiceBlob, onError: (message) => addMessage("assistant", message) });
   const closeVoice = voice.close;
   const busy = answerPending || saving || voiceUploading;
@@ -192,6 +194,30 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     field.style.height = "auto";
     field.style.height = `${Math.min(Math.max(field.scrollHeight, 48), 180)}px`;
   }, [input, open]);
+
+  useEffect(() => {
+    const key = helpConversationKey(0, viewer.teamMemberId);
+    try {
+      conversationRef.current = parseHelpConversationMemory(window.localStorage.getItem(key));
+    } catch {
+      conversationRef.current = { updatedAt: Date.now(), messages: [] };
+    }
+  }, [viewer.teamMemberId]);
+
+  function rememberContext(role: "user" | "assistant", content: string) {
+    const key = helpConversationKey(0, viewer.teamMemberId);
+    try {
+      const current = parseHelpConversationMemory(window.localStorage.getItem(key));
+      const next = appendHelpConversation(current, { role, content });
+      conversationRef.current = next;
+      window.localStorage.setItem(key, JSON.stringify(next));
+      return next;
+    } catch {
+      const next = appendHelpConversation(conversationRef.current, { role, content });
+      conversationRef.current = next;
+      return next;
+    }
+  }
 
   useEffect(() => {
     window.addEventListener("cortou-anotou:open-assistant", openPanel);
@@ -522,10 +548,10 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     addMessage("assistant", "Alteração cancelada. Nada foi modificado.");
   }
 
-  async function ask(question: string, options: { skipUserMessage?: boolean; contextMessages?: Message[] } = {}) {
+  async function ask(question: string, options: { skipUserMessage?: boolean } = {}) {
     const cleanQuestion = question.trim();
     if (!cleanQuestion || busy || requestInFlight.current) return;
-    const baseMessages = options.contextMessages ?? messages;
+    const memory = rememberContext("user", cleanQuestion);
     if (!options.skipUserMessage) addMessage("user", cleanQuestion);
     updateInput("");
     const normalizedQuestion = normalize(cleanQuestion);
@@ -566,9 +592,6 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
       return;
     }
 
-    const requestMessages = options.skipUserMessage
-      ? baseMessages
-      : [...baseMessages, { id: nextMessageId.current, role: "user" as const, text: cleanQuestion }];
     requestInFlight.current = true;
     setAnswerPending(true);
     try {
@@ -576,9 +599,10 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         method: "POST",
         headers: { "content-type": "application/json" },
         signal: AbortSignal.timeout(20000),
-        body: JSON.stringify({ messages: requestMessages.slice(-10).map((message) => ({ role: message.role, content: message.text })).filter((message) => message.content) }),
+        body: JSON.stringify({ messages: memory.messages }),
       });
       const result = await response.json() as Partial<HelpReply> & {error?:string};
+      if (response.ok && result.contextMessage) rememberContext("assistant", result.contextMessage);
       if (response.ok && result.action?.kind === "public-booking-link") {
         const slug = data.agendaSettings.publicBookingSlug;
         const url = slug ? `${window.location.origin}/agendar/${encodeURIComponent(slug)}` : "";
@@ -589,6 +613,8 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         addMessage("assistant", result.answer ?? result.error ?? "Não consegui responder agora. Tente novamente em instantes.", {
           destination: response.ok && result.destination && destinationAllowed(result.destination,viewer.isOwner) ? result.destination : undefined,
           suggestions: response.ok ? result.suggestions : undefined,
+          details: response.ok ? result.details : undefined,
+          insight: response.ok ? result.insight : undefined,
           retry: response.ok ? undefined : cleanQuestion,
         });
         if (response.ok && result.action) setConfigAction(result.action);
@@ -647,7 +673,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         audio: { ...pendingMessage.audio!, transcript, status: "ready", showTranscript: false },
       };
       setMessages((current) => current.map((message) => message.id === id ? readyMessage : message));
-      await ask(transcript, { skipUserMessage: true, contextMessages: [...messages, readyMessage] });
+      await ask(transcript, { skipUserMessage: true });
     } catch {
       setMessages((current) => current.map((message) => message.id === id && message.audio
         ? { ...message, audio: { ...message.audio, status: "error" as const } }
@@ -661,6 +687,12 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   function toggleVoiceTranscript(id: number) {
     setMessages((current) => current.map((message) => message.id === id && message.audio
       ? { ...message, audio: { ...message.audio, showTranscript: !message.audio.showTranscript } }
+      : message));
+  }
+
+  function toggleMessageDetails(id: number) {
+    setMessages((current) => current.map((message) => message.id === id && message.details
+      ? { ...message, showDetails: !message.showDetails }
       : message));
   }
 
@@ -738,6 +770,9 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
                     onToggleTranscript={()=>toggleVoiceTranscript(message.id)}
                   />
                 : <p>{message.text}</p>}
+              {message.insight && <div className="help-insight"><strong>Olha só</strong><span>{message.insight}</span></div>}
+              {message.details && <button type="button" className="help-details-toggle" aria-expanded={Boolean(message.showDetails)} onClick={()=>toggleMessageDetails(message.id)}>{message.showDetails ? "Ocultar detalhes" : "Ver detalhes"}<span aria-hidden="true">{message.showDetails ? "↑" : "↓"}</span></button>}
+              {message.details && message.showDetails && <div className="help-message-details">{message.details}</div>}
               {message.destination && <button type="button" className="help-destination" disabled={busy} onClick={()=>navigate(message.destination!)}>{message.destination.label}<span aria-hidden="true">→</span></button>}
               {message.suggestions && <div className="help-inline-suggestions">{message.suggestions.map(text=><button type="button" key={text} disabled={busy} onClick={()=>void ask(text)}>{text}</button>)}</div>}
               {message.link && <a className="help-destination help-link" href={message.link.url} target="_blank" rel="noreferrer">{message.link.label}<span aria-hidden="true">↗</span></a>}{message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
