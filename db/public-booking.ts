@@ -9,7 +9,7 @@ import { getBookingPaymentSettings } from "./booking-payments";
 import { validClientName } from "../lib/client-name";
 import { parseBookingWeekdays } from "../lib/booking-weekdays";
 import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWindowAllows, parseTeamWeeklyBookingHours, parseWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
-import { normalizeMembershipIdentity, phoneDigits, resolveMembershipService } from "../lib/membership-service";
+import { availableMembershipUses, membershipNameMatches, membershipNameNeedsPhone, normalizeMembershipIdentity, phoneDigits, resolveMembershipService } from "../lib/membership-service";
 
 export type PublicBookingData = {
   organization: {
@@ -89,13 +89,13 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
   if (!organization) return null;
   const [serviceList, planList, activeMembershipClients, barberList, gallery, payments] = await Promise.all([
     db.select({ id: services.id, name: services.name, priceCents: services.priceCents, durationMinutes: services.durationMinutes }).from(services).where(and(eq(services.organizationId, organization.id), eq(services.active, true), isNull(services.deletedAt))).orderBy(services.name),
-    db.select({ id: plans.id, name: plans.name, planKind: plans.planKind, monthlyValueCents: plans.monthlyValueCents, maxUses: plans.maxUses }).from(plans).where(and(eq(plans.organizationId, organization.id), eq(plans.active, true))).orderBy(plans.name),
+    db.select({ id: plans.id, name: plans.name, planKind: plans.planKind, serviceId: plans.serviceId, monthlyValueCents: plans.monthlyValueCents, maxUses: plans.maxUses }).from(plans).where(and(eq(plans.organizationId, organization.id), eq(plans.active, true))).orderBy(plans.name),
     db.select({ id: clients.id, planId: clients.planId }).from(clients).where(and(eq(clients.organizationId, organization.id), eq(clients.status, "Ativo"), isNull(clients.deletedAt))),
     db.select({ id: team.id, name: team.name, weeklyBookingHours: team.weeklyBookingHours }).from(team).where(and(eq(team.organizationId, organization.id), eq(team.active, true))).orderBy(team.name),
     listPublicGalleryImages(organization.id),
     getBookingPaymentSettings(organization.id),
   ]);
-  const usablePlanIds = new Set(planList.filter((plan) => Boolean(resolveMembershipService(plan.planKind, plan.name, serviceList))).map((plan) => plan.id));
+  const usablePlanIds = new Set(planList.filter((plan) => Boolean(resolveMembershipService(plan.planKind, plan.name, serviceList, plan.serviceId))).map((plan) => plan.id));
   const hasMemberships = activeMembershipClients.some((client) => usablePlanIds.has(client.planId));
   const weeklyHours = parseWeeklyBookingHours(
     organization.weeklyBookingHours,
@@ -136,6 +136,7 @@ export async function getPublicBookingPaymentOptions(slugValue: string) {
 export type PublicMembershipLookup = {
   clientId: number;
   clientName: string;
+  planId: number;
   planName: string;
   serviceId: number;
   serviceName: string;
@@ -143,45 +144,98 @@ export type PublicMembershipLookup = {
   remainingUses: number;
 };
 
-export async function findPublicMembership(slugValue: string, nameValue: string, phoneValue: string): Promise<PublicMembershipLookup> {
+export type PublicMembershipCandidate = {
+  clientId: number;
+  clientName: string;
+  requiresPhone: boolean;
+};
+
+async function publicMembershipContext(slugValue: string) {
   const slug = cleanSlug(slugValue);
-  const name = validClientName(nameValue, 120);
-  const suppliedPhone = phoneDigits(phoneValue);
-  if (suppliedPhone.length < 8) throw new Error("Informe o telefone ou WhatsApp cadastrado no seu plano.");
+  if (!slug) throw new Error("Barbearia não encontrada.");
   const db = await getDb();
   const organization = (await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).limit(1))[0];
   if (!organization) throw new Error("Barbearia não encontrada.");
-
-  const [clientList, planList, serviceList] = await Promise.all([
+  const [clientList, planList, serviceList, reservedRows] = await Promise.all([
     db.select().from(clients).where(and(eq(clients.organizationId, organization.id), eq(clients.status, "Ativo"), isNull(clients.deletedAt))),
     db.select().from(plans).where(and(eq(plans.organizationId, organization.id), eq(plans.active, true))),
     db.select({ id: services.id, name: services.name, durationMinutes: services.durationMinutes, priceCents: services.priceCents }).from(services).where(and(eq(services.organizationId, organization.id), eq(services.active, true), isNull(services.deletedAt))),
+    db.select({ clientId: appointments.membershipClientId }).from(appointments).where(and(
+      eq(appointments.organizationId, organization.id),
+      eq(appointments.membershipCreditState, "reserved"),
+    )),
   ]);
+  return { organization, clientList, planList, serviceList, reservedRows };
+}
 
-  const nameMatches = clientList.filter((client) => normalizeMembershipIdentity(client.name) === normalizeMembershipIdentity(name));
-  const phoneMatches = nameMatches.filter((client) => {
-    const stored = phoneDigits(client.phone);
-    if (!stored) return nameMatches.length === 1;
-    const compareLength = Math.min(8, stored.length, suppliedPhone.length);
-    return stored.slice(-compareLength) === suppliedPhone.slice(-compareLength);
+export async function searchPublicMembershipNames(slugValue: string, queryValue: string): Promise<PublicMembershipCandidate[]> {
+  const query = queryValue.trim().slice(0, 100);
+  if (normalizeMembershipIdentity(query).length < 3) return [];
+  const context = await publicMembershipContext(slugValue);
+  const usableClients = context.clientList.filter((client) => {
+    const plan = context.planList.find((item) => item.id === client.planId);
+    return Boolean(plan && resolveMembershipService(plan.planKind, plan.name, context.serviceList, plan.serviceId));
   });
-  const client = phoneMatches.length === 1 ? phoneMatches[0] : null;
-  if (!client) throw new Error("Não encontramos um mensalista ativo com esse nome e telefone.");
+  const names = usableClients.map((client) => client.name);
+  return usableClients
+    .filter((client) => membershipNameMatches(query, client.name))
+    .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"))
+    .slice(0, 8)
+    .map((client) => ({
+      clientId: client.id,
+      clientName: client.name,
+      requiresPhone: membershipNameNeedsPhone(client.name, names),
+    }));
+}
 
-  const plan = planList.find((item) => item.id === client.planId);
+export async function findPublicMembership(slugValue: string, nameValue: string, phoneValue = "", clientIdValue = 0): Promise<PublicMembershipLookup> {
+  const name = validClientName(nameValue, 120);
+  const suppliedPhone = phoneDigits(phoneValue);
+  const context = await publicMembershipContext(slugValue);
+  const normalizedName = normalizeMembershipIdentity(name);
+  const exactNameMatches = context.clientList.filter((client) => normalizeMembershipIdentity(client.name) === normalizedName);
+  const requestedId = Math.max(0, Number(clientIdValue) || 0);
+  let client = requestedId
+    ? exactNameMatches.find((item) => item.id === requestedId) ?? null
+    : null;
+
+  if (!client && suppliedPhone.length >= 8) {
+    const phoneMatches = exactNameMatches.filter((item) => {
+      const stored = phoneDigits(item.phone);
+      if (!stored) return false;
+      const compareLength = Math.min(8, stored.length, suppliedPhone.length);
+      return stored.slice(-compareLength) === suppliedPhone.slice(-compareLength);
+    });
+    client = phoneMatches.length === 1 ? phoneMatches[0] : null;
+  }
+
+  if (!client) throw new Error("Não encontramos um mensalista ativo com esse nome.");
+  if (exactNameMatches.length > 1) {
+    if (suppliedPhone.length < 8) throw new Error("Encontramos mais de um mensalista com esse nome. Informe o telefone cadastrado.");
+    const stored = phoneDigits(client.phone);
+    const compareLength = Math.min(8, stored.length, suppliedPhone.length);
+    if (!stored || compareLength < 8 || stored.slice(-compareLength) !== suppliedPhone.slice(-compareLength)) {
+      throw new Error("O telefone não confere com o cadastro selecionado.");
+    }
+  }
+
+  const plan = context.planList.find((item) => item.id === client.planId);
   if (!plan) throw new Error("Seu cadastro mensalista está sem um plano ativo. Fale com a barbearia.");
-  const service = resolveMembershipService(plan.planKind, plan.name, serviceList);
+  const service = resolveMembershipService(plan.planKind, plan.name, context.serviceList, plan.serviceId);
   if (!service) throw new Error("O serviço do seu plano precisa ser revisado pela barbearia antes de agendar.");
-  if (client.balance <= 0) throw new Error("Seu plano não tem usos disponíveis no momento. Fale com a barbearia.");
+  const reservedUses = context.reservedRows.filter((row) => row.clientId === client.id).length;
+  const remainingUses = availableMembershipUses(client.balance, reservedUses);
+  if (remainingUses <= 0) throw new Error("Seu plano não possui créditos disponíveis no momento.");
 
   return {
     clientId: client.id,
     clientName: client.name,
+    planId: plan.id,
     planName: plan.name,
     serviceId: service.id,
     serviceName: service.name,
     durationMinutes: service.durationMinutes,
-    remainingUses: Math.max(0, client.balance),
+    remainingUses,
   };
 }
 
@@ -250,7 +304,7 @@ export async function createPublicBooking(slug: string, input: { date: string; t
   const data = await getPublicBookingData(slug);
   const service = data?.services.find((item) => item.id === input.serviceId);
   if (!data || !service) throw new Error("Não foi possível identificar a barbearia ou o serviço.");
-  const membership = input.isMembership ? await findPublicMembership(slug, clientName, phone) : null;
+  const membership = input.isMembership ? await findPublicMembership(slug, clientName, phone, input.membershipClientId ?? 0) : null;
   if (membership && membership.clientId !== Number(input.membershipClientId || 0)) throw new Error("Confirme novamente seu cadastro de mensalista.");
   if (membership && membership.serviceId !== service.id) throw new Error("O serviço do seu plano mudou. Identifique seu cadastro novamente.");
   const bookingClientName = membership?.clientName ?? clientName;
@@ -267,12 +321,77 @@ export async function createPublicBooking(slug: string, input: { date: string; t
   if (!database) throw new Error("Não foi possível concluir o agendamento.");
   const requestedStart = toMinutes(input.time);
   const requestedEnd = requestedStart + service.durationMinutes;
-  const inserted = await database.prepare(`
+  const inserted = membership
+    ? await database.prepare(`
     INSERT INTO appointments (
       organization_id, appointment_date, appointment_time, client_name, phone,
-      service_id, barber_id, notes, status, payment_choice, payment_confirmation_token, management_token_hash, membership_client_id
+      service_id, barber_id, notes, status, payment_choice, payment_confirmation_token, management_token_hash,
+      membership_client_id, membership_plan_id, membership_credit_state
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved'
+    FROM clients AS membership_client
+    WHERE membership_client.id = ?
+      AND membership_client.organization_id = ?
+      AND membership_client.status = 'Ativo'
+      AND membership_client.deleted_at IS NULL
+      AND membership_client.plan_id = ?
+      AND membership_client.balance > (
+        SELECT COUNT(*)
+        FROM appointments AS reserved_credit
+        WHERE reserved_credit.organization_id = ?
+          AND reserved_credit.membership_client_id = membership_client.id
+          AND reserved_credit.membership_credit_state = 'reserved'
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM appointments AS existing
+        INNER JOIN services AS existing_service ON existing_service.id = existing.service_id
+        WHERE existing.organization_id = ?
+          AND existing.appointment_date = ?
+          AND existing.barber_id = ?
+          AND existing.status <> 'Cancelado'
+          AND (
+            CAST(SUBSTR(existing.appointment_time, 1, 2) AS INTEGER) * 60
+            + CAST(SUBSTR(existing.appointment_time, 4, 2) AS INTEGER)
+          ) < ?
+          AND ? < (
+            CAST(SUBSTR(existing.appointment_time, 1, 2) AS INTEGER) * 60
+            + CAST(SUBSTR(existing.appointment_time, 4, 2) AS INTEGER)
+            + existing_service.duration_minutes
+          )
+      )
+    RETURNING id
+  `).bind(
+      data.organization.id,
+      input.date,
+      input.time,
+      bookingClientName,
+      phone,
+      service.id,
+      selected.barberId,
+      `Mensalista · ${membership.planName} · ${membership.serviceName}`,
+      status,
+      paymentChoice,
+      paymentToken,
+      managementTokenHash,
+      membership.clientId,
+      membership.planId,
+      membership.clientId,
+      data.organization.id,
+      membership.planId,
+      data.organization.id,
+      data.organization.id,
+      input.date,
+      selected.barberId,
+      requestedEnd,
+      requestedStart,
+    ).first<{ id: number }>()
+    : await database.prepare(`
+    INSERT INTO appointments (
+      organization_id, appointment_date, appointment_time, client_name, phone,
+      service_id, barber_id, notes, status, payment_choice, payment_confirmation_token, management_token_hash
+    )
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     WHERE NOT EXISTS (
       SELECT 1
       FROM appointments AS existing
@@ -293,27 +412,26 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     )
     RETURNING id
   `).bind(
-    data.organization.id,
-    input.date,
-    input.time,
-    bookingClientName,
-    phone,
-    service.id,
-    selected.barberId,
-    membership ? `Mensalista · ${membership.planName} · ${membership.serviceName}` : "Solicitado pelo link público",
-    status,
-    paymentChoice,
-    paymentToken,
-    managementTokenHash,
-    membership?.clientId ?? null,
-    data.organization.id,
-    input.date,
-    selected.barberId,
-    requestedEnd,
-    requestedStart,
-  ).first<{ id: number }>();
+      data.organization.id,
+      input.date,
+      input.time,
+      bookingClientName,
+      phone,
+      service.id,
+      selected.barberId,
+      "Solicitado pelo link público",
+      status,
+      paymentChoice,
+      paymentToken,
+      managementTokenHash,
+      data.organization.id,
+      input.date,
+      selected.barberId,
+      requestedEnd,
+      requestedStart,
+    ).first<{ id: number }>();
   const appointmentId = inserted?.id;
-  if (!appointmentId) throw new Error("Esse horário acabou de ser ocupado. Escolha outro disponível.");
+  if (!appointmentId) throw new Error(membership ? "Esse horário ou o último crédito disponível acabou de ser reservado. Atualize e tente novamente." : "Esse horário acabou de ser ocupado. Escolha outro disponível.");
   await notifyOwnersOfPublicBooking({
     organizationId: data.organization.id,
     appointmentId,
@@ -371,6 +489,7 @@ async function findManagedBooking(slugValue: string, token: string) {
     barberId: appointments.barberId,
     barberName: team.name,
     status: appointments.status,
+    membershipCreditState: appointments.membershipCreditState,
   }).from(appointments)
     .innerJoin(organizations, eq(appointments.organizationId, organizations.id))
     .innerJoin(services, eq(appointments.serviceId, services.id))
@@ -406,7 +525,10 @@ export async function cancelPublicBooking(slug: string, token: string) {
   if (row.status === "Cancelado") throw new Error("Este horário já foi cancelado.");
   if (!clientCanChangeAppointment(row.date, row.time)) throw new Error("Faltam menos de 2 horas para o atendimento. Entre em contato diretamente com a barbearia.");
   const db = await getDb();
-  await db.update(appointments).set({ status: "Cancelado" }).where(and(
+  await db.update(appointments).set({
+    status: "Cancelado",
+    membershipCreditState: row.membershipCreditState === "reserved" ? "released" : row.membershipCreditState,
+  }).where(and(
     eq(appointments.id, row.appointmentId),
     eq(appointments.organizationId, row.organizationId),
   ));
