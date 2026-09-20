@@ -24,6 +24,11 @@ export type WhatsappAutomationStatus = {
     wabaId: string;
     phoneNumberId: string;
     displayPhoneNumber: string;
+    verifiedName: string;
+    onboardingMode: string;
+    tokenExpiresAt: string | null;
+    webhookSubscribedAt: string | null;
+    registeredAt: string | null;
     connectedAt: string | null;
     updatedAt: string | null;
   };
@@ -117,6 +122,11 @@ export async function getWhatsappAutomationStatus(access: AccessContext): Promis
       wabaId: connection?.wabaId ?? "",
       phoneNumberId: connection?.phoneNumberId ?? "",
       displayPhoneNumber: connection?.displayPhoneNumber ?? "",
+      verifiedName: connection?.verifiedName ?? "",
+      onboardingMode: connection?.onboardingMode ?? "cloud",
+      tokenExpiresAt: connection?.tokenExpiresAt ?? null,
+      webhookSubscribedAt: connection?.webhookSubscribedAt ?? null,
+      registeredAt: connection?.registeredAt ?? null,
       connectedAt: connection?.connectedAt ?? null,
       updatedAt: connection?.updatedAt ?? null,
     },
@@ -241,32 +251,216 @@ export async function saveWhatsappPlanForOrganization(access: AccessContext, inp
   });
 }
 
-export async function saveWhatsappConnection(access: AccessContext, input: {
+export type WhatsappEmbeddedSignupClientConfig = {
+  ready: boolean;
+  appId: string;
+  configId: string;
+  graphVersion: string;
+  missing: string[];
+  supportsCoexistence: boolean;
+};
+
+function metaEnvironment() {
+  return {
+    appId: String(process.env.WHATSAPP_APP_ID ?? "").trim(),
+    appSecret: String(process.env.WHATSAPP_APP_SECRET ?? "").trim(),
+    configId: String(process.env.WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID ?? "").trim(),
+    graphVersion: String(process.env.WHATSAPP_GRAPH_VERSION ?? "").trim(),
+  };
+}
+
+export function getWhatsappEmbeddedSignupClientConfig(): WhatsappEmbeddedSignupClientConfig {
+  const config = metaEnvironment();
+  const missing: string[] = [];
+  if (!/^\d{5,30}$/.test(config.appId)) missing.push("Meta App ID");
+  if (config.appSecret.length < 20) missing.push("Meta App Secret");
+  if (!/^\d{5,40}$/.test(config.configId)) missing.push("Embedded Signup Config ID");
+  if (!/^v\d+\.\d+$/.test(config.graphVersion)) missing.push("Graph API Version");
+  const ready = missing.length === 0;
+  return {
+    ready,
+    appId: ready ? config.appId : "",
+    configId: ready ? config.configId : "",
+    graphVersion: /^v\d+\.\d+$/.test(config.graphVersion) ? config.graphVersion : "",
+    missing,
+    supportsCoexistence: true,
+  };
+}
+
+function requiredMetaEnvironment() {
+  const publicConfig = getWhatsappEmbeddedSignupClientConfig();
+  const config = metaEnvironment();
+  if (!publicConfig.ready) throw new Error("A integração oficial da Meta ainda não foi configurada no Cortou Anotou.");
+  return config;
+}
+
+type MetaErrorShape = {
+  error?: {
+    message?: string;
+    type?: string;
+    code?: number;
+    error_subcode?: number;
+    error_data?: { details?: string };
+  };
+};
+
+async function metaResponse<T>(response: Response, fallback: string): Promise<T> {
+  const body = await response.json().catch(() => ({})) as T & MetaErrorShape;
+  if (!response.ok) {
+    const details = body.error?.error_data?.details || body.error?.message || fallback;
+    throw new Error(String(details).slice(0, 500));
+  }
+  return body;
+}
+
+async function exchangeWhatsappSignupCode(code: string) {
+  const config = requiredMetaEnvironment();
+  const url = new URL(`https://graph.facebook.com/${config.graphVersion}/oauth/access_token`);
+  url.searchParams.set("client_id", config.appId);
+  url.searchParams.set("client_secret", config.appSecret);
+  url.searchParams.set("code", code);
+  const response = await fetch(url, { method: "GET", cache: "no-store" });
+  const body = await metaResponse<{ access_token?: string; token_type?: string; expires_in?: number }>(response, "A Meta não autorizou a conexão.");
+  const accessToken = String(body.access_token ?? "");
+  if (accessToken.length < 40 || accessToken.length > 2000) throw new Error("A Meta não devolveu um token válido para o WhatsApp.");
+  const expiresIn = Number(body.expires_in ?? 0);
+  return {
+    accessToken,
+    tokenExpiresAt: Number.isFinite(expiresIn) && expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null,
+  };
+}
+
+async function validateWhatsappSignupToken(accessToken: string, wabaId: string) {
+  const config = requiredMetaEnvironment();
+  const url = new URL(`https://graph.facebook.com/${config.graphVersion}/debug_token`);
+  url.searchParams.set("input_token", accessToken);
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: { authorization: `Bearer ${config.appId}|${config.appSecret}` },
+  });
+  const body = await metaResponse<{
+    data?: {
+      app_id?: string;
+      is_valid?: boolean;
+      scopes?: string[];
+      granular_scopes?: Array<{ scope?: string; target_ids?: string[] }>;
+    };
+  }>(response, "Não foi possível validar a autorização da Meta.");
+  const debug = body.data;
+  if (!debug?.is_valid || String(debug.app_id ?? "") !== config.appId) throw new Error("A autorização recebida da Meta não pertence ao Cortou Anotou.");
+  const scopes = new Set(debug.scopes ?? []);
+  if (!scopes.has("whatsapp_business_management")) throw new Error("A Meta não liberou a permissão de gerenciamento do WhatsApp Business.");
+  if (!scopes.has("whatsapp_business_messaging")) throw new Error("A Meta não liberou a permissão para enviar mensagens pelo WhatsApp.");
+
+  const targetIds = new Set(
+    (debug.granular_scopes ?? [])
+      .filter((item) => item.scope === "whatsapp_business_management" || item.scope === "whatsapp_business_messaging")
+      .flatMap((item) => item.target_ids ?? []),
+  );
+  if (targetIds.size > 0 && !targetIds.has(wabaId)) throw new Error("A conta do WhatsApp selecionada não faz parte da autorização concluída na Meta.");
+}
+
+async function readWhatsappPhoneFromMeta(accessToken: string, wabaId: string, phoneNumberId: string) {
+  const config = requiredMetaEnvironment();
+  const url = new URL(`https://graph.facebook.com/${config.graphVersion}/${encodeURIComponent(wabaId)}/phone_numbers`);
+  url.searchParams.set("fields", "id,display_phone_number,verified_name,quality_rating");
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+  const body = await metaResponse<{
+    data?: Array<{ id?: string; display_phone_number?: string; verified_name?: string; quality_rating?: string }>;
+  }>(response, "Não foi possível consultar o número selecionado na Meta.");
+  const phone = (body.data ?? []).find((item) => String(item.id ?? "") === phoneNumberId);
+  if (!phone) throw new Error("O número selecionado não pertence à conta do WhatsApp autorizada.");
+  return {
+    displayPhoneNumber: String(phone.display_phone_number ?? "").slice(0, 40),
+    verifiedName: String(phone.verified_name ?? "").slice(0, 120),
+  };
+}
+
+async function subscribeWhatsappWebhook(accessToken: string, wabaId: string) {
+  const config = requiredMetaEnvironment();
+  const response = await fetch(`https://graph.facebook.com/${config.graphVersion}/${encodeURIComponent(wabaId)}/subscribed_apps`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+  const body = await metaResponse<{ success?: boolean }>(response, "Não foi possível ativar os webhooks do WhatsApp.");
+  if (body.success !== true) throw new Error("A Meta não confirmou a assinatura dos webhooks desta conta.");
+}
+
+async function registerWhatsappPhone(accessToken: string, phoneNumberId: string, pin: string) {
+  const config = requiredMetaEnvironment();
+  const response = await fetch(`https://graph.facebook.com/${config.graphVersion}/${encodeURIComponent(phoneNumberId)}/register`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ messaging_product: "whatsapp", pin }),
+  });
+  const body = await metaResponse<{ success?: boolean }>(response, "Não foi possível registrar o número na Cloud API.");
+  if (body.success !== true) throw new Error("A Meta não confirmou o registro do número.");
+}
+
+function secureRegistrationPin() {
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  return String(values[0] % 1_000_000).padStart(6, "0");
+}
+
+export async function completeWhatsappEmbeddedSignup(access: AccessContext, input: {
+  code: string;
   wabaId: string;
   phoneNumberId: string;
-  displayPhoneNumber: string;
-  accessToken: string;
+  mode: "cloud" | "coexistence";
 }) {
   requireOwner(access);
+  const code = input.code.trim();
   const wabaId = input.wabaId.trim();
   const phoneNumberId = input.phoneNumberId.trim();
-  const displayPhoneNumber = input.displayPhoneNumber.trim().slice(0, 40);
-  const accessToken = input.accessToken.trim();
-  if (!/^\d{5,30}$/.test(wabaId)) throw new Error("WABA ID inválido.");
-  if (!/^\d{5,30}$/.test(phoneNumberId)) throw new Error("Phone Number ID inválido.");
-  if (accessToken.length < 40 || accessToken.length > 1000) throw new Error("Token de acesso do WhatsApp inválido.");
-  const protectedToken = await encryptSecret(accessToken);
+  const mode = input.mode === "coexistence" ? "coexistence" : "cloud";
+  if (code.length < 10 || code.length > 2000) throw new Error("A autorização recebida da Meta é inválida ou expirou.");
+  if (!/^\d{5,30}$/.test(wabaId)) throw new Error("A Meta não informou uma conta WhatsApp válida.");
+  if (!/^\d{5,30}$/.test(phoneNumberId)) throw new Error("A Meta não informou um número WhatsApp válido.");
+
   const db = await getDb();
+  const occupied = (await db.select({ organizationId: whatsappConnections.organizationId }).from(whatsappConnections).where(eq(whatsappConnections.phoneNumberId, phoneNumberId)).limit(1))[0];
+  if (occupied && occupied.organizationId !== access.organizationId) throw new Error("Este número já está conectado a outra barbearia no Cortou Anotou.");
+
+  const exchanged = await exchangeWhatsappSignupCode(code);
+  await validateWhatsappSignupToken(exchanged.accessToken, wabaId);
+  const phone = await readWhatsappPhoneFromMeta(exchanged.accessToken, wabaId, phoneNumberId);
+  await subscribeWhatsappWebhook(exchanged.accessToken, wabaId);
+
+  let encryptedRegistrationPin = "";
+  let registrationPinIv = "";
   const now = new Date().toISOString();
+  if (mode === "cloud") {
+    const pin = secureRegistrationPin();
+    await registerWhatsappPhone(exchanged.accessToken, phoneNumberId, pin);
+    const protectedPin = await encryptSecret(pin);
+    encryptedRegistrationPin = protectedPin.encryptedValue;
+    registrationPinIv = protectedPin.initializationVector;
+  }
+
+  const protectedToken = await encryptSecret(exchanged.accessToken);
   await db.insert(whatsappConnections).values({
     organizationId: access.organizationId,
     provider: "meta_cloud",
     status: "connected",
+    onboardingMode: mode,
     wabaId,
     phoneNumberId,
-    displayPhoneNumber,
+    displayPhoneNumber: phone.displayPhoneNumber,
+    verifiedName: phone.verifiedName,
     encryptedAccessToken: protectedToken.encryptedValue,
     accessTokenIv: protectedToken.initializationVector,
+    tokenExpiresAt: exchanged.tokenExpiresAt,
+    encryptedRegistrationPin,
+    registrationPinIv,
+    webhookSubscribedAt: now,
+    registeredAt: now,
     connectedAt: now,
     updatedAt: now,
   }).onConflictDoUpdate({
@@ -274,24 +468,51 @@ export async function saveWhatsappConnection(access: AccessContext, input: {
     set: {
       provider: "meta_cloud",
       status: "connected",
+      onboardingMode: mode,
       wabaId,
       phoneNumberId,
-      displayPhoneNumber,
+      displayPhoneNumber: phone.displayPhoneNumber,
+      verifiedName: phone.verifiedName,
       encryptedAccessToken: protectedToken.encryptedValue,
       accessTokenIv: protectedToken.initializationVector,
+      tokenExpiresAt: exchanged.tokenExpiresAt,
+      encryptedRegistrationPin,
+      registrationPinIv,
+      webhookSubscribedAt: now,
+      registeredAt: now,
       connectedAt: now,
       updatedAt: now,
     },
   });
+
+  return getWhatsappAutomationStatus(access);
 }
 
 export async function disconnectWhatsapp(access: AccessContext) {
   requireOwner(access);
   const db = await getDb();
+  const connection = await connectionForOrganization(access.organizationId);
+  if (connection?.status === "connected" && connection.encryptedAccessToken && connection.accessTokenIv && connection.wabaId) {
+    try {
+      const accessToken = await decryptSecret(connection.encryptedAccessToken, connection.accessTokenIv);
+      const config = requiredMetaEnvironment();
+      await fetch(`https://graph.facebook.com/${config.graphVersion}/${encodeURIComponent(connection.wabaId)}/subscribed_apps`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error) {
+      console.error("WhatsApp webhook unsubscribe failed", error);
+    }
+  }
   await db.update(whatsappConnections).set({
     status: "disconnected",
     encryptedAccessToken: "",
     accessTokenIv: "",
+    tokenExpiresAt: null,
+    encryptedRegistrationPin: "",
+    registrationPinIv: "",
+    webhookSubscribedAt: null,
+    registeredAt: null,
     updatedAt: new Date().toISOString(),
   }).where(eq(whatsappConnections.organizationId, access.organizationId));
   await db.update(whatsappAutomationSettings).set({
