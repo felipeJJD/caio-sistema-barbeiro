@@ -89,7 +89,7 @@ export function formatReportReply(report: ReportRequest, totals: ReportTotals, v
   if (report.scope === "self") {
     const member = totals.members[0];
     const commission = payouts - tips;
-    const answer = `${warm ? "Boa! " : ""}${period}: ${member?.name || "Você"} fez ${money(produced)} em ${count} atendimento${count === 1 ? "" : "s"}.`;
+    const answer = `${warm ? "Certo! " : ""}${period}: ${member?.name || "Você"} fez ${money(produced)} em ${count} atendimento${count === 1 ? "" : "s"}.`;
     const details = [
       `Comissão gerada: ${money(commission)}${tips ? ` + ${money(tips)} em gorjetas` : ""}.`,
       "Os valores são baseados no que foi registrado; comissão gerada não significa pagamento já realizado.",
