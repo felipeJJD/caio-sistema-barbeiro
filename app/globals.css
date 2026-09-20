@@ -880,3 +880,38 @@ html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none;-webkit-text-size-
   .help-voice-recorder-actions .voice-send{width:50px;height:50px}
 }
 @media(prefers-reduced-motion:reduce){.help-voice-wave.active i{animation:none}}
+
+
+/* Link público: galeria mobile, serviços legíveis, mensalista por plano e revisão final. */
+.booking-option-grid.services button strong{font-size:11px;line-height:1.25}
+.booking-option-grid.services button small{font-size:8px;line-height:1.35}
+.booking-membership-entry{width:100%;min-height:58px;display:flex;align-items:center;gap:11px;margin-top:13px;padding:11px 13px;border:1px dashed #cdbb8d;border-radius:12px;background:#faf7ee;color:#31362f;text-align:left}
+.booking-membership-entry>span{width:36px;height:36px;display:grid;place-items:center;flex:0 0 36px;border-radius:10px;background:#eee6d2;color:#805e20}
+.booking-membership-entry>div{min-width:0;flex:1}.booking-membership-entry strong,.booking-membership-entry small{display:block}
+.booking-membership-entry strong{font:700 12px/1.25 Georgia,serif}.booking-membership-entry small{margin-top:3px;color:#7e837b;font-size:8px}
+.booking-membership-entry>b{color:#8a6522;font-size:8px;white-space:nowrap}.booking-membership-entry.selected{border-style:solid;border-color:#d1a13d;background:#fff6de}.booking-membership-entry.selected>span{background:#2c322b;color:#efc66b}
+.booking-modal-backdrop{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:20px;background:#151914b8;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.booking-modal{position:relative;width:min(100%,560px);max-height:min(86dvh,760px);overflow:auto;padding:28px;border:1px solid #ded4bc;border-radius:20px;background:#f7f4ea;color:#252a24;box-shadow:0 30px 80px #1118}
+.booking-modal-close{position:absolute;top:14px;right:14px;width:36px;height:36px;border:1px solid #d8d1c1;border-radius:50%;background:#fff;color:#30362f;font-size:22px;line-height:1}
+.booking-modal-kicker{display:block;color:#9a7026;font-size:8px;font-weight:900;letter-spacing:.17em}.booking-modal h2{margin:8px 42px 8px 0;font:700 29px/1.05 Georgia,serif;letter-spacing:-.5px}.booking-modal>p{margin:0 0 18px;color:#747a72;font-size:11px;line-height:1.55}
+.membership-picker>div{display:grid;gap:9px}.membership-picker>div>button{display:flex;align-items:center;gap:11px;width:100%;padding:13px;border:1px solid #ddd7c9;border-radius:13px;background:#fff;color:#2b302a;text-align:left}
+.membership-picker>div>button>span{width:38px;height:38px;display:grid;place-items:center;flex:0 0 38px;border-radius:11px;background:#eee7d5;color:#7d5c1f}.membership-picker>div>button>div{min-width:0;flex:1}.membership-picker strong,.membership-picker small,.membership-picker em{display:block}.membership-picker strong{font:700 14px/1.2 Georgia,serif}.membership-picker small{margin-top:4px;color:#777d75;font-size:9px}.membership-picker em{margin-top:4px;color:#9a7026;font-size:8px;font-style:normal;font-weight:900}.membership-picker>div>button>b{display:none;width:21px;height:21px;place-items:center;border-radius:50%;background:#d7a642;color:#232820}.membership-picker>div>button.selected{border-color:#d0a03c;background:#fff7e3}.membership-picker>div>button.selected>b{display:grid}
+.booking-review-modal{width:min(100%,590px)}.booking-review-shop{display:block;margin-top:7px;color:#5e665d;font-size:10px;font-weight:900}.booking-review-list{display:grid;gap:8px;margin:18px 0}.booking-review-list>button{position:relative;display:grid;gap:3px;width:100%;padding:13px 78px 13px 14px;border:1px solid #ddd7c9;border-radius:12px;background:#fff;color:#252a24;text-align:left}.booking-review-list>button>span{color:#9a7026;font-size:7px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}.booking-review-list>button>strong{font:700 14px/1.2 Georgia,serif}.booking-review-list>button>small{color:#7b8179;font-size:8px}.booking-review-list>button>em{position:absolute;right:13px;top:50%;transform:translateY(-50%);color:#8b6520;font-size:8px;font-style:normal;font-weight:900;text-decoration:underline;text-underline-offset:3px}
+.booking-review-actions{display:grid;grid-template-columns:.8fr 1.2fr;gap:9px;margin-top:16px}.booking-review-actions button{min-height:48px;border-radius:11px;font-size:9px;font-weight:900}.booking-review-back{border:1px solid #d7d0bf;background:#fff;color:#4c534b}.booking-review-confirm{display:flex;align-items:center;justify-content:center;gap:12px;border:0;background:#2c322b;color:#fff}.booking-review-confirm b{color:#e8ba58;font-size:14px}.booking-review-actions button:disabled{opacity:.55}.booking-review-note{display:block;margin-top:11px;color:#858a82;font-size:8px;line-height:1.5;text-align:center}
+@media(max-width:620px){
+  .public-gallery-strip>div:last-child{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0;padding:0;overflow:visible;scroll-snap-type:none}
+  .public-gallery-photo{min-width:0;width:100%;padding:0}
+  .public-gallery-strip figure,.public-gallery-strip.shop figure{width:100%;min-width:0;height:auto;aspect-ratio:4/5}
+  .public-gallery-strip.shop figure{aspect-ratio:4/3}
+  .public-gallery-strip img{object-fit:contain;background:#242923}
+  .public-gallery-strip figcaption{font-size:9px;padding:28px 9px 9px}.public-gallery-strip figcaption small{display:block;margin-top:3px;font-size:7px;font-weight:600}
+  .booking-option-grid.services{grid-template-columns:1fr 1fr}
+  .booking-option-grid.services button{min-height:72px;padding:11px 9px;align-items:flex-start}
+  .booking-option-grid.services button strong{font-size:12px;line-height:1.18;white-space:normal;overflow:visible;text-overflow:clip}
+  .booking-option-grid.services button small{font-size:8px;line-height:1.3;white-space:normal;overflow:visible}
+  .booking-membership-entry{min-height:64px}.booking-membership-entry strong{font-size:13px}.booking-membership-entry small{font-size:9px}
+  .booking-modal-backdrop{padding:12px;align-items:end}.booking-modal{width:100%;max-height:88dvh;padding:23px 17px calc(20px + env(safe-area-inset-bottom));border-radius:22px 22px 16px 16px}
+  .booking-modal h2{font-size:27px}.membership-picker>div>button{padding:13px 11px}.membership-picker strong{font-size:15px}.membership-picker small{font-size:9px}
+  .booking-review-actions{grid-template-columns:1fr}.booking-review-confirm{grid-row:1}.booking-review-back{grid-row:2}.booking-review-list>button{padding-top:14px;padding-bottom:14px}.booking-review-list>button>strong{font-size:15px}
+}
+@media(max-width:390px){.public-gallery-strip>div:last-child{grid-template-columns:1fr 1fr}.booking-option-grid.services{grid-template-columns:1fr 1fr}.booking-option-grid.services button{min-height:76px}}
