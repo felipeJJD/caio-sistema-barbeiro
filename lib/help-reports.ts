@@ -21,6 +21,15 @@ export function parseReport(question: string, owner: boolean, now = new Date()):
   if (/mes passado/.test(text)) ({ start, end } = appMonthPeriod(shiftAppMonth(today, -1), today));
   else if (/\bmes\b/.test(text)) start = `${today.slice(0,7)}-01`;
   else if (/\bontem\b/.test(text)) start = end = appDate(now, -1);
+  else if (/\b(domingo|segunda|terca|quarta|quinta|sexta|sabado)\b/.test(text)) {
+    const names: Record<string, number> = { domingo:0, segunda:1, terca:2, quarta:3, quinta:4, sexta:5, sabado:6 };
+    const spoken = text.match(/\b(domingo|segunda|terca|quarta|quinta|sexta|sabado)\b/)?.[1] || "";
+    const targetDay = names[spoken];
+    const currentDay = new Date(`${today}T12:00:00Z`).getUTCDay();
+    let offset = (currentDay - targetDay + 7) % 7;
+    if (/\b(passad[oa])\b/.test(text) && offset === 0) offset = 7;
+    start = end = appDate(now, -offset);
+  }
   else if (/\bsemana\b/.test(text)) {
     const day = new Date(`${today}T12:00:00Z`).getUTCDay();
     start = appDate(now, -((day + 6) % 7));
