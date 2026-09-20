@@ -7,10 +7,11 @@ import { SUPPORT_WHATSAPP_URL } from "../../lib/support";
 import { AppIcon } from "./app-icon";
 
 import { destinationAllowed, HELP_MESSAGE_LIMIT, requestedHelpAction, type HelpDestination, type HelpReply } from "../../lib/help-guide";
-import { createHelpDictation, type Recognition } from "../../lib/help-dictation";
 import type { HelpActionProposal, HelpScheduleChange } from "../../lib/help-actions";
+import { HelpVoiceBubble, HelpVoiceWave, formatHelpVoiceTime, useHelpVoiceRecorder, type HelpVoicePayload } from "./help-voice";
 
-type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string; link?: { label: string; url: string } };
+type VoiceAttachment = { url: string; durationSeconds: number; transcript: string; showTranscript: boolean; status: "processing" | "ready" | "error" };
+type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string; link?: { label: string; url: string }; audio?: VoiceAttachment };
 type Post = (body: Record<string, string | number | boolean>, success: string) => Promise<boolean>;
 type ActionKind = "record" | "appointment" | "expense";
 type ActionField = "recordType" | "clientName" | "membershipClient" | "service" | "payment" | "barber" | "appointmentDate" | "appointmentTime" | "expenseDescription" | "expenseValue" | "expenseType" | "expensePaid";
@@ -121,7 +122,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const [input, setInput] = useState("");
   const [answerPending, setAnswerPending] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [listening, setListening] = useState(false);
+  const [voiceUploading, setVoiceUploading] = useState(false);
   const [actionDraft, setActionDraft] = useState<ActionDraft | null>(null);
   const [activeField, setActiveField] = useState<ActionField | null>(null);
   const [configAction, setConfigAction] = useState<HelpActionProposal | null>(null);
@@ -131,21 +132,19 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const dictationRef = useRef<ReturnType<typeof createHelpDictation> | null>(null);
   const draftTextRef = useRef("");
-  const voiceTextRef = useRef("");
-  const manualVoiceSendRef = useRef(false);
   const requestInFlight = useRef(false);
   const saveInFlight = useRef(false);
   const panelRef = useRef<HTMLElement>(null);
-  const busy = answerPending || saving;
+  const audioUrlsRef = useRef(new Set<string>());
+  const voice = useHelpVoiceRecorder({ onSend: sendVoiceBlob, onError: (message) => addMessage("assistant", message) });
+  const busy = answerPending || saving || voiceUploading;
   function updateInput(text:string) { draftTextRef.current = text; setInput(text); }
-  const stopVoice = useCallback(() => { dictationRef.current?.stop(); }, []);
   const closeHelp = useCallback(() => {
-    stopVoice();
+    voice.discard();
     setOpen(false);
     window.requestAnimationFrame(() => launcherRef.current?.focus({ preventScroll: true }));
-  }, [stopVoice]);
+  }, [voice.discard]);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -156,16 +155,13 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     if (!field) return;
     field.style.height = "auto";
     field.style.height = `${Math.min(Math.max(field.scrollHeight, 48), 180)}px`;
-    if (listening) field.scrollTop = field.scrollHeight;
-  }, [input, listening, open]);
+  }, [input, open]);
 
   useEffect(() => {
     const openFromMenu = () => setOpen(true);
     window.addEventListener("cortou-anotou:open-assistant", openFromMenu);
     return () => window.removeEventListener("cortou-anotou:open-assistant", openFromMenu);
   }, []);
-
-  useEffect(() => () => dictationRef.current?.stop(), []);
 
   useEffect(() => {
     if (!open) return;
@@ -184,15 +180,20 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         closeHelp();
       }
     };
-    const closeForMenu = () => setOpen(false);
+    const closeForMenu = () => { voice.discard(); setOpen(false); };
     window.addEventListener("keydown", closeOnEscape);
     window.addEventListener("cortou-anotou:open-navigation", closeForMenu);
     return () => {
-      stopVoice();
+      voice.discard();
       window.removeEventListener("keydown", closeOnEscape);
       window.removeEventListener("cortou-anotou:open-navigation", closeForMenu);
     };
-  }, [open, closeHelp, stopVoice]);
+  }, [open, closeHelp, voice.discard]);
+
+  useEffect(() => () => {
+    for (const url of audioUrlsRef.current) URL.revokeObjectURL(url);
+    audioUrlsRef.current.clear();
+  }, []);
 
   function addMessage(role: Message["role"], text: string, extra:Partial<Message> = {}) {
     const message = { ...extra, id: nextMessageId.current++, role, text };
@@ -487,11 +488,11 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     addMessage("assistant", "Alteração cancelada. Nada foi modificado.");
   }
 
-  async function ask(question: string) {
+  async function ask(question: string, options: { skipUserMessage?: boolean; contextMessages?: Message[] } = {}) {
     const cleanQuestion = question.trim();
     if (!cleanQuestion || busy || requestInFlight.current) return;
-    stopVoice();
-    addMessage("user", cleanQuestion);
+    const baseMessages = options.contextMessages ?? messages;
+    if (!options.skipUserMessage) addMessage("user", cleanQuestion);
     updateInput("");
     const normalizedQuestion = normalize(cleanQuestion);
 
@@ -531,7 +532,9 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
       return;
     }
 
-    const requestMessages = [...messages, { id: nextMessageId.current, role: "user" as const, text: cleanQuestion }];
+    const requestMessages = options.skipUserMessage
+      ? baseMessages
+      : [...baseMessages, { id: nextMessageId.current, role: "user" as const, text: cleanQuestion }];
     requestInFlight.current = true;
     setAnswerPending(true);
     try {
@@ -539,7 +542,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         method: "POST",
         headers: { "content-type": "application/json" },
         signal: AbortSignal.timeout(20000),
-        body: JSON.stringify({ messages: requestMessages.slice(-10).map((message) => ({ role: message.role, content: message.text })) }),
+        body: JSON.stringify({ messages: requestMessages.slice(-10).map((message) => ({ role: message.role, content: message.text })).filter((message) => message.content) }),
       });
       const result = await response.json() as Partial<HelpReply> & {error?:string};
       if (response.ok && result.action?.kind === "public-booking-link") {
@@ -562,6 +565,69 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
       requestInFlight.current = false;
       setAnswerPending(false);
     }
+  }
+
+  async function sendVoiceBlob(payload: HelpVoicePayload) {
+    if (voiceUploading || requestInFlight.current) return;
+    const url = URL.createObjectURL(payload.blob);
+    audioUrlsRef.current.add(url);
+    const id = nextMessageId.current++;
+    const pendingMessage: Message = {
+      id,
+      role: "user",
+      text: "",
+      audio: {
+        url,
+        durationSeconds: payload.durationSeconds,
+        transcript: "",
+        showTranscript: false,
+        status: "processing",
+      },
+    };
+    setMessages((current) => [...current, pendingMessage]);
+    setVoiceUploading(true);
+    try {
+      const extension = payload.mimeType.includes("mp4") || payload.mimeType.includes("m4a") ? "m4a"
+        : payload.mimeType.includes("wav") ? "wav"
+        : payload.mimeType.includes("mpeg") ? "mp3"
+        : "webm";
+      const form = new FormData();
+      form.append("audio", payload.blob, `mensagem.${extension}`);
+      const response = await fetch("/api/help/transcribe", {
+        method: "POST",
+        body: form,
+        signal: AbortSignal.timeout(35000),
+      });
+      const result = await response.json() as { text?: string; error?: string };
+      if (!response.ok || !result.text?.trim()) {
+        setMessages((current) => current.map((message) => message.id === id && message.audio
+          ? { ...message, audio: { ...message.audio, status: "error" as const } }
+          : message));
+        addMessage("assistant", result.error ?? "Não consegui entender esse áudio. Você pode tentar novamente.");
+        return;
+      }
+      const transcript = result.text.trim();
+      const readyMessage: Message = {
+        ...pendingMessage,
+        text: transcript,
+        audio: { ...pendingMessage.audio!, transcript, status: "ready", showTranscript: false },
+      };
+      setMessages((current) => current.map((message) => message.id === id ? readyMessage : message));
+      await ask(transcript, { skipUserMessage: true, contextMessages: [...messages, readyMessage] });
+    } catch {
+      setMessages((current) => current.map((message) => message.id === id && message.audio
+        ? { ...message, audio: { ...message.audio, status: "error" as const } }
+        : message));
+      addMessage("assistant", "Não consegui processar esse áudio agora. Tente novamente.");
+    } finally {
+      setVoiceUploading(false);
+    }
+  }
+
+  function toggleVoiceTranscript(id: number) {
+    setMessages((current) => current.map((message) => message.id === id && message.audio
+      ? { ...message, audio: { ...message.audio, showTranscript: !message.audio.showTranscript } }
+      : message));
   }
 
   function summaryRows(draft: ActionDraft) {
@@ -608,50 +674,15 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     addMessage("assistant", "Ação cancelada. Nenhum dado foi salvo.");
   }
 
-  function toggleVoice() {
-    if (listening) {
-      const spoken = voiceTextRef.current.trim();
-      manualVoiceSendRef.current = true;
-      stopVoice();
-      manualVoiceSendRef.current = false;
-      voiceTextRef.current = "";
-      if (spoken) void ask(spoken);
-      else addMessage("assistant", "Não consegui ouvir nada. Toque no microfone e tente novamente.");
-      return;
-    }
-    const speechWindow = window as unknown as {SpeechRecognition?:new()=>Recognition;webkitSpeechRecognition?:new()=>Recognition};
-    const RecognitionType = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
-    if (!RecognitionType) {
-      addMessage("assistant","Use o microfone do teclado do celular para ditar nesta caixa.");
-      inputRef.current?.focus();
-      return;
-    }
-    voiceTextRef.current = "";
-    updateInput("");
-    if (!dictationRef.current) dictationRef.current = createHelpDictation(RecognitionType,{
-      text:(text)=>{ voiceTextRef.current = text; },
-      listening:(active)=>{
-        setListening(active);
-        if (!active && !manualVoiceSendRef.current && voiceTextRef.current.trim()) updateInput(voiceTextRef.current.trim());
-      },
-      error:(text)=>addMessage("assistant",text),
-    });
-    dictationRef.current.start("");
-  }
-
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (listening) {
-      toggleVoice();
-      return;
-    }
     void ask(draftTextRef.current);
   }
 
   const choices = choicesFor(activeField);
   function navigate(destination:HelpDestination) {
     if (!destinationAllowed(destination,viewer.isOwner)) return;
-    stopVoice(); setOpen(false); onNavigate(destination);
+    voice.discard(); setOpen(false); onNavigate(destination);
   }
 
   return <>
@@ -662,8 +693,17 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         <header className="help-header"><AppIcon name="help" /><div><h2 id="help-title">Assistente Cortou Anotou</h2><small>Pergunte, consulte ou peça para fazer</small></div><button ref={closeRef} type="button" aria-label="Fechar Assistente Cortou Anotou" onClick={closeHelp}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></header>
         <div className="help-chat-scroll">
           <div className="help-messages" role="log" aria-live="polite" aria-relevant="additions">
-            {messages.map(message=><div className={"help-message "+message.role} key={message.id}>
-              <p>{message.text}</p>
+            {messages.map(message=><div className={"help-message "+message.role+(message.audio ? " voice" : "")} key={message.id}>
+              {message.audio
+                ? <HelpVoiceBubble
+                    url={message.audio.url}
+                    durationSeconds={message.audio.durationSeconds}
+                    transcript={message.audio.transcript}
+                    showTranscript={message.audio.showTranscript}
+                    status={message.audio.status}
+                    onToggleTranscript={()=>toggleVoiceTranscript(message.id)}
+                  />
+                : <p>{message.text}</p>}
               {message.destination && <button type="button" className="help-destination" disabled={busy} onClick={()=>navigate(message.destination!)}>{message.destination.label}<span aria-hidden="true">→</span></button>}
               {message.suggestions && <div className="help-inline-suggestions">{message.suggestions.map(text=><button type="button" key={text} disabled={busy} onClick={()=>void ask(text)}>{text}</button>)}</div>}
               {message.link && <a className="help-destination help-link" href={message.link.url} target="_blank" rel="noreferrer">{message.link.label}<span aria-hidden="true">↗</span></a>}{message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
@@ -671,21 +711,41 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
             {answerPending && <div className="help-message assistant typing" aria-label="Consultando, aguarde"><i /><i /><i /></div>}
           </div>
           {messages.length === 1 && <div className="help-starter-prompts">{helpSuggestions.map(text=><button type="button" key={text} onClick={()=>void ask(text)}>{text}<span aria-hidden="true">↗</span></button>)}</div>}
-          {choices.length > 0 && <div className="help-choices">{choices.map(choice=><button type="button" disabled={busy} key={choice.label} onClick={()=>{ stopVoice(); updateInput(""); addMessage("user",choice.label); applyAnswer(activeField as ActionField,choice.value); }}>{choice.label}</button>)}</div>}
+          {choices.length > 0 && <div className="help-choices">{choices.map(choice=><button type="button" disabled={busy} key={choice.label} onClick={()=>{ voice.discard(); updateInput(""); addMessage("user",choice.label); applyAnswer(activeField as ActionField,choice.value); }}>{choice.label}</button>)}</div>}
           {actionDraft && !activeField && <div className="help-confirm"><strong>Confira antes de salvar</strong><dl>{summaryRows(actionDraft).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelAction}>Cancelar</button></div></div>}{configAction && <div className="help-confirm help-config-confirm"><strong>O assistente entendeu assim</strong><dl>{configSummaryRows(configAction).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmConfigAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelConfigAction}>Cancelar</button></div><small className="help-confirm-note">Nada é alterado antes da sua confirmação.</small></div>}
           {actionDraft && activeField && <button type="button" className="help-abandon" onClick={cancelAction}>Cancelar este pedido</button>}
           <div ref={endRef} />
         </div>
         <div className="help-composer">
-          {listening && <div className="help-recording" role="status"><span />Ouvindo... fale normalmente. Toque na seta para enviar.</div>}
-          <form className="help-form" onSubmit={submit}>
-            <textarea ref={inputRef} value={input} onChange={event=>{stopVoice();updateInput(event.target.value);}} maxLength={HELP_MESSAGE_LIMIT} rows={1} placeholder={listening?"":activeField?"Sua resposta...":"Escreva sua dúvida..."} aria-label="Mensagem para o Assistente Cortou Anotou" />
+          {voice.recording ? <div className="help-voice-recorder" role="group" aria-label="Gravando mensagem de áudio">
+            <div className="help-voice-recorder-top">
+              <time>{formatHelpVoiceTime(voice.seconds)}</time>
+              <HelpVoiceWave active={!voice.paused} />
+            </div>
+            <div className="help-voice-recorder-actions">
+              <button type="button" className="voice-discard" aria-label="Apagar gravação" onClick={voice.discard}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
+              </button>
+              <button type="button" className={"voice-pause"+(voice.paused ? " paused" : "")} aria-label={voice.paused ? "Continuar gravação" : "Pausar gravação"} onClick={voice.togglePause}>
+                {voice.paused
+                  ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6Z"/></svg>
+                  : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>}
+              </button>
+              <button type="button" className="voice-send" aria-label="Enviar áudio" onClick={voice.send}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Z"/></svg>
+              </button>
+            </div>
+            <small>{voice.paused ? "Gravação pausada" : "Gravando áudio"}</small>
+          </div> : <form className="help-form" onSubmit={submit}>
+            <textarea ref={inputRef} value={input} onChange={event=>updateInput(event.target.value)} maxLength={HELP_MESSAGE_LIMIT} rows={1} placeholder={activeField?"Sua resposta...":"Escreva sua dúvida..."} aria-label="Mensagem para o Assistente Cortou Anotou" />
             <div className="help-composer-actions">
-              <button className={listening?"help-mic listening":"help-mic"} type="button" disabled={busy} aria-pressed={listening} aria-label={listening?"Enviar mensagem de voz":"Falar com o assistente"} onClick={toggleVoice}><svg viewBox="0 0 24 24" aria-hidden="true">{listening?<path d="M12 19V5M6 11l6-6 6 6"/>:<><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></>}</svg></button>
-              <small>{listening?"Ouvindo...":"Texto ou voz"}</small>
+              <button className="help-mic" type="button" disabled={busy} aria-label="Gravar áudio" onClick={()=>void voice.start()}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></svg>
+              </button>
+              <small>{voiceUploading ? "Entendendo áudio..." : "Texto ou áudio"}</small>
               <button className="help-send" disabled={busy || !input.trim()} aria-label="Enviar mensagem">Enviar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
             </div>
-          </form>
+          </form>}
           <a className="help-human-support" href={SUPPORT_WHATSAPP_URL} target="_blank" rel="noreferrer"><AppIcon name="whatsapp" /><span>Falar com o suporte</span></a>
         </div>
       </section>
