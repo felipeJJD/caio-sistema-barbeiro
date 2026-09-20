@@ -915,3 +915,14 @@ html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none;-webkit-text-size-
   .booking-review-actions{grid-template-columns:1fr}.booking-review-confirm{grid-row:1}.booking-review-back{grid-row:2}.booking-review-list>button{padding-top:14px;padding-bottom:14px}.booking-review-list>button>strong{font-size:15px}
 }
 @media(max-width:390px){.public-gallery-strip>div:last-child{grid-template-columns:1fr 1fr}.booking-option-grid.services{grid-template-columns:1fr 1fr}.booking-option-grid.services button{min-height:76px}}
+
+
+/* Mensalista no link público: identificar cadastro real antes de agendar. */
+.membership-identify form{display:grid;gap:12px;margin-top:16px}
+.membership-identify form>label{display:grid;gap:6px}
+.membership-identify form>label>span{color:#747a72;font-size:8px;font-weight:900;letter-spacing:.07em;text-transform:uppercase}
+.membership-identify form input{min-height:49px;width:100%;padding:12px 13px;border:1px solid #d9d3c5;border-radius:11px;background:#fff;color:#252a24;font-size:16px;outline:none}
+.membership-identify form input:focus{border-color:#c89b3f;box-shadow:0 0 0 3px #d6a64020}
+.booking-membership-find{min-height:50px;display:flex;align-items:center;justify-content:center;gap:12px;border:0;border-radius:11px;background:#2c322b;color:#fff;font-size:10px;font-weight:900}
+.booking-membership-find b{color:#efc66b;font-size:15px}.booking-membership-find:disabled{opacity:.55}
+.booking-contact-card input[readonly]{background:#f0eee7;color:#525851}
