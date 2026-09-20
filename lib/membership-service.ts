@@ -18,15 +18,20 @@ export function resolveMembershipService<T extends MembershipServiceLike>(planKi
   }
 
   const exact = services.find((service) => normalize(service.name) === normalize(planKind)) ?? null;
-  if (exact) return exact;
 
-  // Compatibilidade somente para planos antigos que ainda não possuem vínculo explícito.
+  // Planos antigos ainda não têm service_id. Neles, o nome do plano pode corrigir
+  // um plan_kind legado inconsistente. Planos novos/editados usam service_id acima.
   const planCues = cues(planName);
-  if (!planCues.length) return null;
-  return services
+  if (!planCues.length) return exact;
+  const candidates = services
     .map((service) => ({ service, cues: cues(service.name) }))
     .filter((entry) => planCues.every((token) => entry.cues.includes(token)))
-    .sort((left, right) => left.cues.length - right.cues.length || left.service.name.localeCompare(right.service.name, "pt-BR"))[0]?.service ?? null;
+    .sort((left, right) => left.cues.length - right.cues.length || left.service.name.localeCompare(right.service.name, "pt-BR"));
+  const inferred = candidates[0]?.service ?? null;
+  if (!inferred) return exact;
+  if (!exact) return inferred;
+  const exactCues = cues(exact.name);
+  return planCues.every((token) => exactCues.includes(token)) ? exact : inferred;
 }
 
 export function normalizeMembershipIdentity(value: string) {
