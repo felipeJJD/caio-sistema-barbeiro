@@ -926,3 +926,5 @@ html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none;-webkit-text-size-
 .booking-membership-find{min-height:50px;display:flex;align-items:center;justify-content:center;gap:12px;border:0;border-radius:11px;background:#2c322b;color:#fff;font-size:10px;font-weight:900}
 .booking-membership-find b{color:#efc66b;font-size:15px}.booking-membership-find:disabled{opacity:.55}
 .booking-contact-card input[readonly]{background:#f0eee7;color:#525851}
+
+.appointment-membership-linked{display:grid;gap:4px;padding:11px 12px;border:1px solid #dfd5bd;border-radius:10px;background:#fbf7ec}.appointment-membership-linked small{color:#987026;font-size:8px;font-weight:900;letter-spacing:.09em}.appointment-membership-linked strong{font-size:12px}.appointment-membership-linked span{color:#767c74;font-size:9px}
