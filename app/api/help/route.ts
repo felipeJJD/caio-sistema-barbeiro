@@ -4,6 +4,7 @@ import { readHelpReport } from "../../../db/help-reports";
 import { enforceRateLimit, RateLimitError } from "../../../db/rate-limit";
 import { findGuide, guideReply, HELP_MESSAGE_LIMIT, normalizeHelp, type HelpMessage, type HelpReply } from "../../../lib/help-guide";
 import { parseReport } from "../../../lib/help-reports";
+import { parseHelpAction } from "../../../lib/help-actions";
 import { interpretHelp } from "../../../lib/help-model";
 
 const json = (body: HelpReply | {error:string}, status = 200) => Response.json(body, {status, headers:{"Cache-Control":"no-store, private"}});
@@ -33,11 +34,18 @@ export async function POST(request: Request) {
     }
     const report = parseReport(reportQuestion,access.isOwner);
     if (report && !("clarification" in report)) return json(await readHelpReport(access, report));
+    const parsedAction = parseHelpAction(question, access.isOwner);
+    if (parsedAction) {
+      if ("clarification" in parsedAction) return json({ answer: parsedAction.clarification });
+      if (parsedAction.action.kind === "public-booking-link") return json({ answer: "Claro. Posso abrir ou copiar seu link público de agendamento.", action: parsedAction.action });
+      return json({ answer: "Entendi. Confira a alteração abaixo antes de confirmar.", action: parsedAction.action });
+    }
     const guideId = findGuide(question);
     if (guideId === "overview") return json(guideReply(guideId,access.isOwner)!);
 
     const interpreted = await interpretHelp(messages, access.isOwner);
     if (interpreted?.kind === "report") return json(await readHelpReport(access, interpreted.report));
+    if (interpreted?.kind === "action") return json({ answer: interpreted.answer, action: interpreted.action });
     if (interpreted?.kind === "guide") {
       const guide = guideReply(interpreted.topic,access.isOwner);
       if (guide) return json({...guide, answer: interpreted.answer});

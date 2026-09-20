@@ -39,15 +39,16 @@ test("public gallery photos open in an accessible lightbox", () => {
   assert.match(publicBookingUi, /Toque para ampliar/);
 });
 
-test("voice help waits for the user to review and send the transcript", () => {
-  assert.match(helpUi, /Pode falar sem pressa/);
+test("voice help keeps the composer clean and sends on the second tap", () => {
+  assert.match(helpUi, /Ouvindo\.\.\. fale normalmente/);
   assert.match(helpUi, /createHelpDictation/);
-  assert.match(helpUi, /<textarea/);
-  assert.doesNotMatch(helpUi, /void ask\(transcript\)/);
+  assert.match(helpUi, /voiceTextRef/);
+  assert.match(helpUi, /void ask\(spoken\)/);
+  assert.match(helpUi, /Enviar mensagem de voz/);
 });
 
 test("help starts with a conversation and keeps human support available", () => {
-  assert.match(helpUi, /Central de ajuda/);
+  assert.match(helpUi, /Assistente Cortou Anotou/);
   assert.match(helpUi, /Falar com o suporte/);
   assert.doesNotMatch(helpUi, /Falar com o Kaio/);
   assert.match(helpUi, /Escreva sua dúvida/);

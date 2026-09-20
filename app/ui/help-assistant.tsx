@@ -8,8 +8,9 @@ import { AppIcon } from "./app-icon";
 
 import { destinationAllowed, HELP_MESSAGE_LIMIT, requestedHelpAction, type HelpDestination, type HelpReply } from "../../lib/help-guide";
 import { createHelpDictation, type Recognition } from "../../lib/help-dictation";
+import type { HelpActionProposal, HelpScheduleChange } from "../../lib/help-actions";
 
-type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string };
+type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string; link?: { label: string; url: string } };
 type Post = (body: Record<string, string | number | boolean>, success: string) => Promise<boolean>;
 type ActionKind = "record" | "appointment" | "expense";
 type ActionField = "recordType" | "clientName" | "membershipClient" | "service" | "payment" | "barber" | "appointmentDate" | "appointmentTime" | "expenseDescription" | "expenseValue" | "expenseType" | "expensePaid";
@@ -123,6 +124,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const [listening, setListening] = useState(false);
   const [actionDraft, setActionDraft] = useState<ActionDraft | null>(null);
   const [activeField, setActiveField] = useState<ActionField | null>(null);
+  const [configAction, setConfigAction] = useState<HelpActionProposal | null>(null);
   const [messages, setMessages] = useState<Message[]>([{ id: 1, role: "assistant", text: "Olá! Posso tirar dúvidas, mostrar onde fazer algo e consultar seus resultados. O que você precisa?" }]);
   const nextMessageId = useRef(2);
   const endRef = useRef<HTMLDivElement>(null);
@@ -131,6 +133,8 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const closeRef = useRef<HTMLButtonElement>(null);
   const dictationRef = useRef<ReturnType<typeof createHelpDictation> | null>(null);
   const draftTextRef = useRef("");
+  const voiceTextRef = useRef("");
+  const manualVoiceSendRef = useRef(false);
   const requestInFlight = useRef(false);
   const saveInFlight = useRef(false);
   const panelRef = useRef<HTMLElement>(null);
@@ -322,16 +326,194 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     return [];
   }
 
+  const weekdayLabel = (day: number) => ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"][day] ?? "Dia";
+
+  function sameName(value: string, candidate: string) {
+    const left = normalize(value);
+    const right = normalize(candidate);
+    if (!left || !right) return false;
+    return left === right || right.includes(left) || left.includes(right);
+  }
+
+  function mergeSchedule(base: DashboardData["agendaSettings"]["weeklyHours"], changes: HelpScheduleChange[]) {
+    const next = base.map((row) => ({ ...row }));
+    for (const change of changes) {
+      const targets = change.days.length ? change.days : next.filter((row) => row.enabled).map((row) => row.day);
+      for (const day of targets) {
+        const row = next.find((candidate) => candidate.day === day);
+        if (!row) continue;
+        if (change.enabled === "on") row.enabled = true;
+        if (change.enabled === "off") row.enabled = false;
+        if (change.openingTime) row.openingTime = change.openingTime;
+        if (change.closingTime) row.closingTime = change.closingTime;
+      }
+    }
+    for (const row of next) {
+      if (row.enabled && row.openingTime >= row.closingTime) throw new Error(`${weekdayLabel(row.day)} ficou com horário inválido: ${row.openingTime}–${row.closingTime}.`);
+    }
+    return next;
+  }
+
+  function scheduleSummary(changes: HelpScheduleChange[]) {
+    return changes.map((change) => {
+      const days = change.days.length ? change.days.map(weekdayLabel).join(", ") : "Dias ativos";
+      if (change.enabled === "off") return `${days}: folga/fechado`;
+      const hours = change.openingTime && change.closingTime ? `${change.openingTime}–${change.closingTime}`
+        : change.openingTime ? `abre ${change.openingTime}`
+        : change.closingTime ? `fecha ${change.closingTime}` : "";
+      return `${days}${hours ? `: ${hours}` : ""}`;
+    }).join(" · ");
+  }
+
+  function configSummaryRows(action: HelpActionProposal) {
+    if (action.kind === "service") return [
+      ["Ação", action.mode === "create" ? "Criar serviço" : "Editar serviço"],
+      ["Serviço", action.name || action.target],
+      ["Preço", action.priceCents ? money(action.priceCents) : "Manter atual"],
+      ["Duração", action.durationMinutes ? `${action.durationMinutes} min` : "Manter atual"],
+    ];
+    if (action.kind === "plan") return [
+      ["Ação", action.mode === "create" ? "Criar plano" : "Editar plano"],
+      ["Plano", action.name || action.target],
+      ["Serviço", action.serviceName || "Manter atual"],
+      ["Mensalidade", action.monthlyValueCents ? money(action.monthlyValueCents) : "Manter atual"],
+      ["Usos", action.maxUses ? String(action.maxUses) : "Manter atual"],
+      ["Repasse/uso", action.barberPayoutCents ? money(action.barberPayoutCents) : "Manter atual"],
+    ];
+    if (action.kind === "payment") return [
+      ["Ação", action.mode === "create" ? "Criar pagamento" : "Editar pagamento"],
+      ["Pagamento", action.name || action.target],
+      ["Taxa", `${(action.feeBps / 100).toFixed(2).replace(".", ",")}%`],
+    ];
+    if (action.kind === "team-hours") return [
+      ["Ação", "Horários do profissional"],
+      ["Profissional", action.target],
+      ["Mudança", scheduleSummary(action.scheduleChanges)],
+    ];
+    if (action.kind === "agenda") return [
+      ["Ação", "Configurar agenda"],
+      ["Duração inteligente", action.useServiceDuration === "on" ? "Ativar" : action.useServiceDuration === "off" ? "Desativar" : "Manter atual"],
+      ["Horários", action.scheduleChanges.length ? scheduleSummary(action.scheduleChanges) : "Manter atuais"],
+    ];
+    return [["Ação", action.summary || "Configuração"]];
+  }
+
+  async function confirmConfigAction() {
+    if (!configAction || saveInFlight.current) return;
+    if (!viewer.isOwner) {
+      addMessage("assistant", "Essa alteração só pode ser feita pelo proprietário.");
+      setConfigAction(null);
+      return;
+    }
+    saveInFlight.current = true;
+    setSaving(true);
+    try {
+      let ok = false;
+      if (configAction.kind === "service") {
+        const current = configAction.mode === "update"
+          ? data.services.find((item) => sameName(configAction.target || configAction.name, item.name))
+          : undefined;
+        if (configAction.mode === "update" && !current) throw new Error("Não encontrei esse serviço cadastrado.");
+        const name = configAction.name || current?.name || "";
+        const priceCents = configAction.priceCents || current?.priceCents || 0;
+        const duration = configAction.durationMinutes || current?.durationMinutes || 0;
+        if (!name || duration < 5) throw new Error("Faltam o nome ou a duração do serviço.");
+        ok = await post({ action: "save-service", id: current?.id ?? 0, name, priceCents, durationMinutes: duration, active: current?.active ?? true }, current ? "Serviço atualizado pelo assistente." : "Serviço criado pelo assistente.");
+      } else if (configAction.kind === "plan") {
+        const current = configAction.mode === "update"
+          ? data.plans.find((item) => sameName(configAction.target || configAction.name, item.name))
+          : undefined;
+        if (configAction.mode === "update" && !current) throw new Error("Não encontrei esse plano cadastrado.");
+        const serviceName = configAction.serviceName
+          ? data.services.find((item) => sameName(configAction.serviceName, item.name))?.name
+          : current?.planKind;
+        const name = configAction.name || current?.name || "";
+        const monthlyValueCents = configAction.monthlyValueCents || current?.monthlyValueCents || 0;
+        const maxUses = configAction.maxUses || current?.maxUses || 0;
+        const payout = configAction.barberPayoutCents || current?.barberPayoutCents || 0;
+        if (!name || !serviceName || !monthlyValueCents || !maxUses) throw new Error("Faltam dados do plano. Diga nome, serviço, valor e quantidade de usos.");
+        ok = await post({ action: "save-plan", id: current?.id ?? 0, name, planKind: serviceName, monthlyValueCents, maxUses, barberPayoutCents: payout, active: current?.active ?? true }, current ? "Plano atualizado pelo assistente." : "Plano criado pelo assistente.");
+      } else if (configAction.kind === "payment") {
+        const current = configAction.mode === "update"
+          ? data.paymentMethods.find((item) => sameName(configAction.target || configAction.name, item.name))
+          : undefined;
+        if (configAction.mode === "update" && !current) throw new Error("Não encontrei essa forma de pagamento.");
+        const name = configAction.name || current?.name || "";
+        if (!name) throw new Error("Informe a forma de pagamento.");
+        ok = await post({ action: "save-payment", id: current?.id ?? 0, name, feeBps: configAction.feeBps }, current ? "Taxa atualizada pelo assistente." : "Forma de pagamento criada pelo assistente.");
+      } else if (configAction.kind === "agenda") {
+        const weeklyHours = mergeSchedule(data.agendaSettings.weeklyHours, configAction.scheduleChanges);
+        const firstEnabled = weeklyHours.find((row) => row.enabled);
+        if (!firstEnabled) throw new Error("A barbearia precisa ter pelo menos um dia de atendimento.");
+        ok = await post({
+          action: "save-agenda-settings",
+          useServiceDuration: configAction.useServiceDuration === "" ? data.agendaSettings.useServiceDuration : configAction.useServiceDuration === "on",
+          openingTime: firstEnabled.openingTime,
+          closingTime: firstEnabled.closingTime,
+          weeklyHours: JSON.stringify(weeklyHours),
+        }, "Agenda atualizada pelo assistente.");
+      } else if (configAction.kind === "team-hours") {
+        const member = data.team.find((item) => sameName(configAction.target, item.name));
+        if (!member) throw new Error("Não encontrei esse profissional na equipe.");
+        const weeklyHours = mergeSchedule(member.weeklyHours, configAction.scheduleChanges);
+        ok = await post({
+          action: "save-team",
+          id: member.id,
+          name: member.name,
+          role: member.role,
+          loginEmail: member.loginEmail ?? "",
+          accessRole: member.accessRole,
+          commissionRateBps: member.commissionRateBps,
+          active: member.active,
+          weeklyHours: JSON.stringify(weeklyHours),
+        }, `Horários de ${member.name} atualizados pelo assistente.`);
+      }
+      if (ok) {
+        addMessage("assistant", "Pronto. A configuração foi salva no Cortou Anotou.");
+        setConfigAction(null);
+      } else {
+        addMessage("assistant", "Não consegui salvar essa alteração. Nenhuma configuração foi confirmada por este pedido.");
+      }
+    } catch (error) {
+      addMessage("assistant", error instanceof Error ? error.message : "Não consegui aplicar essa configuração.");
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false);
+    }
+  }
+
+  function cancelConfigAction() {
+    setConfigAction(null);
+    addMessage("assistant", "Alteração cancelada. Nada foi modificado.");
+  }
+
   async function ask(question: string) {
     const cleanQuestion = question.trim();
     if (!cleanQuestion || busy || requestInFlight.current) return;
     stopVoice();
     addMessage("user", cleanQuestion);
     updateInput("");
-    if (actionDraft && normalize(cleanQuestion) === "cancelar") {
+    const normalizedQuestion = normalize(cleanQuestion);
+
+    if (configAction) {
+      if (/^(confirmar|confirma|pode|pode salvar|salvar|sim|fechado)$/.test(normalizedQuestion)) {
+        await confirmConfigAction();
+      } else if (/^(cancelar|cancela|nao)$/.test(normalizedQuestion)) {
+        cancelConfigAction();
+      } else {
+        addMessage("assistant", "Tenho uma alteração aguardando confirmação. Confirme para salvar ou cancele para fazer outro pedido.");
+      }
+      return;
+    }
+
+    if (actionDraft && normalizedQuestion === "cancelar") {
       setActionDraft(null);
       setActiveField(null);
       addMessage("assistant", "Ação cancelada. Nenhum dado foi salvo.");
+      return;
+    }
+    if (actionDraft && !activeField && /^(confirmar|confirma|pode|pode salvar|salvar|sim|fechado)$/.test(normalizedQuestion)) {
+      await confirmAction();
       return;
     }
     if (actionDraft && activeField) {
@@ -342,11 +524,13 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
       addMessage("assistant", "Use Confirmar e salvar para concluir ou Cancelar para descartar.");
       return;
     }
+
     const kind = requestedHelpAction(cleanQuestion);
     if (kind) {
       startAction(kind, cleanQuestion, false);
       return;
     }
+
     const requestMessages = [...messages, { id: nextMessageId.current, role: "user" as const, text: cleanQuestion }];
     requestInFlight.current = true;
     setAnswerPending(true);
@@ -358,11 +542,20 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         body: JSON.stringify({ messages: requestMessages.slice(-10).map((message) => ({ role: message.role, content: message.text })) }),
       });
       const result = await response.json() as Partial<HelpReply> & {error?:string};
-      addMessage("assistant", result.answer ?? result.error ?? "Não consegui responder agora. Tente novamente em instantes.", {
-        destination: response.ok && result.destination && destinationAllowed(result.destination,viewer.isOwner) ? result.destination : undefined,
-        suggestions: response.ok ? result.suggestions : undefined,
-        retry: response.ok ? undefined : cleanQuestion,
-      });
+      if (response.ok && result.action?.kind === "public-booking-link") {
+        const slug = data.agendaSettings.publicBookingSlug;
+        const url = slug ? `${window.location.origin}/agendar/${encodeURIComponent(slug)}` : "";
+        addMessage("assistant", url ? "Aqui está seu link público de agendamento." : "O link público ainda não está disponível. Confira o Agendamento público nas Configurações.", {
+          link: url ? { label: "Abrir link de agendamento", url } : undefined,
+        });
+      } else {
+        addMessage("assistant", result.answer ?? result.error ?? "Não consegui responder agora. Tente novamente em instantes.", {
+          destination: response.ok && result.destination && destinationAllowed(result.destination,viewer.isOwner) ? result.destination : undefined,
+          suggestions: response.ok ? result.suggestions : undefined,
+          retry: response.ok ? undefined : cleanQuestion,
+        });
+        if (response.ok && result.action) setConfigAction(result.action);
+      }
     } catch {
       addMessage("assistant", "Não consegui responder agora. Verifique sua conexão e tente novamente.", {retry:cleanQuestion});
     } finally {
@@ -392,7 +585,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     if (actionDraft.kind === "record") {
       ok = await post({ action: "daily-record", occurredAt: actionDraft.occurredAt ?? isoDate(), recordType: actionDraft.recordType ?? "Avulso", clientName: actionDraft.clientName ?? "", membershipClientId: actionDraft.membershipClientId ?? 0, barberId: actionDraft.barberId ?? viewer.teamMemberId, serviceId: actionDraft.serviceId ?? 0, paymentMethodId: actionDraft.paymentMethodId ?? data.paymentMethods[0]?.id ?? 0, origin: actionDraft.recordType === "Mensalista" ? "Assinatura" : "Retorno", tipCents: 0 }, "Atendimento salvo e painel atualizado.");
     } else if (actionDraft.kind === "appointment") {
-      ok = await post({ action: "appointment", appointmentDate: actionDraft.appointmentDate ?? "", appointmentTime: actionDraft.appointmentTime ?? "", clientName: actionDraft.clientName ?? "", phone: actionDraft.phone ?? "", serviceId: actionDraft.serviceId ?? 0, barberId: actionDraft.barberId ?? viewer.teamMemberId, notes: "Criado pela Central de ajuda" }, "Horário agendado.");
+      ok = await post({ action: "appointment", appointmentDate: actionDraft.appointmentDate ?? "", appointmentTime: actionDraft.appointmentTime ?? "", clientName: actionDraft.clientName ?? "", phone: actionDraft.phone ?? "", serviceId: actionDraft.serviceId ?? 0, barberId: actionDraft.barberId ?? viewer.teamMemberId, notes: "Criado pelo Assistente Cortou Anotou" }, "Horário agendado.");
     } else {
       ok = await post({ action: "expense", occurredAt: actionDraft.occurredAt ?? isoDate(), type: actionDraft.expenseType ?? "Variável", description: actionDraft.description ?? "", valueCents: actionDraft.valueCents ?? 0, paid: actionDraft.paid ?? true }, "Despesa registrada.");
     }
@@ -415,20 +608,43 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     addMessage("assistant", "Ação cancelada. Nenhum dado foi salvo.");
   }
 
-  function startVoice() {
-    if (listening) { stopVoice(); inputRef.current?.focus({preventScroll:true}); return; }
+  function toggleVoice() {
+    if (listening) {
+      const spoken = voiceTextRef.current.trim();
+      manualVoiceSendRef.current = true;
+      stopVoice();
+      manualVoiceSendRef.current = false;
+      voiceTextRef.current = "";
+      if (spoken) void ask(spoken);
+      else addMessage("assistant", "Não consegui ouvir nada. Toque no microfone e tente novamente.");
+      return;
+    }
     const speechWindow = window as unknown as {SpeechRecognition?:new()=>Recognition;webkitSpeechRecognition?:new()=>Recognition};
     const RecognitionType = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
-    if (!RecognitionType) { addMessage("assistant","Use o microfone do teclado do celular para ditar nesta caixa."); inputRef.current?.focus(); return; }
+    if (!RecognitionType) {
+      addMessage("assistant","Use o microfone do teclado do celular para ditar nesta caixa.");
+      inputRef.current?.focus();
+      return;
+    }
+    voiceTextRef.current = "";
+    updateInput("");
     if (!dictationRef.current) dictationRef.current = createHelpDictation(RecognitionType,{
-      text:updateInput,listening:setListening,error:(text)=>addMessage("assistant",text),
+      text:(text)=>{ voiceTextRef.current = text; },
+      listening:(active)=>{
+        setListening(active);
+        if (!active && !manualVoiceSendRef.current && voiceTextRef.current.trim()) updateInput(voiceTextRef.current.trim());
+      },
+      error:(text)=>addMessage("assistant",text),
     });
-    dictationRef.current.start(draftTextRef.current);
+    dictationRef.current.start("");
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (listening) stopVoice();
+    if (listening) {
+      toggleVoice();
+      return;
+    }
     void ask(draftTextRef.current);
   }
 
@@ -439,34 +655,34 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   }
 
   return <>
-    <button ref={launcherRef} className={"help-launcher"+(open ? " is-open" : "")} type="button" aria-label="Abrir Central de ajuda" aria-expanded={open} aria-controls="cortou-anotou-help" onClick={() => setOpen(true)}><span><AppIcon name="help" /></span><strong>Ajuda</strong></button>
+    <button ref={launcherRef} className={"help-launcher"+(open ? " is-open" : "")} type="button" aria-label="Abrir Assistente Cortou Anotou" aria-expanded={open} aria-controls="cortou-anotou-help" onClick={() => setOpen(true)}><span><AppIcon name="help" /></span><strong>Ajuda</strong></button>
     {open && <>
       <div className="help-chat-backdrop" onClick={closeHelp} aria-hidden="true" />
       <section ref={panelRef} className="help-panel help-chat" id="cortou-anotou-help" role="dialog" aria-modal="true" aria-labelledby="help-title">
-        <header className="help-header"><AppIcon name="help" /><div><h2 id="help-title">Central de ajuda</h2><small>Cortou Anotou</small></div><button ref={closeRef} type="button" aria-label="Minimizar Central de ajuda" onClick={closeHelp}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button></header>
+        <header className="help-header"><AppIcon name="help" /><div><h2 id="help-title">Assistente Cortou Anotou</h2><small>Pergunte, consulte ou peça para fazer</small></div><button ref={closeRef} type="button" aria-label="Fechar Assistente Cortou Anotou" onClick={closeHelp}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></header>
         <div className="help-chat-scroll">
           <div className="help-messages" role="log" aria-live="polite" aria-relevant="additions">
             {messages.map(message=><div className={"help-message "+message.role} key={message.id}>
               <p>{message.text}</p>
               {message.destination && <button type="button" className="help-destination" disabled={busy} onClick={()=>navigate(message.destination!)}>{message.destination.label}<span aria-hidden="true">→</span></button>}
               {message.suggestions && <div className="help-inline-suggestions">{message.suggestions.map(text=><button type="button" key={text} disabled={busy} onClick={()=>void ask(text)}>{text}</button>)}</div>}
-              {message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
+              {message.link && <a className="help-destination help-link" href={message.link.url} target="_blank" rel="noreferrer">{message.link.label}<span aria-hidden="true">↗</span></a>}{message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
             </div>)}
             {answerPending && <div className="help-message assistant typing" aria-label="Consultando, aguarde"><i /><i /><i /></div>}
           </div>
           {messages.length === 1 && <div className="help-starter-prompts">{helpSuggestions.map(text=><button type="button" key={text} onClick={()=>void ask(text)}>{text}<span aria-hidden="true">↗</span></button>)}</div>}
           {choices.length > 0 && <div className="help-choices">{choices.map(choice=><button type="button" disabled={busy} key={choice.label} onClick={()=>{ stopVoice(); updateInput(""); addMessage("user",choice.label); applyAnswer(activeField as ActionField,choice.value); }}>{choice.label}</button>)}</div>}
-          {actionDraft && !activeField && <div className="help-confirm"><strong>Confira antes de salvar</strong><dl>{summaryRows(actionDraft).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelAction}>Cancelar</button></div></div>}
+          {actionDraft && !activeField && <div className="help-confirm"><strong>Confira antes de salvar</strong><dl>{summaryRows(actionDraft).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelAction}>Cancelar</button></div></div>}{configAction && <div className="help-confirm help-config-confirm"><strong>O assistente entendeu assim</strong><dl>{configSummaryRows(configAction).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmConfigAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelConfigAction}>Cancelar</button></div><small className="help-confirm-note">Nada é alterado antes da sua confirmação.</small></div>}
           {actionDraft && activeField && <button type="button" className="help-abandon" onClick={cancelAction}>Cancelar este pedido</button>}
           <div ref={endRef} />
         </div>
         <div className="help-composer">
-          {listening && <div className="help-recording" role="status"><span />Ouvindo. Pode falar sem pressa.<button type="button" onClick={stopVoice}>Concluir</button></div>}
+          {listening && <div className="help-recording" role="status"><span />Ouvindo... fale normalmente. Toque na seta para enviar.</div>}
           <form className="help-form" onSubmit={submit}>
-            <textarea ref={inputRef} value={input} onChange={event=>{stopVoice();updateInput(event.target.value);}} maxLength={HELP_MESSAGE_LIMIT} rows={1} placeholder={activeField?"Sua resposta...":"Escreva sua dúvida..."} aria-label="Mensagem para a Central de ajuda" />
+            <textarea ref={inputRef} value={input} onChange={event=>{stopVoice();updateInput(event.target.value);}} maxLength={HELP_MESSAGE_LIMIT} rows={1} placeholder={listening?"":activeField?"Sua resposta...":"Escreva sua dúvida..."} aria-label="Mensagem para o Assistente Cortou Anotou" />
             <div className="help-composer-actions">
-              <button className={listening?"help-mic listening":"help-mic"} type="button" disabled={busy} aria-pressed={listening} aria-label={listening?"Concluir gravação":"Ditar mensagem"} onClick={startVoice}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></svg></button>
-              <small>{listening?"Revise antes de enviar":"Texto ou voz"}</small>
+              <button className={listening?"help-mic listening":"help-mic"} type="button" disabled={busy} aria-pressed={listening} aria-label={listening?"Enviar mensagem de voz":"Falar com o assistente"} onClick={toggleVoice}><svg viewBox="0 0 24 24" aria-hidden="true">{listening?<path d="M12 19V5M6 11l6-6 6 6"/>:<><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></>}</svg></button>
+              <small>{listening?"Ouvindo...":"Texto ou voz"}</small>
               <button className="help-send" disabled={busy || !input.trim()} aria-label="Enviar mensagem">Enviar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
             </div>
           </form>
