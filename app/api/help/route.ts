@@ -14,7 +14,7 @@ const json = (body: HelpReply | {error:string}, status = 200) => Response.json(b
 
 function directClientReturnRequest(question: string, messages: HelpMessage[]) {
   const clean = normalizeHelp(question);
-  if (/\b(cliente|clientes)\b.*\b(sumid|voltar|retorno|voltou|vieram|veio|mes passado|atrasad)/.test(clean)) return true;
+  if (/\b(cliente|clientes)\b.*\b(sumidos?|sumidas?|voltar|retorno|voltou|voltaram|vieram|veio|atrasados?|atrasadas?|mes passado)\b/.test(clean)) return true;
   if (/\b(quem|quais)\b.*\b(nao veio|nao vieram|voltar|retorno|sumid)/.test(clean)) return true;
   const affirmative = /^(quero|sim|pode|pode mostrar|mostra|mostrar|manda|vamos|bora)$/.test(clean);
   return affirmative && messages.some((message) => message.role === "assistant" && message.content.includes("Oferta de clientes para retorno: sim"));
