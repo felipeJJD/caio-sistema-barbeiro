@@ -465,6 +465,7 @@ export const plans = sqliteTable("plans", {
   planKind: text("plan_kind").notNull(),
   monthlyValueCents: integer("monthly_value_cents").notNull(),
   maxUses: integer("max_uses").notNull().default(4),
+  serviceId: integer("service_id"),
   barberPayoutCents: integer("barber_payout_cents").notNull().default(0),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
 });
@@ -552,10 +553,12 @@ export const dailyRecords = sqliteTable("daily_records", {
   origin: text("origin").notNull().default("Retorno"),
   recordType: text("record_type").notNull().default("Avulso"),
   membershipClientId: integer("membership_client_id"),
+  appointmentId: integer("appointment_id"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   index("daily_records_organization_date_idx").on(table.organizationId, table.occurredAt),
   index("daily_records_barber_date_idx").on(table.barberId, table.occurredAt),
+  uniqueIndex("daily_records_appointment_unique").on(table.appointmentId),
 ]);
 
 export const expenses = sqliteTable("expenses", {
@@ -609,6 +612,9 @@ export const appointments = sqliteTable("appointments", {
   paymentConfirmationToken: text("payment_confirmation_token"),
   managementTokenHash: text("management_token_hash"),
   membershipClientId: integer("membership_client_id"),
+  membershipPlanId: integer("membership_plan_id"),
+  membershipCreditState: text("membership_credit_state"),
 }, (table) => [
   index("appointments_organization_date_barber_idx").on(table.organizationId, table.appointmentDate, table.barberId),
+  index("appointments_membership_credit_idx").on(table.organizationId, table.membershipClientId, table.membershipCreditState),
 ]);
