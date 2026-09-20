@@ -84,11 +84,17 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
   const orderedServices = useMemo(() => orderedBookingServices(data.services), [data.services]);
   const [serviceId, setServiceId] = useState(() => orderedBookingServices(data.services)[0]?.id ?? 0);
   const [showAllServices, setShowAllServices] = useState(false);
+  type MembershipInfo = { clientId:number; clientName:string; planId:number; planName:string; serviceId:number; serviceName:string; durationMinutes:number; remainingUses:number };
+  type MembershipCandidate = { clientId:number; clientName:string; requiresPhone:boolean };
   const [membershipClientId, setMembershipClientId] = useState(0);
-  const [membershipInfo, setMembershipInfo] = useState<{ clientId:number; clientName:string; planName:string; serviceId:number; serviceName:string; durationMinutes:number; remainingUses:number } | null>(null);
+  const [membershipInfo, setMembershipInfo] = useState<MembershipInfo | null>(null);
+  const [membershipPreview, setMembershipPreview] = useState<MembershipInfo | null>(null);
   const [membershipPickerOpen, setMembershipPickerOpen] = useState(false);
   const [membershipLookupName, setMembershipLookupName] = useState("");
   const [membershipLookupPhone, setMembershipLookupPhone] = useState("");
+  const [membershipCandidates, setMembershipCandidates] = useState<MembershipCandidate[]>([]);
+  const [selectedMembershipCandidate, setSelectedMembershipCandidate] = useState<MembershipCandidate | null>(null);
+  const [membershipSearchPending, setMembershipSearchPending] = useState(false);
   const [membershipLookupPending, setMembershipLookupPending] = useState(false);
   const [membershipLookupError, setMembershipLookupError] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -168,6 +174,34 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
   }, [data.organization.slug, selectedTime]);
 
   useEffect(() => {
+    if (!membershipPickerOpen || membershipPreview) return;
+    const query = membershipLookupName.trim();
+    if (query.length < 3) {
+      setMembershipCandidates([]);
+      setMembershipSearchPending(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setMembershipSearchPending(true);
+      fetch(`/api/public-booking/${encodeURIComponent(data.organization.slug)}/membership?q=${encodeURIComponent(query)}`, { cache: "no-store", signal: controller.signal })
+        .then(async (response) => {
+          const body = await response.json() as { candidates?: MembershipCandidate[]; error?: string };
+          if (!response.ok) throw new Error(body.error ?? "Não foi possível procurar seu cadastro.");
+          setMembershipCandidates(body.candidates ?? []);
+        })
+        .catch((reason) => {
+          if (reason instanceof Error && reason.name !== "AbortError") setMembershipLookupError(reason.message);
+        })
+        .finally(() => setMembershipSearchPending(false));
+    }, 280);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [data.organization.slug, membershipLookupName, membershipPickerOpen, membershipPreview]);
+
+  useEffect(() => {
     if (!selectedDate || !serviceId) return;
     const controller = new AbortController();
     let active = true;
@@ -192,42 +226,62 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
   }, [barberId, data.organization.slug, selectedDate, serviceId]);
 
   function resetDate() { setSelectedDate(""); setSelectedTime(""); setSlots([]); setResult(null); setReviewOpen(false); }
-  function clearMembership() { setIsMembership(false); setMembershipClientId(0); setMembershipInfo(null); }
+  function clearMembership() {
+    setIsMembership(false);
+    setMembershipClientId(0);
+    setMembershipInfo(null);
+    setMembershipPreview(null);
+  }
   function changeService(id: number) { clearMembership(); setServiceId(id); resetDate(); }
   function chooseMembership() {
     if (!data.hasMemberships) return;
-    setMembershipLookupName(clientName);
-    setMembershipLookupPhone(phone);
+    setMembershipLookupName("");
+    setMembershipLookupPhone("");
+    setMembershipCandidates([]);
+    setSelectedMembershipCandidate(null);
+    setMembershipPreview(null);
     setMembershipLookupError("");
     setMembershipPickerOpen(true);
     setError(null);
   }
-  async function identifyMembership(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function identifyMembership(candidate: MembershipCandidate, phoneValue = "") {
     setMembershipLookupPending(true);
     setMembershipLookupError("");
     try {
       const response = await fetch(`/api/public-booking/${encodeURIComponent(data.organization.slug)}/membership`, {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ name: membershipLookupName, phone: membershipLookupPhone }),
+        body:JSON.stringify({ clientId: candidate.clientId, name: candidate.clientName, phone: phoneValue }),
       });
-      const body = await response.json() as { membership?: { clientId:number; clientName:string; planName:string; serviceId:number; serviceName:string; durationMinutes:number; remainingUses:number }; error?:string };
+      const body = await response.json() as { membership?: MembershipInfo; error?:string };
       if (!response.ok || !body.membership) throw new Error(body.error ?? "Não encontramos seu cadastro de mensalista.");
-      const membership = body.membership;
-      setMembershipInfo(membership);
-      setMembershipClientId(membership.clientId);
-      setClientName(membership.clientName);
-      setPhone(membershipLookupPhone);
-      setIsMembership(true);
-      setServiceId(membership.serviceId);
-      setMembershipPickerOpen(false);
-      resetDate();
+      setMembershipPreview(body.membership);
+      setMembershipLookupName(body.membership.clientName);
     } catch (reason) {
       setMembershipLookupError(reason instanceof Error ? reason.message : "Não encontramos seu cadastro de mensalista.");
     } finally {
       setMembershipLookupPending(false);
     }
+  }
+  function selectMembershipCandidate(candidate: MembershipCandidate) {
+    setSelectedMembershipCandidate(candidate);
+    setMembershipLookupName(candidate.clientName);
+    setMembershipCandidates([]);
+    setMembershipPreview(null);
+    setMembershipLookupError("");
+    setMembershipLookupPhone("");
+    if (!candidate.requiresPhone) void identifyMembership(candidate);
+  }
+  function confirmMembershipUse() {
+    if (!membershipPreview) return;
+    setMembershipInfo(membershipPreview);
+    setMembershipClientId(membershipPreview.clientId);
+    setClientName(membershipPreview.clientName);
+    if (membershipLookupPhone) setPhone(membershipLookupPhone);
+    setIsMembership(true);
+    setServiceId(membershipPreview.serviceId);
+    setMembershipPickerOpen(false);
+    resetDate();
   }
   function changeBarber(id: number) { setBarberId(id); resetDate(); }
   function editReview(sectionId: string) {
@@ -289,7 +343,7 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
 
   if (result) {
     const isPix = result.paymentChoice === "Pix";
-    return <main className="public-booking-page public-booking-result">{bookingHeader}<section className={`public-booking-success${isPix ? " pix-payment-result" : ""}`}><span className={`booking-success-icon${isPix ? " pix-pending" : ""}`}>{isPix ? "PIX" : "✓"}</span><small>{data.organization.name}</small><h1>{isPix ? "Falta só o pagamento" : result.requiresApproval ? "Solicitação enviada!" : "Horário confirmado!"}</h1><p>{isPix ? "Seu horário foi separado e aguarda o Pix para seguir à confirmação." : result.paymentChoice === "Mensalista" ? "A barbearia recebeu o aviso de que você é mensalista e fará a conferência do seu plano." : result.requiresApproval ? "A barbearia recebeu seu pedido e fará a confirmação." : "Seu horário já entrou na agenda da barbearia."}</p><div className="booking-result-appointment"><span>{result.serviceName}</span><strong>{dayLabel(selectedDate)} às {selectedTime}</strong><small>Profissional: {result.barberName}</small></div>{isPix && <PixBookingPayment slug={data.organization.slug} result={result} />}<a className="booking-manage-link" href={`/agendar/${encodeURIComponent(data.organization.slug)}/gerenciar/${encodeURIComponent(result.managementToken)}`}>Cancelar ou remarcar meu horário</a><button className="booking-new-appointment" onClick={() => { setResult(null); resetDate(); }}>Marcar outro horário</button></section></main>;
+    return <main className="public-booking-page public-booking-result">{bookingHeader}<section className={`public-booking-success${isPix ? " pix-payment-result" : ""}`}><span className={`booking-success-icon${isPix ? " pix-pending" : ""}`}>{isPix ? "PIX" : "✓"}</span><small>{data.organization.name}</small><h1>{isPix ? "Falta só o pagamento" : result.requiresApproval ? "Solicitação enviada!" : "Horário confirmado!"}</h1><p>{isPix ? "Seu horário foi separado e aguarda o Pix para seguir à confirmação." : result.paymentChoice === "Mensalista" ? "1 crédito do seu plano ficou reservado para este horário e só será usado quando o atendimento for concluído." : result.requiresApproval ? "A barbearia recebeu seu pedido e fará a confirmação." : "Seu horário já entrou na agenda da barbearia."}</p><div className="booking-result-appointment"><span>{result.serviceName}</span><strong>{dayLabel(selectedDate)} às {selectedTime}</strong><small>Profissional: {result.barberName}</small></div>{isPix && <PixBookingPayment slug={data.organization.slug} result={result} />}<a className="booking-manage-link" href={`/agendar/${encodeURIComponent(data.organization.slug)}/gerenciar/${encodeURIComponent(result.managementToken)}`}>Cancelar ou remarcar meu horário</a><button className="booking-new-appointment" onClick={() => { setResult(null); resetDate(); }}>Marcar outro horário</button></section></main>;
   }
 
   return <main className="public-booking-page">
@@ -306,15 +360,15 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
 
       <section className="booking-card booking-services-card" id="booking-service"><div className="booking-card-heading"><span>1</span><div><strong>Escolha o atendimento</strong><small>Selecione primeiro o serviço que você quer fazer</small></div></div><div className="booking-option-grid services">{visibleServices.map((item) => <button type="button" className={!isMembership && serviceId === item.id ? "selected" : ""} onClick={() => changeService(item.id)} key={item.id}><span><AppIcon name="scissors" /></span><div><strong>{item.name}</strong><small>{item.durationMinutes} min · {money(item.priceCents)}</small></div><b><AppIcon name="check" /></b></button>)}</div>{orderedServices.length > 5 && <button type="button" className="booking-show-more" onClick={() => setShowAllServices((value) => !value)}>{showAllServices ? "Ver menos serviços" : `Ver mais ${orderedServices.length - 5} serviço${orderedServices.length - 5 === 1 ? "" : "s"}`}<b>{showAllServices ? "↑" : "↓"}</b></button>}{data.hasMemberships && <button type="button" className={`booking-membership-entry${isMembership ? " selected" : ""}`} onClick={chooseMembership}><span><AppIcon name="members" /></span><div><strong>{isMembership && membershipInfo ? `Mensalista · ${membershipInfo.serviceName}` : "Sou mensalista"}</strong><small>{isMembership && membershipInfo ? `${membershipInfo.clientName} · ${membershipInfo.planName} · ${membershipInfo.remainingUses} uso${membershipInfo.remainingUses === 1 ? "" : "s"} restante${membershipInfo.remainingUses === 1 ? "" : "s"}` : "Identificar meu cadastro"}</small></div><b>{isMembership ? "Trocar" : "Identificar"} →</b></button>}</section>
 
-      <section className="booking-card" id="booking-professional"><div className="booking-card-heading"><span>2</span><div><strong>Escolha o profissional</strong><small>Ou deixe a barbearia encontrar um horário</small></div></div><div className="booking-option-grid barbers"><button type="button" className={barberId === 0 ? "selected" : ""} onClick={() => changeBarber(0)}><span><AppIcon name="members" /></span><div><strong>Qualquer profissional</strong><small>Primeiro horário disponível</small></div><b><AppIcon name="check" /></b></button>{data.barbers.map((item) => { const dayHours = selectedDate ? bookingHoursForDate(item.weeklyHours, selectedDate) : null; const unavailable = Boolean(selectedDate && !dayHours?.enabled); return <button type="button" disabled={unavailable} className={`${barberId === item.id ? "selected" : ""}${unavailable ? " unavailable" : ""}`.trim()} onClick={() => changeBarber(item.id)} key={item.id}>{item.photoUrl ? <img className="booking-barber-photo" src={item.photoUrl} alt={`Foto de ${item.name}`} loading="lazy" /> : <span>{item.name.slice(0, 1).toUpperCase()}</span>}<div><strong>{item.name}</strong><small>{unavailable ? "Folga neste dia" : "Selecionar profissional"}</small></div><b><AppIcon name="check" /></b></button>; })}</div></section>
+      <section className="booking-card" id="booking-professional"><div className="booking-card-heading"><span>2</span><div><strong>Escolha o profissional</strong><small>{isMembership ? "Seu crédito será reservado somente quando você confirmar o agendamento" : "Ou deixe a barbearia encontrar um horário"}</small></div></div><div className="booking-option-grid barbers"><button type="button" className={barberId === 0 ? "selected" : ""} onClick={() => changeBarber(0)}><span><AppIcon name="members" /></span><div><strong>Qualquer profissional</strong><small>Primeiro horário disponível</small></div><b><AppIcon name="check" /></b></button>{data.barbers.map((item) => { const dayHours = selectedDate ? bookingHoursForDate(item.weeklyHours, selectedDate) : null; const unavailable = Boolean(selectedDate && !dayHours?.enabled); return <button type="button" disabled={unavailable} className={`${barberId === item.id ? "selected" : ""}${unavailable ? " unavailable" : ""}`.trim()} onClick={() => changeBarber(item.id)} key={item.id}>{item.photoUrl ? <img className="booking-barber-photo" src={item.photoUrl} alt={`Foto de ${item.name}`} loading="lazy" /> : <span>{item.name.slice(0, 1).toUpperCase()}</span>}<div><strong>{item.name}</strong><small>{unavailable ? "Folga neste dia" : "Selecionar profissional"}</small></div><b><AppIcon name="check" /></b></button>; })}</div></section>
 
       <section className="booking-card" id="booking-date"><div className="booking-card-heading"><span>3</span><div><strong>Escolha o dia</strong><small>Disponibilidade para os próximos 90 dias</small></div></div><div className={`booking-calendar${selectedDate ? " compact" : ""}`}>{selectedDate ? <div className="booking-selected-date"><div><small>DATA ESCOLHIDA</small><strong>{dayLabel(selectedDate)}</strong></div><button type="button" onClick={resetDate}>Trocar data</button></div> : <><div className="booking-calendar-nav"><button type="button" aria-label="Mês anterior" disabled={month <= new Date(`${today.slice(0, 7)}-01T12:00:00`)} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button><strong>{month.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</strong><button type="button" aria-label="Próximo mês" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>›</button></div><div className="booking-weekdays">{["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"].map((item) => <span key={item}>{item}</span>)}</div><div className="booking-days">{calendarDays.map((day, index) => { if (!day) return <i key={`blank-${index}`} />; const value = isoDate(new Date(month.getFullYear(), month.getMonth(), day)); const closed = !isPublicBookingDateAllowed(value, data.organization.weekdays); const disabled = value < today || value > maxDate || closed; return <button type="button" disabled={disabled} title={closed ? "Fechado" : undefined} className={value === selectedDate ? "selected" : ""} onClick={() => setSelectedDate(value)} key={value}>{day}</button>; })}</div></>}</div></section>
 
       {selectedDate && <section className="booking-card booking-times-card" id="booking-time"><div className="booking-card-heading"><span>4</span><div><strong>Horários disponíveis</strong><small>{isMembership && membershipInfo ? membershipInfo.serviceName : service?.name} · {service?.durationMinutes ?? 30} minutos</small></div></div>{loadingSlots ? <div className="booking-loading"><i /><span>Consultando a agenda...</span></div> : slots.length ? <div className="booking-times">{slots.map((slot) => <button type="button" className={selectedTime === slot.time ? "selected" : ""} onClick={() => setSelectedTime(slot.time)} key={`${slot.time}-${slot.barberId}`}><strong>{slot.time}</strong>{barberId === 0 && <small>{slot.barberName}</small>}</button>)}</div> : <div className="booking-no-slots"><span>◷</span><strong>Nenhum horário livre neste dia</strong><button type="button" onClick={resetDate}>Escolher outra data</button></div>}</section>}
 
-      {selectedTime && <section className="booking-card booking-contact-card" id="booking-contact"><div className="booking-card-heading"><span>5</span><div><strong>{isMembership ? "Cadastro mensalista identificado" : "Seus dados e pagamento"}</strong><small>{isMembership ? "O uso só será descontado quando o atendimento for concluído" : "Escolha como deseja pagar"}</small></div></div><form onSubmit={submit}><label><span>Seu nome</span><input name="clientName" value={clientName} onChange={(event) => { setClientName(event.target.value); if (isMembership) clearMembership(); }} readOnly={isMembership} autoComplete="name" placeholder="Como podemos chamar você?" minLength={2} maxLength={100} pattern="[A-Za-zÀ-ÖØ-öø-ÿ .’'-]+" title="Use somente letras no nome" required /></label><label><span>Telefone ou WhatsApp</span><input name="phone" value={phone} onChange={(event) => { setPhone(event.target.value); if (isMembership) clearMembership(); }} readOnly={isMembership} type="tel" inputMode="tel" autoComplete="tel" placeholder="(41) 99999-9999" maxLength={30} required /></label>{!isMembership && (paymentOptions.length ? <fieldset className="booking-payment-options"><legend>Como você quer pagar?</legend>{paymentOptions.map((option) => <label key={option}><input type="radio" name="paymentChoice" value={option} checked={paymentChoice === option} onChange={() => setPaymentChoice(option)} /><span><strong>{option}</strong><small>{option === "Pix" ? "Pagamento integral antecipado" : "Pagamento na barbearia"}</small></span></label>)}</fieldset> : <p className="booking-error" role="alert">A barbearia ainda não liberou uma forma de pagamento.</p>)}<label className="booking-honeypot" aria-hidden="true"><span>Site</span><input name="website" tabIndex={-1} autoComplete="off" /></label>{error && <p className="booking-error" role="alert">{error}</p>}<div className="booking-summary"><span>{selectedServiceLabel}</span><strong>{dayLabel(selectedDate)} · {selectedTime}</strong><small>{selectedBarberName}{!isMembership ? ` · ${paymentChoice}` : membershipInfo ? ` · ${membershipInfo.planName}` : ""}</small></div><button className="booking-submit" disabled={submitting || (!isMembership && !paymentChoice)}>{isMembership ? "Revisar agendamento" : paymentChoice === "Pix" ? "Revisar antes do Pix" : "Revisar agendamento"}<b>→</b></button></form></section>}
-      {membershipPickerOpen && <div className="booking-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMembershipPickerOpen(false); }}><section className="booking-modal membership-picker membership-identify" role="dialog" aria-modal="true" aria-labelledby="membership-picker-title"><button type="button" className="booking-modal-close" aria-label="Fechar" onClick={() => setMembershipPickerOpen(false)}>×</button><span className="booking-modal-kicker">CLIENTE MENSALISTA</span><h2 id="membership-picker-title">Vamos encontrar seu cadastro</h2><p>Informe o mesmo nome e telefone cadastrados na barbearia. O sistema identifica sozinho qual é o seu plano e o serviço correto.</p><form onSubmit={identifyMembership}><label><span>Seu nome</span><input value={membershipLookupName} onChange={(event) => setMembershipLookupName(event.target.value)} autoComplete="name" placeholder="Nome do mensalista" minLength={2} maxLength={100} required /></label><label><span>Telefone ou WhatsApp</span><input value={membershipLookupPhone} onChange={(event) => setMembershipLookupPhone(event.target.value)} type="tel" inputMode="tel" autoComplete="tel" placeholder="(41) 99999-9999" maxLength={30} required /></label>{membershipLookupError && <p className="booking-error" role="alert">{membershipLookupError}</p>}<button className="booking-membership-find" disabled={membershipLookupPending}>{membershipLookupPending ? "Procurando cadastro..." : "Encontrar meu plano"}<b>→</b></button></form></section></div>}
-      {reviewOpen && <div className="booking-modal-backdrop review" role="presentation"><section className="booking-modal booking-review-modal" role="dialog" aria-modal="true" aria-labelledby="booking-review-title"><button type="button" className="booking-modal-close" aria-label="Voltar ao agendamento" onClick={() => setReviewOpen(false)}>×</button><span className="booking-modal-kicker">CONFIRA ANTES DE ENVIAR</span><small className="booking-review-shop">{data.organization.name}</small><h2 id="booking-review-title">Está tudo certo?</h2><p>Veja os detalhes do seu atendimento antes de mandar o pedido para a barbearia.</p><div className="booking-review-list"><button type="button" onClick={() => editReview("booking-service")}><span>Serviço</span><strong>{selectedServiceLabel}</strong><small>{isMembership && membershipInfo ? `${membershipInfo.planName} · ${membershipInfo.remainingUses} uso${membershipInfo.remainingUses === 1 ? "" : "s"} restante${membershipInfo.remainingUses === 1 ? "" : "s"}` : service ? `${service.durationMinutes} min · ${money(service.priceCents)}` : ""}</small><em>Alterar</em></button><button type="button" onClick={() => editReview("booking-professional")}><span>Profissional</span><strong>{selectedBarberName || "Qualquer profissional"}</strong><em>Alterar</em></button><button type="button" onClick={() => editReview("booking-date")}><span>Data</span><strong>{dayLabel(selectedDate)}</strong><em>Alterar</em></button><button type="button" onClick={() => editReview("booking-time")}><span>Horário</span><strong>{selectedTime}</strong><em>Alterar</em></button>{!isMembership && <button type="button" onClick={() => editReview("booking-contact")}><span>Pagamento</span><strong>{paymentChoice}</strong><em>Alterar</em></button>}</div>{error && <p className="booking-error" role="alert">{error}</p>}<div className="booking-review-actions"><button type="button" className="booking-review-back" disabled={submitting} onClick={() => setReviewOpen(false)}>Voltar e alterar</button><button type="button" className="booking-review-confirm" disabled={submitting} onClick={() => void confirmBooking()}>{submitting ? "Confirmando..." : "Confirmar agendamento"}<b>→</b></button></div><small className="booking-review-note">O horário só é enviado agora. Se algo mudou na agenda, o sistema confere novamente antes de salvar.</small></section></div>}
+      {selectedTime && <section className="booking-card booking-contact-card" id="booking-contact"><div className="booking-card-heading"><span>5</span><div><strong>{isMembership ? "Cadastro mensalista identificado" : "Seus dados e pagamento"}</strong><small>{isMembership ? "Ao confirmar, 1 crédito fica reservado; ele só é consumido quando o atendimento for concluído" : "Escolha como deseja pagar"}</small></div></div><form onSubmit={submit}><label><span>Seu nome</span><input name="clientName" value={clientName} onChange={(event) => { setClientName(event.target.value); if (isMembership) clearMembership(); }} readOnly={isMembership} autoComplete="name" placeholder="Como podemos chamar você?" minLength={2} maxLength={100} pattern="[A-Za-zÀ-ÖØ-öø-ÿ .’'-]+" title="Use somente letras no nome" required /></label><label><span>Telefone ou WhatsApp</span><input name="phone" value={phone} onChange={(event) => setPhone(event.target.value)} type="tel" inputMode="tel" autoComplete="tel" placeholder="(41) 99999-9999" maxLength={30} required /></label>{!isMembership && (paymentOptions.length ? <fieldset className="booking-payment-options"><legend>Como você quer pagar?</legend>{paymentOptions.map((option) => <label key={option}><input type="radio" name="paymentChoice" value={option} checked={paymentChoice === option} onChange={() => setPaymentChoice(option)} /><span><strong>{option}</strong><small>{option === "Pix" ? "Pagamento integral antecipado" : "Pagamento na barbearia"}</small></span></label>)}</fieldset> : <p className="booking-error" role="alert">A barbearia ainda não liberou uma forma de pagamento.</p>)}<label className="booking-honeypot" aria-hidden="true"><span>Site</span><input name="website" tabIndex={-1} autoComplete="off" /></label>{error && <p className="booking-error" role="alert">{error}</p>}<div className="booking-summary"><span>{selectedServiceLabel}</span><strong>{dayLabel(selectedDate)} · {selectedTime}</strong><small>{selectedBarberName}{!isMembership ? ` · ${paymentChoice}` : membershipInfo ? ` · ${membershipInfo.planName}` : ""}</small></div><button className="booking-submit" disabled={submitting || (!isMembership && !paymentChoice)}>{isMembership ? "Revisar agendamento" : paymentChoice === "Pix" ? "Revisar antes do Pix" : "Revisar agendamento"}<b>→</b></button></form></section>}
+      {membershipPickerOpen && <div className="booking-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMembershipPickerOpen(false); }}><section className="booking-modal membership-picker membership-identify" role="dialog" aria-modal="true" aria-labelledby="membership-picker-title"><button type="button" className="booking-modal-close" aria-label="Fechar" onClick={() => setMembershipPickerOpen(false)}>×</button><span className="booking-modal-kicker">CLIENTE MENSALISTA</span>{membershipPreview ? <><h2 id="membership-picker-title">Mensalista encontrado</h2><div className="membership-credit-confirm"><small>CADASTRO CONFIRMADO</small><strong>{membershipPreview.clientName}</strong><div><span>Plano</span><b>{membershipPreview.planName}</b></div><div><span>Serviço</span><b>{membershipPreview.serviceName} · {membershipPreview.durationMinutes} min</b></div><div><span>Créditos disponíveis</span><b>{membershipPreview.remainingUses}</b></div><p>Este agendamento vai reservar <strong>1 crédito</strong> do seu plano. O crédito só será consumido quando o barbeiro concluir o atendimento.</p><button type="button" className="booking-membership-find" onClick={confirmMembershipUse}>Continuar e reservar 1 crédito <b>→</b></button><button type="button" className="booking-membership-back" onClick={() => { setMembershipPreview(null); setSelectedMembershipCandidate(null); setMembershipLookupName(""); setMembershipLookupPhone(""); }}>Voltar e procurar outro nome</button></div></> : <><h2 id="membership-picker-title">Encontre seu nome</h2><p>Digite pelo menos 3 letras. Mostramos somente nome e sobrenome de mensalistas ativos desta barbearia.</p><label><span>Digite seu nome</span><input value={membershipLookupName} onChange={(event) => { setMembershipLookupName(event.target.value); setSelectedMembershipCandidate(null); setMembershipPreview(null); setMembershipLookupError(""); }} autoComplete="off" placeholder="Ex.: João" minLength={3} maxLength={100} /></label>{membershipSearchPending && <p className="membership-search-status">Procurando...</p>}{!membershipSearchPending && membershipLookupName.trim().length >= 3 && membershipCandidates.length === 0 && !selectedMembershipCandidate && <p className="membership-search-status">Nenhum mensalista ativo encontrado com esse nome.</p>}{membershipCandidates.length > 0 && <div className="membership-name-results" role="listbox" aria-label="Mensalistas encontrados">{membershipCandidates.map((candidate) => <button type="button" key={candidate.clientId} onClick={() => selectMembershipCandidate(candidate)}><strong>{candidate.clientName}</strong><span>Selecionar</span></button>)}</div>}{selectedMembershipCandidate?.requiresPhone && <form onSubmit={(event) => { event.preventDefault(); void identifyMembership(selectedMembershipCandidate, membershipLookupPhone); }}><p className="membership-duplicate-note">Encontramos mais de um cadastro com esse mesmo nome. Informe o telefone cadastrado para confirmar qual é o seu.</p><label><span>Telefone ou WhatsApp</span><input value={membershipLookupPhone} onChange={(event) => setMembershipLookupPhone(event.target.value)} type="tel" inputMode="tel" autoComplete="tel" placeholder="(41) 99999-9999" maxLength={30} required /></label><button className="booking-membership-find" disabled={membershipLookupPending}>{membershipLookupPending ? "Confirmando..." : "Confirmar meu cadastro"}<b>→</b></button></form>}{membershipLookupError && <p className="booking-error" role="alert">{membershipLookupError}</p>}</>}</section></div>}
+      {reviewOpen && <div className="booking-modal-backdrop review" role="presentation"><section className="booking-modal booking-review-modal" role="dialog" aria-modal="true" aria-labelledby="booking-review-title"><button type="button" className="booking-modal-close" aria-label="Voltar ao agendamento" onClick={() => setReviewOpen(false)}>×</button><span className="booking-modal-kicker">CONFIRA ANTES DE ENVIAR</span><small className="booking-review-shop">{data.organization.name}</small><h2 id="booking-review-title">Está tudo certo?</h2><p>Veja os detalhes do seu atendimento antes de mandar o pedido para a barbearia.</p><div className="booking-review-list"><button type="button" onClick={() => editReview("booking-service")}><span>Serviço</span><strong>{selectedServiceLabel}</strong><small>{isMembership && membershipInfo ? `${membershipInfo.planName} · ${membershipInfo.remainingUses} crédito${membershipInfo.remainingUses === 1 ? "" : "s"} disponível${membershipInfo.remainingUses === 1 ? "" : "is"} · 1 será reservado` : service ? `${service.durationMinutes} min · ${money(service.priceCents)}` : ""}</small><em>Alterar</em></button><button type="button" onClick={() => editReview("booking-professional")}><span>Profissional</span><strong>{selectedBarberName || "Qualquer profissional"}</strong><em>Alterar</em></button><button type="button" onClick={() => editReview("booking-date")}><span>Data</span><strong>{dayLabel(selectedDate)}</strong><em>Alterar</em></button><button type="button" onClick={() => editReview("booking-time")}><span>Horário</span><strong>{selectedTime}</strong><em>Alterar</em></button>{!isMembership && <button type="button" onClick={() => editReview("booking-contact")}><span>Pagamento</span><strong>{paymentChoice}</strong><em>Alterar</em></button>}</div>{error && <p className="booking-error" role="alert">{error}</p>}<div className="booking-review-actions"><button type="button" className="booking-review-back" disabled={submitting} onClick={() => setReviewOpen(false)}>Voltar e alterar</button><button type="button" className="booking-review-confirm" disabled={submitting} onClick={() => void confirmBooking()}>{submitting ? "Confirmando..." : isMembership ? "Confirmar e reservar 1 crédito" : "Confirmar agendamento"}<b>→</b></button></div><small className="booking-review-note">O horário só é enviado agora. Se algo mudou na agenda, o sistema confere novamente antes de salvar.</small></section></div>}
       {error && !selectedTime && <p className="booking-error global" role="alert">{error}</p>}
       <footer className="public-booking-footer"><span>Horários atualizados em tempo real</span><small>Agendamento protegido por Cortou Anotou</small></footer>
     </section>
