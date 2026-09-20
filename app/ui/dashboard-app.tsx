@@ -22,8 +22,9 @@ import { BookingPaymentSettings } from "./booking-payment-settings";
 import { showAppToast } from "./app-toast";
 import { AppIcon } from "./app-icon";
 import { TeamMoneySection } from "./team-money-section";
+import { WhatsappAutomation } from "./whatsapp-automation";
 
-type NavIconName = "dashboard" | "plus" | "history" | "calendar" | "products" | "finance" | "members" | "goals" | "team" | "users" | "settings" | "plan" | "platform" | "more";
+type NavIconName = "dashboard" | "plus" | "history" | "calendar" | "products" | "finance" | "members" | "goals" | "team" | "users" | "whatsapp" | "settings" | "plan" | "platform" | "more";
 type NavigationItem = { label: string; section: string; icon: NavIconName; group: "operation" | "management" };
 type SwipeDirection = "next" | "previous";
 type SwipePreview = { section: string; direction: SwipeDirection };
@@ -60,6 +61,7 @@ const ownerNavigation: NavigationItem[] = [
   { label: "Financeiro", section: "Financeiro", icon: "finance", group: "management" },
   { label: "Mensalistas", section: "Mensalistas", icon: "members", group: "management" },
   { label: "Equipe", section: "Equipe", icon: "team", group: "management" },
+  { label: "WhatsApp", section: "WhatsApp", icon: "whatsapp", group: "management" },
   { label: "Configurações", section: "Configurações", icon: "settings", group: "management" },
 ];
 const operationNavigationItems: NavigationItem[] = ownerNavigation.filter((item) => item.group === "operation");
@@ -88,6 +90,7 @@ function NavIcon({ name }: { name: NavIconName }) {
     goals: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" /></>,
     team: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
     users: <><circle cx="9" cy="8" r="4" /><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6" /></>,
+    whatsapp: <><path d="M20 11.5a8 8 0 0 1-11.8 7L4 20l1.4-4A8 8 0 1 1 20 11.5Z" /><path d="M9 8.5c.4 2.5 2 4.1 4.5 4.6" /><path d="M8.7 8.2 10 7.6M13.7 13l.7-1.3" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.36.35.7.6 1 .3.28.7.42 1.1.4H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z" /></>,
     plan: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18M7 15h4" /></>,
     platform: <><path d="M4 20V9l8-5 8 5v11" /><path d="M2 20h20M8 20v-7h8v7M8 9h.01M12 9h.01M16 9h.01" /></>,
@@ -117,7 +120,7 @@ const accessPeriodEnded = (value: string | null) => {
 };
 const browserSectionNames = new Set([
   "Painel", "Registrar", "Histórico", "Agenda", "Produtos", "Financeiro", "Mensalistas",
-  "Equipe", "Usuários", "Minha Grana", "Configurações", "Meu plano", "Plataforma",
+  "Equipe", "Usuários", "WhatsApp", "Minha Grana", "Configurações", "Meu plano", "Plataforma",
 ]);
 const sectionToBrowserValue = (section: string) => section === "Histórico" ? "Historico" : section;
 const sectionFromBrowserLocation = () => {
@@ -800,7 +803,7 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
   }
   function replaceNotifications(notifications: DashboardData["notifications"]) { setLiveData((current) => ({ ...current, notifications })); }
   function markNotificationsRead() { setLiveData((current) => ({ ...current, notifications: current.notifications.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })) })); }
-  const subtitle: Record<string, string> = { Painel: "Escolha o período e acompanhe os resultados.", Registrar: "Atendimento, mensalista ou venda somente de produto.", Histórico: "Filtre, edite ou exclua qualquer atendimento.", Agenda: "Horários da equipe organizados por data.", Financeiro: "Resultados, despesas e metas no mesmo lugar.", Produtos: "Venda rápida, estoque e lucro dos produtos.", Mensalistas: "Consulte pagamentos, usos e clientes por mês.", Configurações: "Altere clientes, preços e regras sem depender de ninguém.", Equipe: "Vales, pagamentos, fechamentos e acessos da equipe.", "Minha Grana": "Acompanhe seu saldo, vales, pagamentos e fechamentos.", "Meu plano": "Consulte o teste gratuito e escolha como continuar.", Plataforma: "Acompanhe e gerencie as barbearias que usam o aplicativo." };
+  const subtitle: Record<string, string> = { Painel: "Escolha o período e acompanhe os resultados.", Registrar: "Atendimento, mensalista ou venda somente de produto.", Histórico: "Filtre, edite ou exclua qualquer atendimento.", Agenda: "Horários da equipe organizados por data.", Financeiro: "Resultados, despesas e metas no mesmo lugar.", Produtos: "Venda rápida, estoque e lucro dos produtos.", Mensalistas: "Consulte pagamentos, usos e clientes por mês.", WhatsApp: "Conecte sua barbearia e controle confirmações, lembretes e avisos automáticos.", Configurações: "Altere clientes, preços e regras sem depender de ninguém.", Equipe: "Vales, pagamentos, fechamentos e acessos da equipe.", "Minha Grana": "Acompanhe seu saldo, vales, pagamentos e fechamentos.", "Meu plano": "Consulte o teste gratuito e escolha como continuar.", Plataforma: "Acompanhe e gerencie as barbearias que usam o aplicativo." };
 
   function renderSectionBody(activeSection: string, current: boolean) {
     return <>
@@ -844,6 +847,7 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
       {viewer.isOwner && activeSection === "Configurações" && <Configurations key={helpTarget.revision} initialTab={helpTarget.tab} data={liveData} post={post} pending={isPending} />}
       {!viewer.isOwner && viewer.accountType !== "individual" && activeSection === "Minha Grana" && <TeamMoneySection owner={false} />}
       {viewer.isOwner && activeSection === "Equipe" && <TeamHub post={post} pending={isPending} />}
+      {viewer.isOwner && activeSection === "WhatsApp" && <WhatsappAutomation />}
       {viewer.isOwner && activeSection === "Meu plano" && <PlanPage viewer={viewer} offer={liveData.billingOffer} />}
       {viewer.isPlatformAdmin && activeSection === "Plataforma" && <PlatformAdmin onOfferChange={(offer) => setLiveData((current) => ({ ...current, billingOffer: offer }))} />}
     </>;
