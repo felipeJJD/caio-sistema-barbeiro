@@ -1,4 +1,6 @@
+import { after } from "next/server";
 import { handleWhatsappWebhook } from "../../../../db/whatsapp";
+import { processCaAtendeInboundSafely } from "../../../../db/ca-atende";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +52,12 @@ export async function POST(request: Request) {
     if (!(await validSignature(rawBody, signature))) return Response.json({ error: "Assinatura inválida." }, { status: 401 });
     const payload = JSON.parse(rawBody) as Parameters<typeof handleWhatsappWebhook>[0];
     const result = await handleWhatsappWebhook(payload);
-    return Response.json({ ok: true, ...result });
+    if (result.inboundTextEvents.length) {
+      after(async () => {
+        for (const event of result.inboundTextEvents) await processCaAtendeInboundSafely(event);
+      });
+    }
+    return Response.json({ ok: true, received: result.received, statuses: result.statuses });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Webhook inválido." }, { status: 400 });
   }
