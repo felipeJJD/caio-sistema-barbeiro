@@ -48,10 +48,14 @@ test("filtro comercial só silencia oferta com alta confiança", () => {
   assert.equal(helper.classifyCaAtendeByRule("sou representante da Claro com plano empresarial").intent, "spam");
 });
 
-test("datas hoje, amanhã e formato brasileiro são entendidas sem IA", () => {
-  assert.equal(helper.extractCaAtendeDate("hoje", "2026-09-20"), "2026-09-20");
-  assert.equal(helper.extractCaAtendeDate("amanhã", "2026-09-20"), "2026-09-21");
-  assert.equal(helper.extractCaAtendeDate("dia 25/09", "2026-09-20"), "2026-09-25");
+test("datas, horários e dias da semana são entendidos sem IA", () => {
+  assert.equal(helper.extractCaAtendeDate("hoje", "2026-09-20", 1200), "2026-09-20");
+  assert.equal(helper.extractCaAtendeDate("amanhã", "2026-09-20", 1200), "2026-09-21");
+  assert.equal(helper.extractCaAtendeDate("dia 25/09", "2026-09-20", 1200), "2026-09-25");
+  assert.equal(helper.extractCaAtendeTime("às 9h"), "09:00");
+  assert.equal(helper.extractCaAtendeTime("14:30"), "14:30");
+  assert.equal(helper.extractCaAtendeDate("domingo às 9h", "2026-09-20", 1200), "2026-09-27");
+  assert.equal(helper.extractCaAtendeDate("segunda às 9h", "2026-09-20", 1200), "2026-09-21");
 });
 
 test("IA é fallback e nunca a primeira etapa para mensagens simples", () => {
@@ -153,4 +157,34 @@ test("interface oferece laboratório antes da conexão Meta e mostra como a resp
   assert.match(ui, /SERVIÇOS REAIS/);
   assert.match(ui, /SILÊNCIO/);
   assert.match(ui, /Reiniciar conversa/);
+});
+
+
+test("resposta de preço específico não despeja a tabela inteira", () => {
+  assert.match(botDb, /selectedService\.name} custa/);
+  assert.match(botDb, /Se quiser, eu também posso consultar os horários disponíveis/);
+});
+
+test("agendamento conversado preserva serviço, barbeiro, dia e horário", () => {
+  assert.match(botDb, /awaiting_booking_details/);
+  assert.match(botDb, /awaiting_booking_choice/);
+  assert.match(botDb, /desiredTime/);
+  assert.match(botDb, /exact = slots\.filter\(slot => slot\.time === desiredTime\)/);
+  assert.match(botDb, /Qual desses fica melhor/);
+});
+
+test("escolher Eduardo não é confundido com pedido para falar com humano", () => {
+  assert.match(botDb, /barber && !explicitHumanRequest\(event\.text\)/);
+  assert.match(botDb, /intent = oldMemory\.intent === "availability" \? "availability" : "booking"/);
+});
+
+test("respostas curtas de continuação usam memória antes de gastar IA", () => {
+  assert.match(botDb, /bookingContinuation/);
+  assert.match(botDb, /memory\.intent === "booking"/);
+  assert.match(botDb, /knownService \|\| knownBarber/);
+});
+
+test("link público nunca expõe domínio técnico do Railway", () => {
+  assert.match(botDb, /railway\\\.app/);
+  assert.match(botDb, /https:\\/\\/cortouanotou\.com\.br/);
 });
