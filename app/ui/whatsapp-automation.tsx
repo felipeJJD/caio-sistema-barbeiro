@@ -67,6 +67,30 @@ type WhatsappConnectPayload = WhatsappApiPayload & {
   config?: WhatsappSignupConfig;
 };
 
+type CaAtendeTestState = {
+  botState: string;
+  memory: { intent?: string; date?: string; service?: string; barber?: string };
+  paused: boolean;
+};
+
+type CaAtendeTestResult = {
+  reply: string;
+  intent: string;
+  source: "rule" | "ai";
+  dataSource: "agenda" | "services" | null;
+  handoff: boolean;
+  silent: boolean;
+  silentReason: "commercial_offer" | "human_takeover" | null;
+  state: CaAtendeTestState;
+};
+
+type CaAtendeTestMessage = {
+  id: number;
+  role: "user" | "bot" | "system";
+  text: string;
+  badges?: string[];
+};
+
 type EmbeddedSignupMode = "cloud" | "coexistence";
 
 type MetaLoginResponse = {
@@ -121,6 +145,13 @@ export function WhatsappAutomation() {
   const [sdkReady, setSdkReady] = useState(false);
   const [signupConfig, setSignupConfig] = useState<WhatsappSignupConfig | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [testOpen, setTestOpen] = useState(false);
+  const [testInput, setTestInput] = useState("");
+  const [testSending, setTestSending] = useState(false);
+  const [testState, setTestState] = useState<CaAtendeTestState>({ botState:"", memory:{}, paused:false });
+  const [testMessages, setTestMessages] = useState<CaAtendeTestMessage[]>([
+    { id:1, role:"system", text:"Modo teste interno. Nenhuma mensagem é enviada para a Meta ou para clientes reais." },
+  ]);
   const signupCodeRef = useRef<string | null>(null);
   const signupSessionRef = useRef<{ wabaId: string; phoneNumberId: string } | null>(null);
   const signupModeRef = useRef<EmbeddedSignupMode>("coexistence");
@@ -363,7 +394,61 @@ export function WhatsappAutomation() {
     }
   }
 
-  async function submitReminder(event: FormEvent<HTMLFormElement>) {
+  function resetCaAtendeTest() {
+    setTestInput("");
+    setTestState({ botState:"", memory:{}, paused:false });
+    setTestMessages([
+      { id:Date.now(), role:"system", text:"Conversa reiniciada. O próximo texto será tratado como um cliente novo." },
+    ]);
+  }
+
+  async function submitCaAtendeTest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = testInput.trim();
+    if (!message || testSending) return;
+    const userId = Date.now();
+    setTestMessages((current) => [...current, { id:userId, role:"user", text:message }]);
+    setTestInput("");
+    setTestSending(true);
+    try {
+      const response = await fetch("/api/whatsapp/test", {
+        method:"POST",
+        headers:{ "content-type":"application/json" },
+        body:JSON.stringify({ message, state:testState }),
+      });
+      const payload = await response.json() as { result?:CaAtendeTestResult; error?:string };
+      if (!response.ok || !payload.result) throw new Error(payload.error ?? "Não foi possível testar o C.A. Atende.");
+      const result = payload.result;
+      setTestState(result.state);
+      const badges = [
+        result.source === "ai" ? "IA" : "REGRA",
+        result.dataSource === "agenda" ? "AGENDA REAL" : result.dataSource === "services" ? "SERVIÇOS REAIS" : "",
+        result.handoff ? "HUMANO" : "",
+        result.silent ? "SILÊNCIO" : "",
+      ].filter(Boolean);
+      const text = result.silent
+        ? result.silentReason === "commercial_offer"
+          ? "O C.A. Atende identificaria uma possível oferta comercial e não responderia."
+          : "O C.A. Atende permaneceria em silêncio porque essa conversa já foi transferida para atendimento humano."
+        : result.reply;
+      setTestMessages((current) => [...current, {
+        id:userId + 1,
+        role:result.silent ? "system" : "bot",
+        text,
+        badges,
+      }]);
+    } catch (error) {
+      setTestMessages((current) => [...current, {
+        id:Date.now() + 2,
+        role:"system",
+        text:error instanceof Error ? error.message : "Não foi possível testar agora.",
+      }]);
+    } finally {
+      setTestSending(false);
+    }
+  }
+
+    async function submitReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     await saveSettings({ reminderHoursBefore: Number(form.get("reminderHoursBefore") ?? 3) }, "Horário do lembrete atualizado.");
@@ -490,6 +575,7 @@ export function WhatsappAutomation() {
         <h3>Atendimento econômico preparado</h3>
         <p>Saudação em uma mensagem, link da agenda primeiro, horários e preços consultados no Cortou Anotou, ofertas comerciais sem resposta e IA somente quando as regras não entenderem o pedido.</p>
         <div className="whatsapp-assistant-tags"><small>LINK PRIMEIRO</small><small>FILTRO DE OFERTAS</small><small>IA SOB DEMANDA</small><small>TRANSFERÊNCIA HUMANA</small></div>
+        <button type="button" className="whatsapp-test-launch" onClick={() => setTestOpen((open) => !open)}>{testOpen ? "Fechar teste" : "Testar atendente"}</button>
       </div>
       <label className={canEnable && data.settings.enabled ? "whatsapp-bot-switch" : "whatsapp-bot-switch disabled"}>
         <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte a Meta primeiro" : !hasPackage ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "Responde somente quando necessário"}</small></span>
@@ -498,7 +584,36 @@ export function WhatsappAutomation() {
       </label>
     </section>
 
-    {data.humanHandoffs.length > 0 && <section className="panel whatsapp-human-queue">
+    {testOpen && <section className="panel whatsapp-test-panel">
+      <div className="whatsapp-test-heading">
+        <div><span>LABORATÓRIO DO C.A. ATENDE</span><h3>Converse como se fosse um cliente</h3><p>Usa o mesmo motor que vai atender no WhatsApp. O teste pode consultar preços e agenda reais, mas não envia nada para a Meta e não altera agendamentos.</p></div>
+        <button type="button" onClick={resetCaAtendeTest} disabled={testSending}>Reiniciar conversa</button>
+      </div>
+      <div className="whatsapp-test-chat" aria-live="polite">
+        {testMessages.map((message) => <div className={`whatsapp-test-message ${message.role}`} key={message.id}>
+          <div className="whatsapp-test-bubble">{message.text}</div>
+          {message.badges && message.badges.length > 0 && <div className="whatsapp-test-badges">{message.badges.map((badge) => <small key={badge}>{badge}</small>)}</div>}
+        </div>)}
+        {testSending && <div className="whatsapp-test-message bot"><div className="whatsapp-test-bubble thinking">C.A. Atende está analisando...</div></div>}
+      </div>
+      <form className="whatsapp-test-form" onSubmit={submitCaAtendeTest}>
+        <input
+          value={testInput}
+          onChange={(event) => setTestInput(event.target.value)}
+          maxLength={1200}
+          placeholder={testState.paused ? "O bot está em handoff. Reinicie para testar outro cliente." : "Ex.: oi boa tarde, tem horário hoje para corte?"}
+          disabled={testSending}
+          enterKeyHint="send"
+        />
+        <button type="submit" disabled={testSending || !testInput.trim()}>Enviar</button>
+      </form>
+      <div className="whatsapp-test-suggestions">
+        <span>Experimente:</span>
+        {["oi boa tarde","quanto custa o corte?","tem horário hoje para corte?","quero falar com o dono","sou consultor da Claro e tenho uma oferta comercial"].map((sample) => <button type="button" key={sample} onClick={() => setTestInput(sample)} disabled={testSending}>{sample}</button>)}
+      </div>
+    </section>}
+
+        {data.humanHandoffs.length > 0 && <section className="panel whatsapp-human-queue">
       <div className="whatsapp-human-queue-heading"><span>ATENDIMENTO HUMANO</span><h3>Clientes esperando uma pessoa</h3><p>O bot fica em silêncio nesses contatos até você encerrar o atendimento aqui.</p></div>
       <div className="whatsapp-human-list">
         {data.humanHandoffs.map((item) => {
