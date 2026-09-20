@@ -122,7 +122,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const [input, setInput] = useState("");
   const [answerPending, setAnswerPending] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [listening, setListening] = useState(false);
+  const [voiceUploading, setVoiceUploading] = useState(false);
   const [actionDraft, setActionDraft] = useState<ActionDraft | null>(null);
   const [activeField, setActiveField] = useState<ActionField | null>(null);
   const [configAction, setConfigAction] = useState<HelpActionProposal | null>(null);
@@ -132,21 +132,19 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const dictationRef = useRef<ReturnType<typeof createHelpDictation> | null>(null);
   const draftTextRef = useRef("");
-  const voiceTextRef = useRef("");
-  const manualVoiceSendRef = useRef(false);
   const requestInFlight = useRef(false);
   const saveInFlight = useRef(false);
   const panelRef = useRef<HTMLElement>(null);
-  const busy = answerPending || saving;
+  const audioUrlsRef = useRef(new Set<string>());
+  const voice = useHelpVoiceRecorder({ onSend: sendVoiceBlob, onError: (message) => addMessage("assistant", message) });
+  const busy = answerPending || saving || voiceUploading;
   function updateInput(text:string) { draftTextRef.current = text; setInput(text); }
-  const stopVoice = useCallback(() => { dictationRef.current?.stop(); }, []);
   const closeHelp = useCallback(() => {
-    stopVoice();
+    voice.discard();
     setOpen(false);
     window.requestAnimationFrame(() => launcherRef.current?.focus({ preventScroll: true }));
-  }, [stopVoice]);
+  }, [voice.discard]);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
