@@ -89,7 +89,7 @@ export async function readHelpReport(access: AccessContext, requested: ReportReq
   if (Number(style.initiativeScore ?? 70) >= 55) {
     try {
       insight = await readDailyPaceInsight(access, resolvedReport) ?? undefined;
-      const opportunities = await readClientReturnOpportunities(access);
+      const opportunities = resolvedReport.scope === "shop" || !access.isOwner ? await readClientReturnOpportunities(access) : [];
       if (opportunities.length) {
         suggestions = ["Ver clientes que podem estar na hora de voltar"];
         offeredReturns = true;
