@@ -690,6 +690,12 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
       : message));
   }
 
+  function toggleMessageDetails(id: number) {
+    setMessages((current) => current.map((message) => message.id === id && message.details
+      ? { ...message, showDetails: !message.showDetails }
+      : message));
+  }
+
   function summaryRows(draft: ActionDraft) {
     const barber = data.team.find((item) => item.id === draft.barberId)?.name ?? "";
     const service = data.services.find((item) => item.id === draft.serviceId)?.name ?? "";
@@ -764,6 +770,9 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
                     onToggleTranscript={()=>toggleVoiceTranscript(message.id)}
                   />
                 : <p>{message.text}</p>}
+              {message.insight && <div className="help-insight"><strong>Olha só</strong><span>{message.insight}</span></div>}
+              {message.details && <button type="button" className="help-details-toggle" aria-expanded={Boolean(message.showDetails)} onClick={()=>toggleMessageDetails(message.id)}>{message.showDetails ? "Ocultar detalhes" : "Ver detalhes"}<span aria-hidden="true">{message.showDetails ? "↑" : "↓"}</span></button>}
+              {message.details && message.showDetails && <div className="help-message-details">{message.details}</div>}
               {message.destination && <button type="button" className="help-destination" disabled={busy} onClick={()=>navigate(message.destination!)}>{message.destination.label}<span aria-hidden="true">→</span></button>}
               {message.suggestions && <div className="help-inline-suggestions">{message.suggestions.map(text=><button type="button" key={text} disabled={busy} onClick={()=>void ask(text)}>{text}</button>)}</div>}
               {message.link && <a className="help-destination help-link" href={message.link.url} target="_blank" rel="noreferrer">{message.link.label}<span aria-hidden="true">↗</span></a>}{message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
