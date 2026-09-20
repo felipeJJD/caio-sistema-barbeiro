@@ -618,3 +618,80 @@ export const appointments = sqliteTable("appointments", {
   index("appointments_organization_date_barber_idx").on(table.organizationId, table.appointmentDate, table.barberId),
   index("appointments_membership_credit_idx").on(table.organizationId, table.membershipClientId, table.membershipCreditState),
 ]);
+
+
+export const whatsappConnections = sqliteTable("whatsapp_connections", {
+  organizationId: integer("organization_id").primaryKey(),
+  provider: text("provider").notNull().default("meta_cloud"),
+  status: text("status").notNull().default("disconnected"),
+  wabaId: text("waba_id").notNull().default(""),
+  phoneNumberId: text("phone_number_id").notNull().default(""),
+  displayPhoneNumber: text("display_phone_number").notNull().default(""),
+  encryptedAccessToken: text("encrypted_access_token").notNull().default(""),
+  accessTokenIv: text("access_token_iv").notNull().default(""),
+  connectedAt: text("connected_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("whatsapp_connections_phone_number_unique").on(table.phoneNumberId),
+]);
+
+export const whatsappAutomationSettings = sqliteTable("whatsapp_automation_settings", {
+  organizationId: integer("organization_id").primaryKey(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  confirmationEnabled: integer("confirmation_enabled", { mode: "boolean" }).notNull().default(true),
+  reminderEnabled: integer("reminder_enabled", { mode: "boolean" }).notNull().default(true),
+  reminderHoursBefore: integer("reminder_hours_before").notNull().default(3),
+  cancellationEnabled: integer("cancellation_enabled", { mode: "boolean" }).notNull().default(true),
+  rescheduleEnabled: integer("reschedule_enabled", { mode: "boolean" }).notNull().default(true),
+  botEnabled: integer("bot_enabled", { mode: "boolean" }).notNull().default(false),
+  humanTakeoverMinutes: integer("human_takeover_minutes").notNull().default(120),
+  planCode: text("plan_code").notNull().default("off"),
+  monthlyMessageLimit: integer("monthly_message_limit").notNull().default(0),
+  confirmationTemplate: text("confirmation_template").notNull().default("ca_booking_confirmed"),
+  reminderTemplate: text("reminder_template").notNull().default("ca_booking_reminder"),
+  cancellationTemplate: text("cancellation_template").notNull().default("ca_booking_cancelled"),
+  rescheduleTemplate: text("reschedule_template").notNull().default("ca_booking_rescheduled"),
+  templateLanguage: text("template_language").notNull().default("pt_BR"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const whatsappMessages = sqliteTable("whatsapp_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  organizationId: integer("organization_id").notNull(),
+  appointmentId: integer("appointment_id"),
+  direction: text("direction").notNull().default("outbound"),
+  kind: text("kind").notNull(),
+  phone: text("phone").notNull(),
+  templateName: text("template_name").notNull().default(""),
+  dedupeKey: text("dedupe_key").notNull().default(""),
+  providerMessageId: text("provider_message_id"),
+  status: text("status").notNull().default("queued"),
+  scheduledAt: text("scheduled_at").notNull(),
+  sentAt: text("sent_at"),
+  deliveredAt: text("delivered_at"),
+  readAt: text("read_at"),
+  failedAt: text("failed_at"),
+  errorText: text("error_text").notNull().default(""),
+  payloadJson: text("payload_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("whatsapp_messages_org_dedupe_unique").on(table.organizationId, table.dedupeKey),
+  uniqueIndex("whatsapp_messages_provider_message_unique").on(table.providerMessageId),
+  index("whatsapp_messages_org_status_schedule_idx").on(table.organizationId, table.status, table.scheduledAt),
+  index("whatsapp_messages_appointment_idx").on(table.organizationId, table.appointmentId),
+]);
+
+export const whatsappConversations = sqliteTable("whatsapp_conversations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  organizationId: integer("organization_id").notNull(),
+  phone: text("phone").notNull(),
+  automationPausedUntil: text("automation_paused_until"),
+  pauseReason: text("pause_reason").notNull().default(""),
+  lastInboundAt: text("last_inbound_at"),
+  lastOutboundAt: text("last_outbound_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("whatsapp_conversations_org_phone_unique").on(table.organizationId, table.phone),
+  index("whatsapp_conversations_org_pause_idx").on(table.organizationId, table.automationPausedUntil),
+]);
