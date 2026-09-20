@@ -316,6 +316,13 @@
       "when": 1790007000000,
       "tag": "0044_whatsapp_embedded_signup",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1790008000000,
+      "tag": "0045_ca_atende_economy",
+      "breakpoints": true
     }
   ]
 }
