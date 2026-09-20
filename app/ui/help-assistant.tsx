@@ -7,10 +7,11 @@ import { SUPPORT_WHATSAPP_URL } from "../../lib/support";
 import { AppIcon } from "./app-icon";
 
 import { destinationAllowed, HELP_MESSAGE_LIMIT, requestedHelpAction, type HelpDestination, type HelpReply } from "../../lib/help-guide";
-import { createHelpDictation, type Recognition } from "../../lib/help-dictation";
 import type { HelpActionProposal, HelpScheduleChange } from "../../lib/help-actions";
+import { HelpVoiceBubble, HelpVoiceWave, formatHelpVoiceTime, useHelpVoiceRecorder, type HelpVoicePayload } from "./help-voice";
 
-type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string; link?: { label: string; url: string } };
+type VoiceAttachment = { url: string; durationSeconds: number; transcript: string; showTranscript: boolean; status: "processing" | "ready" | "error" };
+type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string; link?: { label: string; url: string }; audio?: VoiceAttachment };
 type Post = (body: Record<string, string | number | boolean>, success: string) => Promise<boolean>;
 type ActionKind = "record" | "appointment" | "expense";
 type ActionField = "recordType" | "clientName" | "membershipClient" | "service" | "payment" | "barber" | "appointmentDate" | "appointmentTime" | "expenseDescription" | "expenseValue" | "expenseType" | "expensePaid";
