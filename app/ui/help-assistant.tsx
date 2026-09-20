@@ -548,10 +548,10 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     addMessage("assistant", "Alteração cancelada. Nada foi modificado.");
   }
 
-  async function ask(question: string, options: { skipUserMessage?: boolean; contextMessages?: Message[] } = {}) {
+  async function ask(question: string, options: { skipUserMessage?: boolean } = {}) {
     const cleanQuestion = question.trim();
     if (!cleanQuestion || busy || requestInFlight.current) return;
-    const baseMessages = options.contextMessages ?? messages;
+    const memory = rememberContext("user", cleanQuestion);
     if (!options.skipUserMessage) addMessage("user", cleanQuestion);
     updateInput("");
     const normalizedQuestion = normalize(cleanQuestion);
@@ -592,9 +592,6 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
       return;
     }
 
-    const requestMessages = options.skipUserMessage
-      ? baseMessages
-      : [...baseMessages, { id: nextMessageId.current, role: "user" as const, text: cleanQuestion }];
     requestInFlight.current = true;
     setAnswerPending(true);
     try {
@@ -602,9 +599,10 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         method: "POST",
         headers: { "content-type": "application/json" },
         signal: AbortSignal.timeout(20000),
-        body: JSON.stringify({ messages: requestMessages.slice(-10).map((message) => ({ role: message.role, content: message.text })).filter((message) => message.content) }),
+        body: JSON.stringify({ messages: memory.messages }),
       });
       const result = await response.json() as Partial<HelpReply> & {error?:string};
+      if (response.ok && result.contextMessage) rememberContext("assistant", result.contextMessage);
       if (response.ok && result.action?.kind === "public-booking-link") {
         const slug = data.agendaSettings.publicBookingSlug;
         const url = slug ? `${window.location.origin}/agendar/${encodeURIComponent(slug)}` : "";
@@ -615,6 +613,8 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         addMessage("assistant", result.answer ?? result.error ?? "Não consegui responder agora. Tente novamente em instantes.", {
           destination: response.ok && result.destination && destinationAllowed(result.destination,viewer.isOwner) ? result.destination : undefined,
           suggestions: response.ok ? result.suggestions : undefined,
+          details: response.ok ? result.details : undefined,
+          insight: response.ok ? result.insight : undefined,
           retry: response.ok ? undefined : cleanQuestion,
         });
         if (response.ok && result.action) setConfigAction(result.action);
@@ -673,7 +673,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         audio: { ...pendingMessage.audio!, transcript, status: "ready", showTranscript: false },
       };
       setMessages((current) => current.map((message) => message.id === id ? readyMessage : message));
-      await ask(transcript, { skipUserMessage: true, contextMessages: [...messages, readyMessage] });
+      await ask(transcript, { skipUserMessage: true });
     } catch {
       setMessages((current) => current.map((message) => message.id === id && message.audio
         ? { ...message, audio: { ...message.audio, status: "error" as const } }
