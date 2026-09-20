@@ -11,23 +11,27 @@ function cues(value: string) {
   return serviceTokens.filter((token) => normalized.includes(token));
 }
 
-export function resolveMembershipService<T extends MembershipServiceLike>(planKind: string, planName: string, services: T[]): T | null {
+export function resolveMembershipService<T extends MembershipServiceLike>(planKind: string, planName: string, services: T[], serviceId?: number | null): T | null {
+  if (serviceId) {
+    const linked = services.find((service) => service.id === serviceId) ?? null;
+    if (linked) return linked;
+  }
+
   const exact = services.find((service) => normalize(service.name) === normalize(planKind)) ?? null;
+
+  // Planos antigos ainda não têm service_id. Neles, o nome do plano pode corrigir
+  // um plan_kind legado inconsistente. Planos novos/editados usam service_id acima.
   const planCues = cues(planName);
   if (!planCues.length) return exact;
-
   const candidates = services
     .map((service) => ({ service, cues: cues(service.name) }))
     .filter((entry) => planCues.every((token) => entry.cues.includes(token)))
     .sort((left, right) => left.cues.length - right.cues.length || left.service.name.localeCompare(right.service.name, "pt-BR"));
-
   const inferred = candidates[0]?.service ?? null;
   if (!inferred) return exact;
   if (!exact) return inferred;
-
   const exactCues = cues(exact.name);
-  const exactMatchesPlan = planCues.every((token) => exactCues.includes(token));
-  return exactMatchesPlan ? exact : inferred;
+  return planCues.every((token) => exactCues.includes(token)) ? exact : inferred;
 }
 
 export function normalizeMembershipIdentity(value: string) {
@@ -36,4 +40,20 @@ export function normalizeMembershipIdentity(value: string) {
 
 export function phoneDigits(value: string) {
   return value.replace(/\D/g, "");
+}
+
+
+export function membershipNameMatches(query: string, name: string) {
+  const normalizedQuery = normalizeMembershipIdentity(query);
+  if (normalizedQuery.length < 3) return false;
+  return normalizeMembershipIdentity(name).includes(normalizedQuery);
+}
+
+export function membershipNameNeedsPhone(name: string, names: string[]) {
+  const normalized = normalizeMembershipIdentity(name);
+  return names.filter((item) => normalizeMembershipIdentity(item) === normalized).length > 1;
+}
+
+export function availableMembershipUses(balance: number, reservedUses: number) {
+  return Math.max(0, Math.floor(Number(balance) || 0) - Math.max(0, Math.floor(Number(reservedUses) || 0)));
 }

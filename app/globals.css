@@ -928,3 +928,21 @@ html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none;-webkit-text-size-
 .booking-contact-card input[readonly]{background:#f0eee7;color:#525851}
 
 .appointment-membership-linked{display:grid;gap:4px;padding:11px 12px;border:1px solid #dfd5bd;border-radius:10px;background:#fbf7ec}.appointment-membership-linked small{color:#987026;font-size:8px;font-weight:900;letter-spacing:.09em}.appointment-membership-linked strong{font-size:12px}.appointment-membership-linked span{color:#767c74;font-size:9px}
+
+
+/* Fluxo mensalista público: busca por nome + confirmação de crédito. */
+.membership-search-status{margin:10px 0 0;color:#777d75;font-size:12px}
+.membership-name-results{display:grid;gap:8px;margin-top:12px;max-height:240px;overflow:auto}
+.membership-name-results button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:50px;padding:12px 14px;border:1px solid #ddd5c3;border-radius:12px;background:#fff;color:#252a24;text-align:left}
+.membership-name-results button strong{font-size:15px}
+.membership-name-results button span{color:#987026;font-size:11px;font-weight:800;text-transform:uppercase}
+.membership-duplicate-note{margin:14px 0 4px;padding:11px 12px;border-radius:10px;background:#f6f0df;color:#5e594e;font-size:12px;line-height:1.45}
+.membership-credit-confirm{display:grid;gap:10px;margin-top:16px}
+.membership-credit-confirm>small{color:#987026;font-size:10px;font-weight:900;letter-spacing:.08em}
+.membership-credit-confirm>strong{font-size:24px;line-height:1.1}
+.membership-credit-confirm>div{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:11px 0;border-bottom:1px solid #e6dfcf}
+.membership-credit-confirm>div span{color:#7a7f77;font-size:11px}
+.membership-credit-confirm>div b{max-width:65%;font-size:13px;text-align:right}
+.membership-credit-confirm>p{margin:4px 0 2px;padding:13px;border:1px solid #dfd2b2;border-radius:12px;background:#fbf6e8;color:#4f514b;font-size:13px;line-height:1.5}
+.membership-credit-confirm>p strong{color:#8a641d}
+.booking-membership-back{min-height:44px;border:1px solid #d7d1c2;border-radius:11px;background:#fff;color:#555b54;font-weight:800}
