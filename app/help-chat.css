@@ -110,6 +110,28 @@
   border-radius: 10px; background: #f9faf5; color: #414e39;
   font-size: 14px; text-align: left;
 }
+.help-chat .help-insight {
+  display: grid; gap: 4px; margin-top: 11px; padding: 10px 11px;
+  border: 1px solid #e3cf99; border-radius: 11px;
+  background: #fff9e9; color: #5f4a24;
+}
+.help-chat .help-insight strong {
+  color: #9a722b; font-size: 11px; font-weight: 800; letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.help-chat .help-insight span { font-size: 13px; line-height: 1.45; }
+.help-chat .help-details-toggle {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 38px; margin-top: 10px; padding: 7px 0;
+  border: 0; background: transparent; color: #9b742d;
+  font-size: 13px; font-weight: 750; text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.help-chat .help-details-toggle span { font-size: 14px; text-decoration: none; }
+.help-chat .help-message-details {
+  margin-top: 7px; padding-top: 10px; border-top: 1px solid #e8e5d9;
+  color: #4b554d; font-size: 13px; line-height: 1.55; white-space: pre-wrap;
+}
 .help-composer {
   flex: none; padding: 10px 14px max(7px, env(safe-area-inset-bottom));
   border-top: 1px solid #e9eae2; background: #fff;
