@@ -50,6 +50,9 @@ export function extractCaAtendeTime(value: string) {
   if (colon) return `${String(Number(colon[1])).padStart(2,"0")}:${colon[2]}`;
   const hours = /\b(?:as|a|pelas)?\s*([01]?\d|2[0-3])\s*(?:h|hs|hora|horas)\b/.exec(text);
   if (hours) return `${String(Number(hours[1])).padStart(2,"0")}:00`;
+  const afterAt = /\b(?:as|a|pelas)\s*([01]?\d|2[0-3])\b/.exec(text);
+  if (afterAt) return `${String(Number(afterAt[1])).padStart(2,"0")}:00`;
+  if (/^([01]?\d|2[0-3])$/.test(text)) return `${String(Number(text)).padStart(2,"0")}:00`;
   return "";
 }
 
