@@ -75,13 +75,13 @@ test("consulta de horário usa a agenda real do Cortou Anotou", () => {
   assert.match(botDb, /getPublicBookingSlots/);
   assert.match(botDb, /selectedService\.id/);
   assert.match(botDb, /selectedBarber\?\.id/);
-  assert.match(botDb, /Para garantir o horário, escolha e confirme pelo link/);
+  assert.match(botDb, /Para garantir esse horário, confirme aqui/);
 });
 
-test("preços vêm dos serviços reais e são agrupados em uma resposta", () => {
-  assert.match(botDb, /formatCaAtendeMoney\(item\.priceCents\)/);
+test("preços vêm dos serviços reais e podem responder um serviço específico ou a tabela", () => {
+  assert.match(botDb, /formatCaAtendeMoney\(selectedService\.priceCents\)/);
   assert.match(botDb, /context\.services\.slice\(0,8\)/);
-  assert.match(botDb, /Agendamento:/);
+  assert.match(botDb, /selectedService\.name} custa/);
 });
 
 test("oferta comercial é marcada mas não recebe resposta", () => {
