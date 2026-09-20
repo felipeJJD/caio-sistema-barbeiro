@@ -2,12 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
-import {
-  HELP_CONTEXT_TTL_MS,
-  appendHelpConversation,
-  parseHelpConversationMemory,
-} from "../lib/help-conversation.ts";
-import { parseReport } from "../lib/help-reports.ts";
+async function load(entry, plugins=[]) {
+  const result = await build({
+    entryPoints:[fileURLToPath(new URL(entry,import.meta.url))],
+    bundle:true,write:false,platform:"node",format:"esm",plugins,
+  });
+  return import("data:text/javascript;base64,"+Buffer.from(result.outputFiles[0].text).toString("base64"));
+}
+
+const conversation = await load("../lib/help-conversation.ts");
+const reports = await load("../lib/help-reports.ts");
 
 async function loadProfile() {
   const result = await build({
@@ -26,19 +30,19 @@ async function loadProfile() {
 test("contexto seguro dura oito horas e nunca restaura texto de assistente comum",()=>{
   const now=1_800_000_000_000;
   let memory={updatedAt:now,messages:[]};
-  memory=appendHelpConversation(memory,{role:"user",content:"quanto faturou ontem?"},now);
-  memory=appendHelpConversation(memory,{role:"assistant",content:"[contexto seguro] Última consulta: ontem."},now+1);
+  memory=conversation.appendHelpConversation(memory,{role:"user",content:"quanto faturou ontem?"},now);
+  memory=conversation.appendHelpConversation(memory,{role:"assistant",content:"[contexto seguro] Última consulta: ontem."},now+1);
   const raw=JSON.stringify({...memory,messages:[...memory.messages,{role:"assistant",content:"R$ 9.000 de faturamento"}]});
-  const loaded=parseHelpConversationMemory(raw,now+1000);
+  const loaded=conversation.parseHelpConversationMemory(raw,now+1000);
   assert.equal(loaded.messages.length,2);
   assert.equal(loaded.messages[0].content,"quanto faturou ontem?");
   assert.match(loaded.messages[1].content,/contexto seguro/);
-  assert.equal(parseHelpConversationMemory(raw,now+HELP_CONTEXT_TTL_MS+1).messages.length,0);
+  assert.equal(conversation.parseHelpConversationMemory(raw,now+conversation.HELP_CONTEXT_TTL_MS+1).messages.length,0);
 });
 
 test("relatório entende sexta-feira sem transformar o dia em profissional",()=>{
   const now=new Date("2026-09-20T12:00:00Z"); // domingo
-  const report=parseReport("Quanto a barbearia faturou sexta?",true,now);
+  const report=reports.parseReport("Quanto a barbearia faturou sexta?",true,now);
   assert.deepEqual(report,{start:"2026-09-18",end:"2026-09-18",scope:"shop",person:null,metric:"summary"});
 });
 
