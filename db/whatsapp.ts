@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, or, sql } from "drizzle-orm";
 import type { AccessContext } from "./access";
 import { requireOwner, requirePlatformAdmin } from "./access";
 import { getDb } from "./index";
@@ -55,6 +55,12 @@ export type WhatsappAutomationStatus = {
     sentThisMonth: number;
     remainingThisMonth: number;
   };
+  humanHandoffs: Array<{
+    phone: string;
+    lastInboundPreview: string;
+    humanRequestedAt: string | null;
+    lastInboundAt: string | null;
+  }>;
 };
 
 const defaultSettings = {
@@ -119,12 +125,26 @@ async function sentCountThisMonth(organizationId: number) {
   return Number(row?.count ?? 0);
 }
 
+async function humanHandoffsForOrganization(organizationId: number) {
+  const db = await getDb();
+  return db.select({
+    phone: whatsappConversations.phone,
+    lastInboundPreview: whatsappConversations.lastInboundPreview,
+    humanRequestedAt: whatsappConversations.humanRequestedAt,
+    lastInboundAt: whatsappConversations.lastInboundAt,
+  }).from(whatsappConversations).where(and(
+    eq(whatsappConversations.organizationId, organizationId),
+    eq(whatsappConversations.pauseReason, "human_takeover"),
+  )).orderBy(desc(whatsappConversations.humanRequestedAt), desc(whatsappConversations.lastInboundAt)).limit(12);
+}
+
 export async function getWhatsappAutomationStatus(access: AccessContext): Promise<WhatsappAutomationStatus> {
   requireOwner(access);
-  const [settings, connection, sentThisMonth] = await Promise.all([
+  const [settings, connection, sentThisMonth, humanHandoffs] = await Promise.all([
     settingsForOrganization(access.organizationId),
     connectionForOrganization(access.organizationId),
     sentCountThisMonth(access.organizationId),
+    humanHandoffsForOrganization(access.organizationId),
   ]);
   const monthlyMessageLimit = Math.max(0, Number(settings.monthlyMessageLimit ?? 0));
   return {
@@ -165,6 +185,7 @@ export async function getWhatsappAutomationStatus(access: AccessContext): Promis
       sentThisMonth,
       remainingThisMonth: Math.max(0, monthlyMessageLimit - sentThisMonth),
     },
+    humanHandoffs,
   };
 }
 
@@ -866,6 +887,9 @@ export async function resumeWhatsappConversation(access: AccessContext, phoneVal
   await db.update(whatsappConversations).set({
     automationPausedUntil: null,
     pauseReason: "",
+    botState: "",
+    botContextJson: "{}",
+    humanRequestedAt: null,
     updatedAt: new Date().toISOString(),
   }).where(and(eq(whatsappConversations.organizationId, access.organizationId), eq(whatsappConversations.phone, phone)));
 }
