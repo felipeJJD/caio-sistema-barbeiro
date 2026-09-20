@@ -584,7 +584,28 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
   if (conflict) throw new Error(intelligentAgenda ? `Este horário se sobrepõe ao atendimento de ${conflict.clientName}. Escolha outro horário.` : `Não é possível agendar: ${barber.name} já atende ${conflict.clientName} nesse dia e horário.`);
   const values = { appointmentDate: input.appointmentDate, appointmentTime: input.appointmentTime, clientName, phone: input.phone ?? "", serviceId: input.serviceId, barberId: input.barberId, notes: input.notes ?? "", status: "Agendado", reminderSentAt: null };
   if (input.id) {
-    await db.update(appointments).set(values).where(and(eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId)));
+    if (existing?.paymentChoice === "Mensalista" && existing.membershipCreditState === "released" && existing.membershipClientId) {
+      const restored = await db.update(appointments).set({ ...values, membershipCreditState: "reserved" }).where(and(
+        eq(appointments.id, input.id),
+        eq(appointments.organizationId, access.organizationId),
+        sql`(
+          SELECT COUNT(*) FROM clients AS membership_client
+          WHERE membership_client.id = ${existing.membershipClientId}
+            AND membership_client.organization_id = ${access.organizationId}
+            AND membership_client.status = 'Ativo'
+            AND membership_client.deleted_at IS NULL
+            AND membership_client.balance > (
+              SELECT COUNT(*) FROM appointments AS reserved_credit
+              WHERE reserved_credit.organization_id = ${access.organizationId}
+                AND reserved_credit.membership_client_id = ${existing.membershipClientId}
+                AND reserved_credit.membership_credit_state = 'reserved'
+            )
+        ) > 0`,
+      )).returning({ id: appointments.id });
+      if (!restored.length) throw new Error("Este mensalista não possui crédito disponível para reservar novamente.");
+    } else {
+      await db.update(appointments).set(values).where(and(eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId)));
+    }
   } else await db.insert(appointments).values({ ...values, organizationId: access.organizationId });
 }
 
@@ -697,7 +718,7 @@ export async function saveClient(access: AccessContext, input: { id?: number; na
 export async function deleteClient(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const now = new Date().toISOString(); const updated = await db.update(clients).set({ status: "Bloqueado", deletedAt: now }).where(and(eq(clients.id, id), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).returning({ id: clients.id }); if (!updated.length) throw new Error("Mensalista não encontrado."); }
 export async function deleteMembershipPayment(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const deleted = await db.delete(membershipPayments).where(and(eq(membershipPayments.id, id), eq(membershipPayments.organizationId, access.organizationId))).returning({ id: membershipPayments.id }); if (!deleted.length) throw new Error("Lançamento mensal não encontrado."); }
 export async function saveService(access: AccessContext, input: { id?: number; name: string; priceCents: number; durationMinutes: number; active: boolean }) { requireOwner(access); if (!input.name.trim() || input.priceCents < 0 || !Number.isInteger(input.durationMinutes) || input.durationMinutes < 5 || input.durationMinutes > 480) throw new Error("Informe serviço, preço e duração entre 5 e 480 minutos."); const db = await getDb(); const values = { name: input.name.trim(), priceCents: input.priceCents, durationMinutes: input.durationMinutes, active: input.active }; if (input.id) { const updated = await db.update(services).set(values).where(and(eq(services.id, input.id), eq(services.organizationId, access.organizationId), isNull(services.deletedAt))).returning({ id: services.id }); if (!updated.length) throw new Error("Serviço não encontrado."); } else await db.insert(services).values({ ...values, organizationId: access.organizationId }); }
-export async function deleteService(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const service = (await db.select().from(services).where(and(eq(services.id, id), eq(services.organizationId, access.organizationId), isNull(services.deletedAt))).limit(1))[0]; if (!service) throw new Error("Serviço não encontrado."); const activePlans = await db.select({ id: plans.id }).from(plans).where(and(eq(plans.organizationId, access.organizationId), eq(plans.active, true), sql`lower(${plans.planKind}) = lower(${service.name})`)).limit(1); if (activePlans.length) throw new Error("Este serviço está ligado a um plano mensalista ativo. Altere ou desative o plano antes de excluir."); await db.update(services).set({ active: false, deletedAt: new Date().toISOString() }).where(and(eq(services.id, id), eq(services.organizationId, access.organizationId), isNull(services.deletedAt))); }
+export async function deleteService(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const service = (await db.select().from(services).where(and(eq(services.id, id), eq(services.organizationId, access.organizationId), isNull(services.deletedAt))).limit(1))[0]; if (!service) throw new Error("Serviço não encontrado."); const activePlans = await db.select({ id: plans.id }).from(plans).where(and(eq(plans.organizationId, access.organizationId), eq(plans.active, true), or(eq(plans.serviceId, service.id), sql`lower(${plans.planKind}) = lower(${service.name})`))).limit(1); if (activePlans.length) throw new Error("Este serviço está ligado a um plano mensalista ativo. Altere ou desative o plano antes de excluir."); await db.update(services).set({ active: false, deletedAt: new Date().toISOString() }).where(and(eq(services.id, id), eq(services.organizationId, access.organizationId), isNull(services.deletedAt))); }
 export async function saveAgendaSettings(access: AccessContext, input: { useServiceDuration: boolean; openingTime: string; closingTime: string; weeklyHours?: WeeklyBookingHours; publicBookingEnabled?: boolean; publicBookingRequiresApproval?: boolean; publicBookingWeekdays?: number[] }) {
   requireOwner(access);
   const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
