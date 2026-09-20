@@ -158,7 +158,7 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
       <footer className="public-footer">
         <BrandLogo />
         <p>Gestão feita para quem vive a rotina da barbearia.</p>
-        <div><Link href="/">Entrar</Link><a href="#termos">Termos</a><a href="#privacidade">Privacidade</a><a href="#cadastro">Começar grátis</a><a href={SUPPORT_WHATSAPP_URL} target="_blank" rel="noreferrer">Suporte {SUPPORT_PHONE_DISPLAY}</a></div>
+        <div><Link href="/">Entrar</Link><Link href="/termos-de-uso">Termos</Link><Link href="/privacidade">Privacidade</Link><Link href="/exclusao-de-dados">Exclusão de dados</Link><a href="#cadastro">Começar grátis</a><a href={SUPPORT_WHATSAPP_URL} target="_blank" rel="noreferrer">Suporte {SUPPORT_PHONE_DISPLAY}</a></div>
         <small>© 2026 Cortou Anotou.</small>
       </footer>
     </main>

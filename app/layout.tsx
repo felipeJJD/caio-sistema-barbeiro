@@ -7,6 +7,7 @@ import "./team-payments.css";
 import "./affiliate-portal.css";
 import "./shell-chrome.css";
 import "./help-chat.css";
+import "./legal.css";
 import { AppGestureGuard } from "./ui/app-gesture-guard";
 import { AppToastHost } from "./ui/app-toast";
 
