@@ -1,5 +1,3 @@
-import { normalizeHelp } from "./help-guide";
-
 export type HelpScheduleChange = {
   days: number[];
   enabled: "on" | "off" | "";
@@ -25,6 +23,10 @@ export type HelpActionProposal = {
 };
 
 export type ParsedHelpAction = { action: HelpActionProposal } | { clarification: string } | null;
+
+function normalizeHelp(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
 
 const blank = (kind: HelpActionProposal["kind"]): HelpActionProposal => ({
   kind,
