@@ -3,6 +3,7 @@ import { appDate } from "../lib/app-date";
 import {
   classifyCaAtendeByRule,
   extractCaAtendeDate,
+  extractCaAtendeTime,
   formatCaAtendeMoney,
   highConfidenceCommercialOffer,
   mergeCaAtendeMemory,
@@ -43,8 +44,14 @@ type CaAtendeRuntimeContext = {
 };
 
 function appBaseUrl() {
-  const configured = String(process.env.PUBLIC_APP_URL ?? "").trim().replace(/\/$/, "");
-  return configured && /^https:\/\//i.test(configured) ? configured : "https://cortouanotou.com.br";
+  const configured = String(process.env.PUBLIC_BOOKING_BASE_URL ?? process.env.PUBLIC_APP_URL ?? "").trim().replace(/\/$/, "");
+  if (!configured || !/^https:\/\//i.test(configured)) return "https://cortouanotou.com.br";
+  try {
+    if (/\.railway\.app$/i.test(new URL(configured).hostname)) return "https://cortouanotou.com.br";
+    return configured;
+  } catch {
+    return "https://cortouanotou.com.br";
+  }
 }
 
 function bookingLink(slug: string) {
@@ -57,6 +64,7 @@ function safeMemory(value: string): CaAtendeContextMemory {
     return {
       intent: String(parsed.intent || "").slice(0,40),
       date: String(parsed.date || "").slice(0,10),
+      time: String(parsed.time || "").slice(0,5),
       service: String(parsed.service || "").slice(0,120),
       barber: String(parsed.barber || "").slice(0,120),
     };
@@ -208,6 +216,16 @@ async function updateConversation(input: {
 async function interpretationFor(message: string, context: CaAtendeRuntimeContext, memory: CaAtendeContextMemory) {
   let interpretation = classifyCaAtendeByRule(message);
   if (context.settings.spamFilterEnabled && highConfidenceCommercialOffer(message)) return { ...interpretation, intent:"spam" as const };
+
+  const normalized = normalizeCaAtendeText(message);
+  const knownService = context.services.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
+  const knownBarber = context.barbers.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
+  const bookingContinuation = (memory.intent === "booking" || memory.intent === "availability")
+    && (knownService || knownBarber || Boolean(extractCaAtendeDate(message)) || Boolean(extractCaAtendeTime(message)) || wantsAssistedBooking(message));
+  if (interpretation.intent === "unknown" && bookingContinuation) {
+    return { ...interpretation, intent: memory.intent as "booking" | "availability" };
+  }
+
   if (interpretation.intent === "unknown" && context.settings.aiFallbackEnabled) {
     const ai = await interpretCaAtendeWithAi({
       message,
@@ -237,6 +255,25 @@ type CaAtendeDecision = {
   spam?: boolean;
 };
 
+function explicitHumanRequest(value: string) {
+  const text = normalizeCaAtendeText(value);
+  return /\b(falar|conversar|chamar|atendente|humano|responsavel|proprietario|dono)\b/.test(text);
+}
+
+function wantsAssistedBooking(value: string) {
+  const text = normalizeCaAtendeText(value);
+  return /\b(resolver por aqui|por aqui mesmo|quero fazer por aqui|nao quero o link|nao quero clicar|sem link)\b/.test(text);
+}
+
+function humanDate(value: string) {
+  if (value === appDate()) return "hoje";
+  return value.split("-").reverse().join("/");
+}
+
+function slotSummary(slots: Array<{ time: string; barberId: number; barberName: string }>, max = 6) {
+  return slots.slice(0,max).map(slot => `${slot.time} com ${slot.barberName}`).join(", ");
+}
+
 async function composeReply(
   event: WhatsappInboundTextEvent,
   context: CaAtendeRuntimeContext,
@@ -245,81 +282,164 @@ async function composeReply(
   const oldMemory = safeMemory(conversation?.botContextJson ?? "{}");
   const interpreted = await interpretationFor(event.text, context, oldMemory);
   const continuationDate = extractCaAtendeDate(event.text);
+  const continuationTime = extractCaAtendeTime(event.text);
   const service = findNamedItem(event.text, interpreted.service, context.services);
   const barber = findNamedItem(event.text, interpreted.barber, context.barbers);
+  const bookingState = conversation?.botState === "awaiting_booking_details" || conversation?.botState === "awaiting_booking_choice" || conversation?.botState === "awaiting_availability_details";
 
   let intent = interpreted.intent;
-  if (intent === "unknown" && conversation?.botState === "awaiting_availability_details" && (service || continuationDate || barber)) intent = "availability";
+  if (barber && !explicitHumanRequest(event.text) && (intent === "human" || intent === "unknown")) {
+    intent = oldMemory.intent === "availability" ? "availability" : "booking";
+  }
+  if ((intent === "unknown" || intent === "greeting") && bookingState && (service || barber || continuationDate || continuationTime || wantsAssistedBooking(event.text))) {
+    intent = oldMemory.intent === "availability" ? "availability" : "booking";
+  }
+  if (wantsAssistedBooking(event.text) && intent === "unknown") intent = "booking";
 
   const memory = mergeCaAtendeMemory(oldMemory, {
     intent: intent === "unknown" ? oldMemory.intent : intent,
     date: interpreted.date || continuationDate,
+    time: interpreted.time || continuationTime,
     service: service?.name || interpreted.service,
     barber: barber?.name || interpreted.barber,
   });
 
   if (intent === "spam") return { reply:"", intent, state:"suspected_offer", memory, source:interpreted.source, spam:true };
-  if (intent === "human" || intent === "cancel" || intent === "reschedule") {
+
+  if (intent === "human" && explicitHumanRequest(event.text)) {
     return { reply:defaultHandoff(context), intent, state:"human_takeover", memory, source:interpreted.source, handoff:true };
   }
-  if (intent === "greeting") return { reply:defaultGreeting(context), intent, state:"", memory:{}, source:interpreted.source };
-  if (intent === "booking") {
+
+  if (intent === "cancel" || intent === "reschedule") {
+    return { reply:defaultHandoff(context), intent, state:"human_takeover", memory, source:interpreted.source, handoff:true };
+  }
+
+  if (intent === "greeting") {
+    return { reply:defaultGreeting(context), intent, state:"", memory:{}, source:interpreted.source };
+  }
+
+  if (intent === "prices") {
+    if (!context.services.length) {
+      return { reply:`Os valores ainda não estão disponíveis por aqui. Você pode conferir a agenda em ${bookingLink(context.organization.slug)}.`, intent, state:"", memory:{}, source:interpreted.source, dataSource:"services" };
+    }
+    const selectedService = service || findNamedItem(memory.service || "", memory.service || "", context.services);
+    if (selectedService) {
+      return {
+        reply:`${selectedService.name} custa ${formatCaAtendeMoney(selectedService.priceCents)}. Se quiser, eu também posso consultar os horários disponíveis pra você.`,
+        intent,
+        state:"",
+        memory:{ service:selectedService.name, intent:"prices" },
+        source:interpreted.source,
+        dataSource:"services",
+      };
+    }
+    const rows = context.services.slice(0,8).map(item => `• ${item.name}: ${formatCaAtendeMoney(item.priceCents)}`);
+    const more = context.services.length > 8 ? "\nSe quiser um serviço específico, me fala o nome que eu te passo só aquele valor." : "";
     return {
-      reply: context.settings.bookingLinkFirst
-        ? `Claro! Para escolher serviço, profissional e horário sem espera, use o link da ${context.organization.name}: ${bookingLink(context.organization.slug)}. Se preferir resolver por aqui, me diga o que você precisa.`
-        : `Claro! Me diga qual serviço você quer e para qual dia. Se preferir, também pode usar ${bookingLink(context.organization.slug)}.`,
-      intent, state:"", memory:{}, source:interpreted.source,
+      reply:`Valores da ${context.organization.name}:\n${rows.join("\n")}${more}`,
+      intent,
+      state:"",
+      memory:{},
+      source:interpreted.source,
+      dataSource:"services",
     };
   }
-  if (intent === "prices") {
-    if (!context.services.length) return { reply:`Os valores ainda não estão disponíveis por aqui. Vou deixar o link da agenda: ${bookingLink(context.organization.slug)}.`, intent, state:"", memory:{}, source:interpreted.source, dataSource:"services" };
-    const rows = context.services.slice(0,8).map(item => `• ${item.name}: ${formatCaAtendeMoney(item.priceCents)}`);
-    const more = context.services.length > 8 ? "\nOutros serviços também aparecem no link." : "";
-    return { reply:`Valores da ${context.organization.name}:\n${rows.join("\n")}${more}\n\nAgendamento: ${bookingLink(context.organization.slug)}`, intent, state:"", memory:{}, source:interpreted.source, dataSource:"services" };
-  }
-  if (intent === "availability") {
+
+  const continuingBooking = intent === "booking" || intent === "availability" || bookingState;
+  if (continuingBooking) {
     const selectedService = service || findNamedItem(memory.service || "", memory.service || "", context.services);
     const selectedBarber = barber || findNamedItem(memory.barber || "", memory.barber || "", context.barbers);
     const date = interpreted.date || continuationDate || memory.date || "";
+    const desiredTime = interpreted.time || continuationTime || memory.time || "";
+    const preservedIntent = intent === "availability" ? "availability" : "booking";
+    const nextMemory = mergeCaAtendeMemory(memory, {
+      intent: preservedIntent,
+      service: selectedService?.name || "",
+      barber: selectedBarber?.name || "",
+      date,
+      time: desiredTime,
+    });
 
     if (!selectedService || !date) {
       const missing: string[] = [];
-      if (!selectedService) missing.push(`o serviço (${compactServiceNames(context)})`);
-      if (!date) missing.push("o dia (por exemplo: hoje ou amanhã)");
+      if (!selectedService) missing.push("qual serviço você quer");
+      if (!date) missing.push("qual dia");
+      const known: string[] = [];
+      if (selectedBarber) known.push(`com ${selectedBarber.name}`);
+      if (desiredTime) known.push(`às ${desiredTime}`);
       return {
-        reply:`Consigo consultar a agenda real pra você. Me diga ${missing.join(" e ")}. Se quiser escolher direto, use ${bookingLink(context.organization.slug)}.`,
-        intent,
-        state:"awaiting_availability_details",
-        memory: mergeCaAtendeMemory(memory, { service:selectedService?.name || "", barber:selectedBarber?.name || "", date }),
+        reply:`${known.length ? `Beleza, ${known.join(" ")}. ` : ""}Me diga ${missing.join(" e ")}. Pode responder curto, por exemplo: “corte” ou “amanhã”.`,
+        intent: preservedIntent,
+        state:"awaiting_booking_details",
+        memory:nextMemory,
         source:interpreted.source,
       };
     }
 
     try {
       const slots = await getPublicBookingSlots(context.organization.slug, date, selectedService.id, selectedBarber?.id ?? 0);
-      const uniqueTimes = [...new Set(slots.map(slot => slot.time))].slice(0,6);
-      const humanDate = date === appDate() ? "hoje" : date.split("-").reverse().join("/");
-      const barberText = selectedBarber ? ` com ${selectedBarber.name}` : "";
-      if (!uniqueTimes.length) {
+      if (!slots.length) {
+        const barberText = selectedBarber ? ` com ${selectedBarber.name}` : "";
         return {
-          reply:`Para ${selectedService.name}${barberText}, não encontrei horário livre ${humanDate}. Você pode conferir outro dia aqui: ${bookingLink(context.organization.slug)}.`,
-          intent, state:"", memory:{}, source:interpreted.source, dataSource:"agenda",
+          reply:`Para ${selectedService.name}${barberText}, não encontrei horário livre ${humanDate(date)}. Me diga outro dia que eu consulto pra você.`,
+          intent:preservedIntent,
+          state:"awaiting_booking_details",
+          memory:nextMemory,
+          source:interpreted.source,
+          dataSource:"agenda",
         };
       }
+
+      if (desiredTime) {
+        const exact = slots.filter(slot => slot.time === desiredTime);
+        if (exact.length) {
+          const professionals = [...new Set(exact.map(slot => slot.barberName))];
+          const professionalText = selectedBarber
+            ? `com ${selectedBarber.name}`
+            : professionals.length === 1
+              ? `com ${professionals[0]}`
+              : `com ${professionals.join(" ou ")}`;
+          return {
+            reply:`Sim. ${selectedService.name} ${professionalText} está disponível ${humanDate(date)} às ${desiredTime}. Para garantir esse horário, confirme aqui: ${bookingLink(context.organization.slug)}`,
+            intent:preservedIntent,
+            state:"awaiting_booking_choice",
+            memory:nextMemory,
+            source:interpreted.source,
+            dataSource:"agenda",
+          };
+        }
+        return {
+          reply:`Às ${desiredTime} não está livre para ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""} em ${humanDate(date)}. Tenho ${slotSummary(slots)}. Qual desses fica melhor?`,
+          intent:preservedIntent,
+          state:"awaiting_booking_choice",
+          memory:{ ...nextMemory, time:"" },
+          source:interpreted.source,
+          dataSource:"agenda",
+        };
+      }
+
       return {
-        reply:`Para ${selectedService.name}${barberText}, encontrei ${uniqueTimes.join(", ")} disponíveis ${humanDate}. Para garantir o horário, escolha e confirme pelo link: ${bookingLink(context.organization.slug)}.`,
-        intent, state:"", memory:{}, source:interpreted.source, dataSource:"agenda",
+        reply:`Para ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""} em ${humanDate(date)}, tenho ${slotSummary(slots)}. Qual horário você prefere?`,
+        intent:preservedIntent,
+        state:"awaiting_booking_choice",
+        memory:nextMemory,
+        source:interpreted.source,
+        dataSource:"agenda",
       };
     } catch {
       return {
-        reply:`Não consegui confirmar os horários agora. Você pode consultar a agenda atualizada aqui: ${bookingLink(context.organization.slug)}.`,
-        intent, state:"", memory:{}, source:interpreted.source, dataSource:"agenda",
+        reply:`Não consegui consultar a agenda agora. Tenta me mandar o dia e o serviço novamente ou use ${bookingLink(context.organization.slug)}.`,
+        intent:preservedIntent,
+        state:"awaiting_booking_details",
+        memory:nextMemory,
+        source:interpreted.source,
+        dataSource:"agenda",
       };
     }
   }
 
   return {
-    reply:`Posso te ajudar com horários, valores, agendamento ou chamar o responsável da ${context.organization.name}. O que você precisa? Se quiser marcar direto: ${bookingLink(context.organization.slug)}.`,
+    reply:`Posso te ajudar com preço, horário, agendamento ou chamar uma pessoa da ${context.organization.name}. Me fala do seu jeito o que você precisa.`,
     intent:"unknown",
     state:"",
     memory:{},
