@@ -561,8 +561,12 @@ export async function simulateCaAtende(input: {
     botContextJson: JSON.stringify(previousState.memory ?? {}),
   });
 
+  const testReply = decision.confirmationRequested
+    ? `Perfeito. Eu entendi sua confirmação: ${decision.memory.service || "serviço"}${decision.memory.barber ? ` com ${decision.memory.barber}` : ""}, ${decision.memory.date ? humanDate(decision.memory.date) : "no dia escolhido"}${decision.memory.time ? ` às ${decision.memory.time}` : ""}. No modo teste eu não altero sua agenda, então nenhum horário real foi criado.`
+    : decision.reply;
+
   return {
-    reply: decision.reply,
+    reply: testReply,
     intent: decision.intent,
     source: decision.source,
     dataSource: decision.dataSource ?? null,
