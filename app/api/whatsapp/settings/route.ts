@@ -6,7 +6,6 @@ import {
   pauseWhatsappConversation,
   resumeWhatsappConversation,
   saveWhatsappAutomationSettings,
-  saveWhatsappConnection,
 } from "../../../../db/whatsapp";
 
 export const dynamic = "force-dynamic";
@@ -42,13 +41,6 @@ export async function POST(request: Request) {
         rescheduleEnabled: typeof data.rescheduleEnabled === "boolean" ? data.rescheduleEnabled : undefined,
         botEnabled: typeof data.botEnabled === "boolean" ? data.botEnabled : undefined,
         humanTakeoverMinutes: data.humanTakeoverMinutes === undefined ? undefined : Number(data.humanTakeoverMinutes),
-      });
-    } else if (action === "connect-manual") {
-      await saveWhatsappConnection(access, {
-        wabaId: String(data.wabaId ?? ""),
-        phoneNumberId: String(data.phoneNumberId ?? ""),
-        displayPhoneNumber: String(data.displayPhoneNumber ?? ""),
-        accessToken: String(data.accessToken ?? ""),
       });
     } else if (action === "disconnect") {
       await disconnectWhatsapp(access);
