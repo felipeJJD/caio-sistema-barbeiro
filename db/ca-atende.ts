@@ -360,10 +360,10 @@ async function composeReply(
       time: desiredTime,
     });
 
-    const missing: string[] = [];
-    if (!selectedService) missing.push("qual serviço você quer");
-    if (!date) missing.push("qual dia");
-    if (missing.length) {
+    if (!selectedService || !date) {
+      const missing: string[] = [];
+      if (!selectedService) missing.push("qual serviço você quer");
+      if (!date) missing.push("qual dia");
       const known: string[] = [];
       if (selectedBarber) known.push(`com ${selectedBarber.name}`);
       if (desiredTime) known.push(`às ${desiredTime}`);
