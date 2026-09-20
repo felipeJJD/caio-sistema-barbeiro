@@ -1,5 +1,7 @@
+import type { HelpActionProposal } from "./help-actions";
+
 export type HelpDestination = { section: string; tab?: string; label: string };
-export type HelpReply = { answer: string; destination?: HelpDestination; suggestions?: string[] };
+export type HelpReply = { answer: string; destination?: HelpDestination; suggestions?: string[]; action?: HelpActionProposal };
 export type HelpMessage = { role: "user" | "assistant"; content: string };
 export const HELP_MESSAGE_LIMIT = 2400;
 export function normalizeHelp(value: string) {
