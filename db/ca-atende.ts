@@ -221,11 +221,27 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
   return interpretation;
 }
 
+type CaAtendeConversationSnapshot = {
+  botState?: string | null;
+  botContextJson?: string | null;
+};
+
+type CaAtendeDecision = {
+  reply: string;
+  intent: string;
+  state: string;
+  memory: CaAtendeContextMemory;
+  source: "rule" | "ai";
+  dataSource?: "agenda" | "services";
+  handoff?: boolean;
+  spam?: boolean;
+};
+
 async function composeReply(
   event: WhatsappInboundTextEvent,
   context: CaAtendeRuntimeContext,
-  conversation: Awaited<ReturnType<typeof conversationState>>,
-): Promise<{ reply: string; intent: string; state: string; memory: CaAtendeContextMemory; handoff?: boolean; spam?: boolean }> {
+  conversation: CaAtendeConversationSnapshot | null,
+): Promise<CaAtendeDecision> {
   const oldMemory = safeMemory(conversation?.botContextJson ?? "{}");
   const interpreted = await interpretationFor(event.text, context, oldMemory);
   const continuationDate = extractCaAtendeDate(event.text);
@@ -242,24 +258,24 @@ async function composeReply(
     barber: barber?.name || interpreted.barber,
   });
 
-  if (intent === "spam") return { reply:"", intent, state:"suspected_offer", memory, spam:true };
+  if (intent === "spam") return { reply:"", intent, state:"suspected_offer", memory, source:interpreted.source, spam:true };
   if (intent === "human" || intent === "cancel" || intent === "reschedule") {
-    return { reply:defaultHandoff(context), intent, state:"human_takeover", memory, handoff:true };
+    return { reply:defaultHandoff(context), intent, state:"human_takeover", memory, source:interpreted.source, handoff:true };
   }
-  if (intent === "greeting") return { reply:defaultGreeting(context), intent, state:"", memory:{} };
+  if (intent === "greeting") return { reply:defaultGreeting(context), intent, state:"", memory:{}, source:interpreted.source };
   if (intent === "booking") {
     return {
       reply: context.settings.bookingLinkFirst
         ? `Claro! Para escolher serviço, profissional e horário sem espera, use o link da ${context.organization.name}: ${bookingLink(context.organization.slug)}. Se preferir resolver por aqui, me diga o que você precisa.`
         : `Claro! Me diga qual serviço você quer e para qual dia. Se preferir, também pode usar ${bookingLink(context.organization.slug)}.`,
-      intent, state:"", memory:{},
+      intent, state:"", memory:{}, source:interpreted.source,
     };
   }
   if (intent === "prices") {
-    if (!context.services.length) return { reply:`Os valores ainda não estão disponíveis por aqui. Vou deixar o link da agenda: ${bookingLink(context.organization.slug)}.`, intent, state:"", memory:{} };
+    if (!context.services.length) return { reply:`Os valores ainda não estão disponíveis por aqui. Vou deixar o link da agenda: ${bookingLink(context.organization.slug)}.`, intent, state:"", memory:{}, source:interpreted.source, dataSource:"services" };
     const rows = context.services.slice(0,8).map(item => `• ${item.name}: ${formatCaAtendeMoney(item.priceCents)}`);
     const more = context.services.length > 8 ? "\nOutros serviços também aparecem no link." : "";
-    return { reply:`Valores da ${context.organization.name}:\n${rows.join("\n")}${more}\n\nAgendamento: ${bookingLink(context.organization.slug)}`, intent, state:"", memory:{} };
+    return { reply:`Valores da ${context.organization.name}:\n${rows.join("\n")}${more}\n\nAgendamento: ${bookingLink(context.organization.slug)}`, intent, state:"", memory:{}, source:interpreted.source, dataSource:"services" };
   }
   if (intent === "availability") {
     const selectedService = service || findNamedItem(memory.service || "", memory.service || "", context.services);
@@ -275,6 +291,7 @@ async function composeReply(
         intent,
         state:"awaiting_availability_details",
         memory: mergeCaAtendeMemory(memory, { service:selectedService?.name || "", barber:selectedBarber?.name || "", date }),
+        source:interpreted.source,
       };
     }
 
@@ -286,17 +303,17 @@ async function composeReply(
       if (!uniqueTimes.length) {
         return {
           reply:`Para ${selectedService.name}${barberText}, não encontrei horário livre ${humanDate}. Você pode conferir outro dia aqui: ${bookingLink(context.organization.slug)}.`,
-          intent, state:"", memory:{},
+          intent, state:"", memory:{}, source:interpreted.source, dataSource:"agenda",
         };
       }
       return {
         reply:`Para ${selectedService.name}${barberText}, encontrei ${uniqueTimes.join(", ")} disponíveis ${humanDate}. Para garantir o horário, escolha e confirme pelo link: ${bookingLink(context.organization.slug)}.`,
-        intent, state:"", memory:{},
+        intent, state:"", memory:{}, source:interpreted.source, dataSource:"agenda",
       };
     } catch {
       return {
         reply:`Não consegui confirmar os horários agora. Você pode consultar a agenda atualizada aqui: ${bookingLink(context.organization.slug)}.`,
-        intent, state:"", memory:{},
+        intent, state:"", memory:{}, source:interpreted.source, dataSource:"agenda",
       };
     }
   }
@@ -306,6 +323,81 @@ async function composeReply(
     intent:"unknown",
     state:"",
     memory:{},
+    source:interpreted.source,
+  };
+}
+
+export type CaAtendeTestState = {
+  botState: string;
+  memory: CaAtendeContextMemory;
+  paused: boolean;
+};
+
+export type CaAtendeTestResult = {
+  reply: string;
+  intent: string;
+  source: "rule" | "ai";
+  dataSource: "agenda" | "services" | null;
+  handoff: boolean;
+  silent: boolean;
+  silentReason: "commercial_offer" | "human_takeover" | null;
+  state: CaAtendeTestState;
+};
+
+export async function simulateCaAtende(input: {
+  organizationId: number;
+  message: string;
+  state?: Partial<CaAtendeTestState>;
+}): Promise<CaAtendeTestResult> {
+  const message = input.message.trim().slice(0, 1200);
+  if (!message) throw new Error("Escreva uma mensagem para testar.");
+  const context = await runtimeContext(input.organizationId);
+  if (!context) throw new Error("Barbearia não encontrada.");
+
+  const previousState: CaAtendeTestState = {
+    botState: String(input.state?.botState ?? "").slice(0,80),
+    memory: input.state?.memory ?? {},
+    paused: Boolean(input.state?.paused),
+  };
+
+  if (previousState.paused) {
+    return {
+      reply: "",
+      intent: "human",
+      source: "rule",
+      dataSource: null,
+      handoff: true,
+      silent: true,
+      silentReason: "human_takeover",
+      state: previousState,
+    };
+  }
+
+  const decision = await composeReply({
+    organizationId: input.organizationId,
+    messageRowId: 0,
+    providerMessageId: "test",
+    phone: "5500000000000",
+    text: message,
+    receivedAt: new Date().toISOString(),
+  }, context, {
+    botState: previousState.botState,
+    botContextJson: JSON.stringify(previousState.memory ?? {}),
+  });
+
+  return {
+    reply: decision.reply,
+    intent: decision.intent,
+    source: decision.source,
+    dataSource: decision.dataSource ?? null,
+    handoff: Boolean(decision.handoff),
+    silent: Boolean(decision.spam),
+    silentReason: decision.spam ? "commercial_offer" : null,
+    state: {
+      botState: decision.state,
+      memory: decision.memory,
+      paused: Boolean(decision.handoff),
+    },
   };
 }
 
