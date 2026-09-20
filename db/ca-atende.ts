@@ -303,8 +303,15 @@ function humanDate(value: string) {
   return value.split("-").reverse().join("/");
 }
 
-function slotSummary(slots: Array<{ time: string; barberId: number; barberName: string }>, max = 6) {
-  return slots.slice(0,max).map(slot => `${slot.time} com ${slot.barberName}`).join(", ");
+function slotSummary(slots: Array<{ time: string; barberId: number; barberName: string }>, maxPerBarber = 4) {
+  const groups = new Map<string, string[]>();
+  for (const slot of slots) {
+    const times = groups.get(slot.barberName) ?? [];
+    if (times.length < maxPerBarber && !times.includes(slot.time)) times.push(slot.time);
+    groups.set(slot.barberName, times);
+  }
+  if (groups.size === 1) return [...groups.values()][0].join(", ");
+  return [...groups.entries()].map(([barberName, times]) => `${barberName}: ${times.join(", ")}`).join(" · ");
 }
 
 async function composeReply(
