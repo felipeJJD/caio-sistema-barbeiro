@@ -75,12 +75,43 @@ A fundação criada no PR #28 inclui:
 
 A integração nasce desligada e com limite 0. Nenhuma mensagem real sai até existir conexão Meta e ativação explícita.
 
+## Embedded Signup
+
+O Cortou Anotou agora possui o fluxo técnico do Embedded Signup oficial da Meta.
+
+Há dois caminhos na interface:
+
+- **Conectar meu WhatsApp atual:** usa o onboarding de coexistência para negócios que já atendem pelo WhatsApp Business no celular. A própria Meta decide a elegibilidade do número.
+- **Conectar outro número:** usa o fluxo Cloud API padrão e registra o número com um PIN de duas etapas gerado pelo servidor e armazenado criptografado.
+
+O navegador recebe somente App ID, Config ID e versão pública da Graph API. O App Secret nunca é enviado ao cliente. O código de autorização de uso único é trocado pelo token no servidor.
+
+Antes de persistir a conexão, o servidor:
+
+1. valida que o token pertence ao app do Cortou Anotou;
+2. exige as permissões `whatsapp_business_management` e `whatsapp_business_messaging`;
+3. confirma que a WABA autorizada é acessível pelo token;
+4. consulta os números diretamente na Meta e confirma que o `phone_number_id` pertence à WABA;
+5. assina o app nos webhooks daquela WABA;
+6. registra o número quando for o fluxo Cloud API padrão;
+7. criptografa token e PIN antes de salvar.
+
+Para liberar o botão em produção ainda é necessário configurar no Railway:
+
+- `WHATSAPP_APP_ID`
+- `WHATSAPP_APP_SECRET`
+- `WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID`
+- `WHATSAPP_GRAPH_VERSION`
+
+Também é necessário que o app da Meta esteja configurado para Embedded Signup, HTTPS e com as permissões necessárias aprovadas conforme o estágio do app.
+
 ## Próximas etapas
 
-1. Embedded Signup da Meta para o proprietário conectar o próprio número sem colar token manual.
-2. Aba WhatsApp dentro do Cortou Anotou.
+1. Configurar o app/Embedded Signup real da Meta e as variáveis de produção.
+2. Fazer a primeira conexão real com um número de teste.
 3. Templates oficiais e aprovados para confirmação, lembrete, cancelamento e remarcação.
 4. Agendamento periódico do executor da fila.
 5. Histórico visual de enviados, entregues, lidos e falhas.
-6. C.A. Atende conversacional com regras antes de IA.
-7. Planos comerciais e cobrança integrada.
+6. Completar eventos específicos de coexistência antes do C.A. Atende assumir conversas.
+7. C.A. Atende conversacional com regras antes de IA.
+8. Planos comerciais e cobrança integrada.
