@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { appDate, clientCanChangeAppointment } from "../lib/app-date";
-import { appointments, organizations, plans, services, team } from "./schema";
+import { appointments, clients, organizations, plans, services, team } from "./schema";
 import { getDb } from "./index";
 import { notifyBookingChange, notifyOwnersOfPublicBooking } from "./notifications";
 import { accessPeriodHasEnded } from "./access";
@@ -9,6 +9,7 @@ import { getBookingPaymentSettings } from "./booking-payments";
 import { validClientName } from "../lib/client-name";
 import { parseBookingWeekdays } from "../lib/booking-weekdays";
 import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWindowAllows, parseTeamWeeklyBookingHours, parseWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
+import { normalizeMembershipIdentity, phoneDigits, resolveMembershipService } from "../lib/membership-service";
 
 export type PublicBookingData = {
   organization: {
@@ -23,7 +24,7 @@ export type PublicBookingData = {
     weeklyHours: WeeklyBookingHours;
   };
   services: Array<{ id: number; name: string; priceCents: number; durationMinutes: number }>;
-  membershipPlans: Array<{ id: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; serviceId: number; serviceName: string; durationMinutes: number }>;
+  hasMemberships: boolean;
   barbers: Array<{ id: number; name: string; photoUrl: string | null; weeklyHours: WeeklyBookingHours }>;
   gallery: PublicGalleryImage[];
   payments: { pixEnabled: boolean; pixKey: string; cashEnabled: boolean; debitEnabled: boolean; creditEnabled: boolean };
@@ -64,10 +65,6 @@ function cleanSlug(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 80);
 }
 
-function normalizedServiceName(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase().replace(/\s*\+\s*/g, " + ").replace(/\s+/g, " ");
-}
-
 async function hashManagementToken(token: string) {
   const bytes = new TextEncoder().encode(token);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -90,26 +87,16 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
   const db = await getDb();
   const organization = (await db.select().from(organizations).where(eq(organizations.slug, slug)).limit(1))[0];
   if (!organization) return null;
-  const [serviceList, planList, barberList, gallery, payments] = await Promise.all([
+  const [serviceList, planList, activeMembershipClients, barberList, gallery, payments] = await Promise.all([
     db.select({ id: services.id, name: services.name, priceCents: services.priceCents, durationMinutes: services.durationMinutes }).from(services).where(and(eq(services.organizationId, organization.id), eq(services.active, true), isNull(services.deletedAt))).orderBy(services.name),
     db.select({ id: plans.id, name: plans.name, planKind: plans.planKind, monthlyValueCents: plans.monthlyValueCents, maxUses: plans.maxUses }).from(plans).where(and(eq(plans.organizationId, organization.id), eq(plans.active, true))).orderBy(plans.name),
+    db.select({ id: clients.id, planId: clients.planId }).from(clients).where(and(eq(clients.organizationId, organization.id), eq(clients.status, "Ativo"), isNull(clients.deletedAt))),
     db.select({ id: team.id, name: team.name, weeklyBookingHours: team.weeklyBookingHours }).from(team).where(and(eq(team.organizationId, organization.id), eq(team.active, true))).orderBy(team.name),
     listPublicGalleryImages(organization.id),
     getBookingPaymentSettings(organization.id),
   ]);
-  const membershipPlans = planList.flatMap((plan) => {
-    const service = serviceList.find((item) => normalizedServiceName(item.name) === normalizedServiceName(plan.planKind));
-    return service ? [{
-      id: plan.id,
-      name: plan.name,
-      planKind: plan.planKind,
-      monthlyValueCents: plan.monthlyValueCents,
-      maxUses: plan.maxUses,
-      serviceId: service.id,
-      serviceName: service.name,
-      durationMinutes: service.durationMinutes,
-    }] : [];
-  });
+  const usablePlanIds = new Set(planList.filter((plan) => Boolean(resolveMembershipService(plan.planKind, plan.name, serviceList))).map((plan) => plan.id));
+  const hasMemberships = activeMembershipClients.some((client) => usablePlanIds.has(client.planId));
   const weeklyHours = parseWeeklyBookingHours(
     organization.weeklyBookingHours,
     parseBookingWeekdays(organization.publicBookingWeekdays),
@@ -129,7 +116,7 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
       weeklyHours,
     },
     services: serviceList,
-    membershipPlans,
+    hasMemberships,
     barbers: barberList.map((barber) => ({ id: barber.id, name: barber.name, photoUrl: gallery.find((image) => image.kind === "barber" && image.teamMemberId === barber.id)?.url ?? null, weeklyHours: parseTeamWeeklyBookingHours(barber.weeklyBookingHours, weeklyHours) })),
     gallery,
     payments,
@@ -143,6 +130,59 @@ export async function getPublicBookingPaymentOptions(slugValue: string) {
   const organization = (await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).limit(1))[0];
   if (!organization) return null;
   return getBookingPaymentSettings(organization.id);
+}
+
+
+export type PublicMembershipLookup = {
+  clientId: number;
+  clientName: string;
+  planName: string;
+  serviceId: number;
+  serviceName: string;
+  durationMinutes: number;
+  remainingUses: number;
+};
+
+export async function findPublicMembership(slugValue: string, nameValue: string, phoneValue: string): Promise<PublicMembershipLookup> {
+  const slug = cleanSlug(slugValue);
+  const name = validClientName(nameValue, 120);
+  const suppliedPhone = phoneDigits(phoneValue);
+  if (suppliedPhone.length < 8) throw new Error("Informe o telefone ou WhatsApp cadastrado no seu plano.");
+  const db = await getDb();
+  const organization = (await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).limit(1))[0];
+  if (!organization) throw new Error("Barbearia não encontrada.");
+
+  const [clientList, planList, serviceList] = await Promise.all([
+    db.select().from(clients).where(and(eq(clients.organizationId, organization.id), eq(clients.status, "Ativo"), isNull(clients.deletedAt))),
+    db.select().from(plans).where(and(eq(plans.organizationId, organization.id), eq(plans.active, true))),
+    db.select({ id: services.id, name: services.name, durationMinutes: services.durationMinutes, priceCents: services.priceCents }).from(services).where(and(eq(services.organizationId, organization.id), eq(services.active, true), isNull(services.deletedAt))),
+  ]);
+
+  const nameMatches = clientList.filter((client) => normalizeMembershipIdentity(client.name) === normalizeMembershipIdentity(name));
+  const phoneMatches = nameMatches.filter((client) => {
+    const stored = phoneDigits(client.phone);
+    if (!stored) return nameMatches.length === 1;
+    const compareLength = Math.min(8, stored.length, suppliedPhone.length);
+    return stored.slice(-compareLength) === suppliedPhone.slice(-compareLength);
+  });
+  const client = phoneMatches.length === 1 ? phoneMatches[0] : null;
+  if (!client) throw new Error("Não encontramos um mensalista ativo com esse nome e telefone.");
+
+  const plan = planList.find((item) => item.id === client.planId);
+  if (!plan) throw new Error("Seu cadastro mensalista está sem um plano ativo. Fale com a barbearia.");
+  const service = resolveMembershipService(plan.planKind, plan.name, serviceList);
+  if (!service) throw new Error("O serviço do seu plano precisa ser revisado pela barbearia antes de agendar.");
+  if (client.balance <= 0) throw new Error("Seu plano não tem usos disponíveis no momento. Fale com a barbearia.");
+
+  return {
+    clientId: client.id,
+    clientName: client.name,
+    planName: plan.name,
+    serviceId: service.id,
+    serviceName: service.name,
+    durationMinutes: service.durationMinutes,
+    remainingUses: Math.max(0, client.balance),
+  };
 }
 
 async function availabilityContext(slug: string, date: string, serviceId: number, requestedBarberId: number) {
@@ -199,7 +239,7 @@ export async function getPublicBookingSlots(slug: string, date: string, serviceI
   return slots;
 }
 
-export async function createPublicBooking(slug: string, input: { date: string; time: string; serviceId: number; barberId: number; clientName: string; phone: string; paymentChoice: string; isMembership?: boolean; membershipPlanId?: number }) {
+export async function createPublicBooking(slug: string, input: { date: string; time: string; serviceId: number; barberId: number; clientName: string; phone: string; paymentChoice: string; isMembership?: boolean; membershipClientId?: number }) {
   const clientName = validClientName(input.clientName);
   const phone = input.phone.replace(/[^0-9+()\-\s]/g, "").trim().slice(0, 30);
   if (phone.replace(/\D/g, "").length < 8) throw new Error("Informe um telefone ou WhatsApp válido.");
@@ -210,9 +250,10 @@ export async function createPublicBooking(slug: string, input: { date: string; t
   const data = await getPublicBookingData(slug);
   const service = data?.services.find((item) => item.id === input.serviceId);
   if (!data || !service) throw new Error("Não foi possível identificar a barbearia ou o serviço.");
-  const membershipPlan = input.isMembership ? data.membershipPlans.find((item) => item.id === Number(input.membershipPlanId || 0)) : null;
-  if (input.isMembership && !membershipPlan) throw new Error("Escolha qual plano mensalista você usa.");
-  if (membershipPlan && membershipPlan.serviceId !== service.id) throw new Error("O serviço deste plano mudou. Escolha seu plano novamente.");
+  const membership = input.isMembership ? await findPublicMembership(slug, clientName, phone) : null;
+  if (membership && membership.clientId !== Number(input.membershipClientId || 0)) throw new Error("Confirme novamente seu cadastro de mensalista.");
+  if (membership && membership.serviceId !== service.id) throw new Error("O serviço do seu plano mudou. Identifique seu cadastro novamente.");
+  const bookingClientName = membership?.clientName ?? clientName;
   const paymentChoice = input.isMembership ? "Mensalista" : input.paymentChoice;
   const allowedPayments = [data.payments.pixEnabled && "Pix", data.payments.cashEnabled && "Dinheiro", data.payments.debitEnabled && "Débito", data.payments.creditEnabled && "Crédito"].filter(Boolean) as string[];
   if (!input.isMembership && !allowedPayments.includes(paymentChoice)) throw new Error("Escolha uma forma de pagamento disponível.");
@@ -229,9 +270,9 @@ export async function createPublicBooking(slug: string, input: { date: string; t
   const inserted = await database.prepare(`
     INSERT INTO appointments (
       organization_id, appointment_date, appointment_time, client_name, phone,
-      service_id, barber_id, notes, status, payment_choice, payment_confirmation_token, management_token_hash
+      service_id, barber_id, notes, status, payment_choice, payment_confirmation_token, management_token_hash, membership_client_id
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     WHERE NOT EXISTS (
       SELECT 1
       FROM appointments AS existing
@@ -255,15 +296,16 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     data.organization.id,
     input.date,
     input.time,
-    clientName,
+    bookingClientName,
     phone,
     service.id,
     selected.barberId,
-    input.isMembership && membershipPlan ? `Mensalista · ${membershipPlan.name} · ${membershipPlan.serviceName}` : "Solicitado pelo link público",
+    membership ? `Mensalista · ${membership.planName} · ${membership.serviceName}` : "Solicitado pelo link público",
     status,
     paymentChoice,
     paymentToken,
     managementTokenHash,
+    membership?.clientId ?? null,
     data.organization.id,
     input.date,
     selected.barberId,
@@ -275,8 +317,8 @@ export async function createPublicBooking(slug: string, input: { date: string; t
   await notifyOwnersOfPublicBooking({
     organizationId: data.organization.id,
     appointmentId,
-    clientName,
-    serviceName: input.isMembership && membershipPlan ? `Mensalista · ${membershipPlan.serviceName}` : service.name,
+    clientName: bookingClientName,
+    serviceName: membership ? `Mensalista · ${membership.serviceName}` : service.name,
     barberName: selected.barberName,
     barberId: selected.barberId,
     date: input.date,
@@ -287,8 +329,8 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     id: appointmentId,
     status,
     barberName: selected.barberName,
-    serviceName: input.isMembership && membershipPlan ? `Mensalista · ${membershipPlan.serviceName}` : service.name,
-    membershipPlanName: membershipPlan?.name ?? "",
+    serviceName: membership ? `Mensalista · ${membership.serviceName}` : service.name,
+    membershipPlanName: membership?.planName ?? "",
     requiresApproval: data.organization.requiresApproval,
     paymentChoice,
     isMembership: Boolean(input.isMembership),
