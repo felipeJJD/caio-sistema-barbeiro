@@ -331,7 +331,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   function sameName(value: string, candidate: string) {
     const left = normalize(value);
     const right = normalize(candidate);
-    return left === right || right.includes(left) || left.includes(right);
+    if (!left || !right) return false;\n    return left === right || right.includes(left) || left.includes(right);
   }
 
   function mergeSchedule(base: DashboardData["agendaSettings"]["weeklyHours"], changes: HelpScheduleChange[]) {
