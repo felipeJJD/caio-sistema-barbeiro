@@ -45,7 +45,7 @@ export function caAtendeTomorrow(today = appDate()) {
 export function extractCaAtendeDate(value: string, today = appDate()) {
   const text = normalizeCaAtendeText(value);
   if (/\b(hoje|hj)\b/.test(text)) return today;
-  if (/\b(amanha|amanhã)\b/.test(value.toLowerCase())) return caAtendeTomorrow(today);
+  if (/\bamanha\b/.test(text)) return caAtendeTomorrow(today);
   const iso = /\b(20\d{2})-(\d{2})-(\d{2})\b/.exec(text);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const br = /\b(\d{1,2})[/-](\d{1,2})(?:[/-](20\d{2}))?\b/.exec(text);
