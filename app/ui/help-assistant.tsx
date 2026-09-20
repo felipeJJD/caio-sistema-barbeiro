@@ -155,16 +155,13 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     if (!field) return;
     field.style.height = "auto";
     field.style.height = `${Math.min(Math.max(field.scrollHeight, 48), 180)}px`;
-    if (listening) field.scrollTop = field.scrollHeight;
-  }, [input, listening, open]);
+  }, [input, open]);
 
   useEffect(() => {
     const openFromMenu = () => setOpen(true);
     window.addEventListener("cortou-anotou:open-assistant", openFromMenu);
     return () => window.removeEventListener("cortou-anotou:open-assistant", openFromMenu);
   }, []);
-
-  useEffect(() => () => dictationRef.current?.stop(), []);
 
   useEffect(() => {
     if (!open) return;
@@ -183,15 +180,20 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         closeHelp();
       }
     };
-    const closeForMenu = () => setOpen(false);
+    const closeForMenu = () => { voice.discard(); setOpen(false); };
     window.addEventListener("keydown", closeOnEscape);
     window.addEventListener("cortou-anotou:open-navigation", closeForMenu);
     return () => {
-      stopVoice();
+      voice.discard();
       window.removeEventListener("keydown", closeOnEscape);
       window.removeEventListener("cortou-anotou:open-navigation", closeForMenu);
     };
-  }, [open, closeHelp, stopVoice]);
+  }, [open, closeHelp, voice.discard]);
+
+  useEffect(() => () => {
+    for (const url of audioUrlsRef.current) URL.revokeObjectURL(url);
+    audioUrlsRef.current.clear();
+  }, []);
 
   function addMessage(role: Message["role"], text: string, extra:Partial<Message> = {}) {
     const message = { ...extra, id: nextMessageId.current++, role, text };
