@@ -12,7 +12,7 @@ import {
   type CaAtendeInterpretation,
 } from "../lib/ca-atende";
 import { interpretCaAtendeWithAi } from "../lib/ca-atende-model";
-import { getPublicBookingSlots } from "./public-booking";
+import { getPublicBookingSlotsExpanded } from "./public-booking";
 import { getDb } from "./index";
 import { notifyOwnersOfWhatsappHandoff } from "./notifications";
 import {
@@ -432,7 +432,7 @@ async function composeReply(
     }
 
     try {
-      let slots = await getPublicBookingSlots(context.organization.slug, date, selectedService.id, selectedBarber?.id ?? 0);
+      let slots = await getPublicBookingSlotsExpanded(context.organization.slug, date, selectedService.id, selectedBarber?.id ?? 0);
       if (changingProfessional && previousBarber) slots = slots.filter(slot => normalizeCaAtendeText(slot.barberName) !== normalizeCaAtendeText(previousBarber.name));
       if (!slots.length) {
         const barberText = selectedBarber ? ` com ${selectedBarber.name}` : "";
