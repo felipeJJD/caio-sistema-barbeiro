@@ -1,6 +1,7 @@
 import type { AccessContext } from "./access";
 import { normalizeHelp } from "../lib/help-guide";
-import { formatReport, validReportRange, type ReportMember, type ReportRequest } from "../lib/help-reports";
+import { formatReport, formatReportReply, validReportRange, type ReportMember, type ReportRequest, type ReportStyle } from "../lib/help-reports";
+import { readClientReturnOpportunities, readDailyPaceInsight } from "./help-insights";
 
 type Result<T> = {success:boolean;results:T[]};
 type Statement = {bind(...args:Array<string|number|null>):Statement;all<T>():Promise<Result<T>>};
@@ -23,7 +24,7 @@ function oneEditApart(left: string, right: string) {
 }
 
 // Pure prepared SELECTs: no dashboard seeding, write side effects, or zero fallback on failure.
-export async function readHelpReport(access: AccessContext, requested: ReportRequest) {
+export async function readHelpReport(access: AccessContext, requested: ReportRequest, style?: ReportStyle) {
   requested = {...requested,scope:requested.person ? "self" : requested.scope};
   if (!validReportRange(requested.start, requested.end)) throw new Error("Período inválido.");
   if (!access.isOwner && (requested.scope === "shop" || requested.person)) {
@@ -72,5 +73,32 @@ export async function readHelpReport(access: AccessContext, requested: ReportReq
     if (!member) { member={id:Number(row.id),name:"Profissional arquivado",count:0,revenueCents:0,payoutCents:0,tipsCents:0,feeCents:0,costCents:0}; members.push(member); }
     for (const key of ["count","revenueCents","payoutCents","tipsCents","feeCents","costCents"] as const) member[key] += Number(row[key] || 0);
   }
-  return { answer: formatReport({...requested,scope:shop?"shop":"self"}, {members,membershipCents:Number(results[3]?.results[0]?.amount || 0),membershipFeeCents:Number(results[3]?.results[0]?.fees || 0),expensesCents:Number(results[4]?.results[0]?.amount || 0)}, access.teamMemberId) };
+  const resolvedReport = {...requested,scope:shop?"shop":"self"} as ReportRequest;
+  const totals = {
+    members,
+    membershipCents:Number(results[3]?.results[0]?.amount || 0),
+    membershipFeeCents:Number(results[3]?.results[0]?.fees || 0),
+    expensesCents:Number(results[4]?.results[0]?.amount || 0),
+  };
+  if (!style) return { answer: formatReport(resolvedReport, totals, access.teamMemberId) };
+
+  const reply = formatReportReply(resolvedReport, totals, access.teamMemberId, style);
+  let insight: string | undefined;
+  let suggestions: string[] | undefined;
+  let offeredReturns = false;
+  if (Number(style.initiativeScore ?? 70) >= 55) {
+    try {
+      insight = await readDailyPaceInsight(access, resolvedReport) ?? undefined;
+      const opportunities = await readClientReturnOpportunities(access);
+      if (opportunities.length) {
+        suggestions = ["Ver clientes que podem estar na hora de voltar"];
+        offeredReturns = true;
+      }
+    } catch (error) {
+      console.warn("help_insight_unavailable", { type: error instanceof Error ? error.name : "Unknown" });
+    }
+  }
+  const person = resolvedReport.person ? `; profissional ${resolvedReport.person}` : "";
+  const contextMessage = `[contexto seguro] Última consulta de resultado: métrica ${resolvedReport.metric}, escopo ${resolvedReport.scope}, período ${resolvedReport.start} até ${resolvedReport.end}${person}. Oferta de clientes para retorno: ${offeredReturns ? "sim" : "não"}.`;
+  return { ...reply, insight, suggestions, contextMessage };
 }
