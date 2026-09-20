@@ -72,21 +72,21 @@ function signals(text: string) {
 
   if (text.length >= 110 || /\b(explica|detalha|detalhado|completo|me fala mais|quero entender|por que|porque)\b/.test(clean)) detail += 2;
   if (text.length <= 28 && !/[?!].*[?!]/.test(text)) detail -= 1;
-  if (/\b(so o valor|so me fala|direto|direto ao ponto|resumido|resumo rapido|sem enrolar|bem curto)\b/.test(clean)) detail -= 8;
-  if (/\b(mais detalhe|mais detalhes|explica melhor|quero completo|pode detalhar)\b/.test(clean)) detail += 8;
+  if (/\b(so o valor|so me fala|direto|direto ao ponto|resumido|resumo rapido|sem enrolar|bem curto)\b/.test(clean)) detail -= 30;
+  if (/\b(mais detalhe|mais detalhes|explica melhor|quero completo|pode detalhar)\b/.test(clean)) detail += 28;
 
   if (/\b(opa|bom dia|boa tarde|boa noite|por favor|fazendo favor|obrigado|valeu|show|massa)\b/.test(clean)) warmth += 2;
   if (/\b(sem papo|nao precisa conversar|so responde|so a resposta)\b/.test(clean)) warmth -= 6;
 
   if (/(kkk+|haha+|rsrs+|😂|🤣|😅|😄|😁)/iu.test(text)) { humor += 5; emoji += 3; warmth += 1; }
-  if (/\b(sem brincadeira|sem gracinha|serio|mais serio)\b/.test(clean)) humor -= 10;
-  if (/\b(pode brincar|brincalhao|engracado|pode zoar|pode rir)\b/.test(clean)) humor += 12;
+  if (/\b(sem brincadeira|sem gracinha|serio|mais serio)\b/.test(clean)) humor -= 40;
+  if (/\b(pode brincar|brincalhao|engracado|pode zoar|pode rir)\b/.test(clean)) humor += 40;
 
-  if (/\b(sem emoji|sem emojis|nao use emoji|nao usa emoji)\b/.test(clean)) emoji -= 18;
-  if (/\b(pode usar emoji|pode mandar emoji|gosto de emoji|com emoji)\b/.test(clean)) emoji += 15;
+  if (/\b(sem emoji|sem emojis|nao use emoji|nao usa emoji)\b/.test(clean)) emoji -= 55;
+  if (/\b(pode usar emoji|pode mandar emoji|gosto de emoji|com emoji)\b/.test(clean)) emoji += 55;
 
   if (/\b(o que voce acha|alguma ideia|pode sugerir|me sugere|o que mais|tem alguma sugestao)\b/.test(clean)) initiative += 5;
-  if (/\b(nao sugira|sem sugestao|so responde|nao precisa perguntar)\b/.test(clean)) initiative -= 10;
+  if (/\b(nao sugira|sem sugestao|so responde|nao precisa perguntar)\b/.test(clean)) initiative -= 35;
   if (/^(e |e o |e a |e na |e no |so |e se )/.test(clean)) initiative += 1;
 
   return { detail, warmth, humor, emoji, initiative };
