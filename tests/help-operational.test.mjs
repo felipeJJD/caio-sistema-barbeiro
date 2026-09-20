@@ -32,6 +32,11 @@ test("conversa sobre faturamento altera só data, profissional e métrica explic
   assert.equal(analysis.start,revenue.start);assert.equal(analysis.end,revenue.end);assert.equal(analysis.scope,"shop");
 });
 
+test("comentário casual não é forçado para consulta ou ação",()=>{
+  assert.equal(intents.fallbackHelpIntent("Ah não, era só um teste pra ver se você tá funcionando legal",null,true,now),null);
+  assert.equal(intents.fallbackHelpIntent("kkkk valeu",null,true,now),null);
+});
+
 test("agenda mantém domínio de appointments entre cinco turnos e aceita áudio coloquial",()=>{
   let intent=intents.fallbackHelpIntent("Quais são os agendamentos de hoje?",null,true,now);
   assert.equal(intent.tool,"get_appointments");
@@ -85,20 +90,30 @@ test("interpretação usa uma chamada com catálogo fechado e recusa função n�
   const original=globalThis.fetch;
   let calls=0,toolNames=[];
   const sample={kind:"tool",tool_id:"get_appointments",topic:"",answer:"",start:"2026-09-20",end:"2026-09-20",scope:"self",metric:"summary",person:"",after_time:"15:00",at_time:"",service:"",client:"",action:{kind:"none",mode:"",target:"",name:"",serviceName:"",priceCents:0,durationMinutes:0,monthlyValueCents:0,maxUses:0,barberPayoutCents:0,feeBps:0,useServiceDuration:"",scheduleChanges:[],summary:""}};
+  let lastInstructions="";
   globalThis.fetch=async(_url,options)=>{
     calls++;
     const sent=JSON.parse(options.body);
     toolNames=sent.text.format.schema.properties.tool_id.enum;
+    lastInstructions=sent.instructions;
     assert.match(sent.instructions,/appointments/);
     return {ok:true,json:async()=>({status:"completed",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify(sample)}]}]})};
   };
   try {
     const messages=[{role:"user",content:"Quais são meus horários depois das 15?"}];
-    const parsed=await model.interpretHelp(messages,false);
+    const parsed=await model.interpretHelp(messages,false,undefined,null,"Eduardo Ferreira");
     assert.equal(parsed.kind,"tool");assert.equal(parsed.intent.afterTime,"15:00");assert.equal(calls,1);
+    assert.match(lastInstructions,/Usuário autenticado: Eduardo/);
+    assert.match(lastInstructions,/conversa casual/i);
     assert.ok(toolNames.includes("get_appointments"));assert.ok(!toolNames.includes("run_sql"));
-    sample.tool_id="run_sql";
-    assert.equal(await model.interpretHelp(messages,false),null);
+
+    sample.kind="chat"; sample.answer="Tô funcionando sim, Eduardo. Pode testar à vontade."; sample.tool_id="";
+    const casual=await model.interpretHelp([{role:"user",content:"Ah não, era só um teste pra ver se você tá funcionando legal"}],false,undefined,null,"Eduardo Ferreira");
+    assert.equal(casual.kind,"chat");
+    assert.match(casual.answer,/Eduardo/);
+
+    sample.kind="tool"; sample.answer=""; sample.tool_id="run_sql";
+    assert.equal(await model.interpretHelp(messages,false,undefined,null,"Eduardo Ferreira"),null);
   } finally {globalThis.fetch=original;}
 });
 
