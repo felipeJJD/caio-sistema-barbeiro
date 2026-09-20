@@ -42,8 +42,9 @@ test("conclusão é idempotente por appointment_id e consome apenas uma vez", ()
 });
 
 test("uso manual não pode roubar crédito já reservado", () => {
-  assert.match(dashboard, /otherReservedUses/);
-  assert.match(dashboard, /client\.balance - otherReservedUses <= 0/);
+  assert.match(dashboard, /claimedCredit/);
+  assert.match(dashboard, /membership_credit_state = 'reserved'/);
+  assert.match(dashboard, /reserved_credit\.id <>/);
 });
 
 test("interface exige confirmação explícita antes de entrar na agenda", () => {
