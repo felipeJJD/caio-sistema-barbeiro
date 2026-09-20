@@ -25,10 +25,12 @@ test("aba mostra conexão, pacote, uso mensal e automações", () => {
   assert.match(whatsappUi, /Aviso de remarcação/);
 });
 
-test("não promete conexão Meta antes do Embedded Signup existir", () => {
-  assert.match(whatsappUi, /Conexão oficial em preparação/);
-  assert.match(whatsappUi, /sem o proprietário precisar lidar com token, WABA ID/);
+test("conexão Meta usa Embedded Signup sem expor campos técnicos ao proprietário", () => {
+  assert.match(whatsappUi, /CONEXÃO OFICIAL META/);
+  assert.match(whatsappUi, /Conectar meu WhatsApp atual/);
+  assert.match(whatsappUi, /Conectar outro número/);
   assert.doesNotMatch(whatsappUi, /name="accessToken"/);
+  assert.doesNotMatch(whatsappUi, /name="wabaId"/);
 });
 
 test("chave geral só pode ser ligada com conexão e pacote ativos", () => {
