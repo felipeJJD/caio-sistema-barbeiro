@@ -45,8 +45,13 @@ type CaAtendeRuntimeContext = {
 
 function appBaseUrl() {
   const configured = String(process.env.PUBLIC_BOOKING_BASE_URL ?? process.env.PUBLIC_APP_URL ?? "").trim().replace(/\/$/, "");
-  if (configured && /^https:\/\//i.test(configured) && !/\.railway\.app$/i.test(new URL(configured).hostname)) return configured;
-  return "https://cortouanotou.com.br";
+  if (!configured || !/^https:\/\//i.test(configured)) return "https://cortouanotou.com.br";
+  try {
+    if (/\.railway\.app$/i.test(new URL(configured).hostname)) return "https://cortouanotou.com.br";
+    return configured;
+  } catch {
+    return "https://cortouanotou.com.br";
+  }
 }
 
 function bookingLink(slug: string) {
@@ -211,6 +216,16 @@ async function updateConversation(input: {
 async function interpretationFor(message: string, context: CaAtendeRuntimeContext, memory: CaAtendeContextMemory) {
   let interpretation = classifyCaAtendeByRule(message);
   if (context.settings.spamFilterEnabled && highConfidenceCommercialOffer(message)) return { ...interpretation, intent:"spam" as const };
+
+  const normalized = normalizeCaAtendeText(message);
+  const knownService = context.services.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
+  const knownBarber = context.barbers.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
+  const bookingContinuation = (memory.intent === "booking" || memory.intent === "availability")
+    && (knownService || knownBarber || Boolean(extractCaAtendeDate(message)) || Boolean(extractCaAtendeTime(message)) || wantsAssistedBooking(message));
+  if (interpretation.intent === "unknown" && bookingContinuation) {
+    return { ...interpretation, intent: memory.intent as "booking" | "availability" };
+  }
+
   if (interpretation.intent === "unknown" && context.settings.aiFallbackEnabled) {
     const ai = await interpretCaAtendeWithAi({
       message,
