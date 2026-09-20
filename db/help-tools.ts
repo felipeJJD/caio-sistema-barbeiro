@@ -51,6 +51,137 @@ async function shopSettings(db:Database, access:AccessContext):Promise<Shop> {
 
 function context(reply:HelpReply, intent:HelpIntent):HelpReply { return {...reply,contextMessage:helpIntentContext(intent)}; }
 
+type PerformanceEvent = {occurred_at:string;revenue_cents:number;attendance_count:number;created_at:string};
+function localClock(date:Date) {
+  const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"America/Sao_Paulo",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(date);
+  return Number(parts.find(p=>p.type==="hour")?.value||0)*60+Number(parts.find(p=>p.type==="minute")?.value||0);
+}
+function localDateOf(value:string) {
+  const normalized=value.includes("T")?value:value.replace(" ","T")+"Z";
+  const parsed=new Date(normalized);
+  return Number.isFinite(parsed.getTime())?appDate(parsed):"";
+}
+function localMinutesOf(value:string) {
+  const normalized=value.includes("T")?value:value.replace(" ","T")+"Z";
+  const parsed=new Date(normalized);
+  return Number.isFinite(parsed.getTime())?localClock(parsed):-1;
+}
+function shiftIso(value:string,days:number) {
+  const date=new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate()+days);
+  return date.toISOString().slice(0,10);
+}
+function dayCount(start:string,end:string) {
+  return Math.floor((Date.parse(`${end}T12:00:00Z`)-Date.parse(`${start}T12:00:00Z`))/86400000)+1;
+}
+function average(values:number[]) {
+  return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:0;
+}
+const weekdayNames=["domingos","segundas-feiras","terças-feiras","quartas-feiras","quintas-feiras","sextas-feiras","sábados"];
+
+async function performanceEvents(db:Database, access:AccessContext, start:string, end:string, memberId:number|null, includeMembership:boolean) {
+  const daily=await rows<{occurred_at:string;revenue_cents:number;attendance_count:number;created_at:string}>(db,
+    "SELECT occurred_at,(value_cents + tip_cents) AS revenue_cents,quantity AS attendance_count,created_at FROM daily_records WHERE organization_id = ? AND occurred_at BETWEEN ? AND ? AND (? IS NULL OR barber_id = ?)",
+    access.organizationId,start,end,memberId,memberId);
+  const products=await rows<{occurred_at:string;revenue_cents:number;created_at:string}>(db,
+    "SELECT occurred_at,(quantity * unit_price_cents) AS revenue_cents,created_at FROM product_sales WHERE organization_id = ? AND occurred_at BETWEEN ? AND ? AND (? IS NULL OR seller_team_member_id = ?)",
+    access.organizationId,start,end,memberId,memberId);
+  const events:PerformanceEvent[]=[
+    ...daily.map(row=>({...row,revenue_cents:Number(row.revenue_cents||0),attendance_count:Number(row.attendance_count||0)})),
+    ...products.map(row=>({occurred_at:row.occurred_at,revenue_cents:Number(row.revenue_cents||0),attendance_count:0,created_at:row.created_at})),
+  ];
+  if(includeMembership) {
+    const memberships=await rows<{occurred_at:string;revenue_cents:number;created_at:string}>(db,
+      "SELECT occurred_at,amount_cents AS revenue_cents,created_at FROM membership_payments WHERE organization_id = ? AND occurred_at BETWEEN ? AND ?",
+      access.organizationId,start,end);
+    events.push(...memberships.map(row=>({occurred_at:row.occurred_at,revenue_cents:Number(row.revenue_cents||0),attendance_count:0,created_at:row.created_at})));
+  }
+  return events;
+}
+
+async function performanceReply(db:Database, access:AccessContext, intent:HelpIntent, memberId:number|null, name:string):Promise<HelpReply> {
+  const includeMembership=access.isOwner&&intent.scope==="shop"&&!intent.person;
+  const today=appDate();
+  const singleDay=intent.start===intent.end;
+  const currentDays=dayCount(intent.start,intent.end);
+  const comparisonStart=singleDay?shiftIso(intent.start,-56):shiftIso(intent.start,-currentDays);
+  const comparisonEnd=singleDay?shiftIso(intent.start,-1):shiftIso(intent.start,-1);
+  const all=await performanceEvents(db,access,comparisonStart,intent.end,memberId,includeMembership);
+  const current=all.filter(event=>event.occurred_at>=intent.start&&event.occurred_at<=intent.end);
+  const currentRevenue=current.reduce((sum,event)=>sum+event.revenue_cents,0);
+  const currentAttendances=current.reduce((sum,event)=>sum+event.attendance_count,0);
+  const periodLabel=singleDay?(intent.start===today?"hoje":`em ${dateLabel(intent.start)}`):`de ${dateLabel(intent.start)} a ${dateLabel(intent.end)}`;
+  let comparisonSentence="";
+  let verdict="Ainda não tenho histórico equivalente suficiente para dizer com segurança se esse ritmo está acima ou abaixo do normal.";
+
+  if(singleDay) {
+    const weekday=new Date(`${intent.start}T12:00:00Z`).getUTCDay();
+    const cutoff=intent.start===today?localClock(new Date()):null;
+    const grouped=new Map<string,{revenue:number;count:number}>();
+    for(const event of all) {
+      if(event.occurred_at>=intent.start) continue;
+      if(new Date(`${event.occurred_at}T12:00:00Z`).getUTCDay()!==weekday) continue;
+      if(cutoff!==null) {
+        if(localDateOf(event.created_at)!==event.occurred_at) continue;
+        const minutes=localMinutesOf(event.created_at);
+        if(minutes<0||minutes>cutoff) continue;
+      }
+      const value=grouped.get(event.occurred_at)??{revenue:0,count:0};
+      value.revenue+=event.revenue_cents; value.count+=event.attendance_count; grouped.set(event.occurred_at,value);
+    }
+    const samples=[...grouped.entries()].sort((a,b)=>b[0].localeCompare(a[0])).slice(0,4).map(([,value])=>value);
+    if(samples.length>=3) {
+      const avgRevenue=Math.round(average(samples.map(sample=>sample.revenue)));
+      const avgCount=average(samples.map(sample=>sample.count));
+      const delta=avgRevenue>0?(currentRevenue-avgRevenue)/avgRevenue:0;
+      const percent=Math.round(Math.abs(delta)*100);
+      const pace=delta>0.12?"acima":delta<-0.12?"abaixo":"perto";
+      verdict=pace==="acima"
+        ? `Pelo histórico da própria barbearia, o ritmo está bom: cerca de ${percent}% acima da média comparável.`
+        : pace==="abaixo"
+          ? `Pelo histórico da própria barbearia, o ritmo está fraco até agora: cerca de ${percent}% abaixo da média comparável.`
+          : "Pelo histórico da própria barbearia, o ritmo está bem próximo do normal.";
+      comparisonSentence=` Nas últimas ${samples.length} ${weekdayNames[weekday]}${cutoff!==null?" até este horário":""}, a média foi ${money(avgRevenue)} e ${avgCount.toLocaleString("pt-BR",{maximumFractionDigits:1})} atendimento(s).`;
+    }
+  } else {
+    const previous=all.filter(event=>event.occurred_at>=comparisonStart&&event.occurred_at<=comparisonEnd);
+    const previousRevenue=previous.reduce((sum,event)=>sum+event.revenue_cents,0);
+    const previousAttendances=previous.reduce((sum,event)=>sum+event.attendance_count,0);
+    if(previousRevenue>0||previousAttendances>0) {
+      const delta=previousRevenue>0?(currentRevenue-previousRevenue)/previousRevenue:0;
+      const percent=Math.round(Math.abs(delta)*100);
+      const pace=delta>0.12?"acima":delta<-0.12?"abaixo":"perto";
+      verdict=pace==="acima"
+        ? `Comparando com o período anterior de mesma duração, está cerca de ${percent}% acima.`
+        : pace==="abaixo"
+          ? `Comparando com o período anterior de mesma duração, está cerca de ${percent}% abaixo.`
+          : "Comparando com o período anterior de mesma duração, está praticamente no mesmo ritmo.";
+      comparisonSentence=` No período anterior foram ${money(previousRevenue)} e ${previousAttendances} atendimento(s).`;
+    }
+  }
+
+  let staffing="";
+  if(access.isOwner&&intent.scope==="shop"&&!intent.person) {
+    const members=await rows<Member>(db,"SELECT id,name,active,weekly_booking_hours FROM team WHERE organization_id = ? AND active = 1",access.organizationId);
+    if(singleDay) {
+      try {
+        const shop=await shopSettings(db,access);
+        const shopHours=parseWeeklyBookingHours(shop.weekly_booking_hours,parseBookingWeekdays(shop.public_booking_weekdays),shop.opening_time,shop.closing_time);
+        const scheduled=members.filter(member=>bookingHoursForDate(parseTeamWeeklyBookingHours(member.weekly_booking_hours,shopHours),intent.start)?.enabled).length;
+        staffing=` Você tem ${members.length} profissional(is) ativo(s), e ${scheduled} com expediente cadastrado nesse dia. Eu usaria o histórico equivalente como referência principal, não apenas o número total de barbeiros.`;
+      } catch {
+        staffing=` Você tem ${members.length} profissional(is) ativo(s); o número de profissionais sozinho não define se o faturamento está bom ou ruim.`;
+      }
+    }
+  }
+
+  const subject=intent.scope==="shop"&&!intent.person?"a barbearia":name;
+  return {
+    answer:`${subject=== "a barbearia" ? "A barbearia" : subject} está com ${money(currentRevenue)} ${periodLabel}, em ${currentAttendances} atendimento(s).${comparisonSentence} ${verdict}${staffing}`.replace(/\s+/g," ").trim(),
+    details:"A comparação usa somente dados registrados no Cortou Anotou e prioriza períodos equivalentes. Registros lançados depois da data original podem ser ignorados na comparação por horário para não distorcer o resultado.",
+  };
+}
+
 export async function executeHelpTool(access:AccessContext, intent:HelpIntent, profile?:AssistantProfile):Promise<HelpReply> {
   const publicCatalog=new Set(["get_services","get_payment_methods","get_products","get_public_booking_status","diagnose_booking_problem"]);
   if (!access.isOwner && (intent.person || (intent.scope==="shop" && !publicCatalog.has(intent.tool)))) return deny();
@@ -63,6 +194,7 @@ export async function executeHelpTool(access:AccessContext, intent:HelpIntent, p
   const reply=(result:HelpReply)=>context(result,intent);
 
   switch(intent.tool) {
+    case "analyze_performance": return reply(await performanceReply(db,access,intent,memberId,name));
     case "get_revenue": case "get_employee_results": case "get_financial_summary": case "get_commission_breakdown": {
       if (intent.tool==="get_financial_summary" && !access.isOwner) return deny("o financeiro da barbearia");
       const scope=intent.tool==="get_financial_summary"?"shop":intent.tool==="get_employee_results"||intent.tool==="get_commission_breakdown"?"self":intent.scope;
