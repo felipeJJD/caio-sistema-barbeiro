@@ -693,8 +693,17 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         <header className="help-header"><AppIcon name="help" /><div><h2 id="help-title">Assistente Cortou Anotou</h2><small>Pergunte, consulte ou peça para fazer</small></div><button ref={closeRef} type="button" aria-label="Fechar Assistente Cortou Anotou" onClick={closeHelp}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></header>
         <div className="help-chat-scroll">
           <div className="help-messages" role="log" aria-live="polite" aria-relevant="additions">
-            {messages.map(message=><div className={"help-message "+message.role} key={message.id}>
-              <p>{message.text}</p>
+            {messages.map(message=><div className={"help-message "+message.role+(message.audio ? " voice" : "")} key={message.id}>
+              {message.audio
+                ? <HelpVoiceBubble
+                    url={message.audio.url}
+                    durationSeconds={message.audio.durationSeconds}
+                    transcript={message.audio.transcript}
+                    showTranscript={message.audio.showTranscript}
+                    status={message.audio.status}
+                    onToggleTranscript={()=>toggleVoiceTranscript(message.id)}
+                  />
+                : <p>{message.text}</p>}
               {message.destination && <button type="button" className="help-destination" disabled={busy} onClick={()=>navigate(message.destination!)}>{message.destination.label}<span aria-hidden="true">→</span></button>}
               {message.suggestions && <div className="help-inline-suggestions">{message.suggestions.map(text=><button type="button" key={text} disabled={busy} onClick={()=>void ask(text)}>{text}</button>)}</div>}
               {message.link && <a className="help-destination help-link" href={message.link.url} target="_blank" rel="noreferrer">{message.link.label}<span aria-hidden="true">↗</span></a>}{message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
@@ -708,15 +717,35 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
           <div ref={endRef} />
         </div>
         <div className="help-composer">
-          {listening && <div className="help-recording" role="status"><span />Ouvindo... fale normalmente. Toque na seta para enviar.</div>}
-          <form className="help-form" onSubmit={submit}>
-            <textarea ref={inputRef} value={input} onChange={event=>{stopVoice();updateInput(event.target.value);}} maxLength={HELP_MESSAGE_LIMIT} rows={1} placeholder={listening?"":activeField?"Sua resposta...":"Escreva sua dúvida..."} aria-label="Mensagem para o Assistente Cortou Anotou" />
+          {voice.recording ? <div className="help-voice-recorder" role="group" aria-label="Gravando mensagem de áudio">
+            <div className="help-voice-recorder-top">
+              <time>{formatHelpVoiceTime(voice.seconds)}</time>
+              <HelpVoiceWave active={!voice.paused} />
+            </div>
+            <div className="help-voice-recorder-actions">
+              <button type="button" className="voice-discard" aria-label="Apagar gravação" onClick={voice.discard}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
+              </button>
+              <button type="button" className={"voice-pause"+(voice.paused ? " paused" : "")} aria-label={voice.paused ? "Continuar gravação" : "Pausar gravação"} onClick={voice.togglePause}>
+                {voice.paused
+                  ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6Z"/></svg>
+                  : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"/></svg>}
+              </button>
+              <button type="button" className="voice-send" aria-label="Enviar áudio" onClick={voice.send}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Z"/></svg>
+              </button>
+            </div>
+            <small>{voice.paused ? "Gravação pausada" : "Gravando áudio"}</small>
+          </div> : <form className="help-form" onSubmit={submit}>
+            <textarea ref={inputRef} value={input} onChange={event=>updateInput(event.target.value)} maxLength={HELP_MESSAGE_LIMIT} rows={1} placeholder={activeField?"Sua resposta...":"Escreva sua dúvida..."} aria-label="Mensagem para o Assistente Cortou Anotou" />
             <div className="help-composer-actions">
-              <button className={listening?"help-mic listening":"help-mic"} type="button" disabled={busy} aria-pressed={listening} aria-label={listening?"Enviar mensagem de voz":"Falar com o assistente"} onClick={toggleVoice}><svg viewBox="0 0 24 24" aria-hidden="true">{listening?<path d="M12 19V5M6 11l6-6 6 6"/>:<><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></>}</svg></button>
-              <small>{listening?"Ouvindo...":"Texto ou voz"}</small>
+              <button className="help-mic" type="button" disabled={busy} aria-label="Gravar áudio" onClick={()=>void voice.start()}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></svg>
+              </button>
+              <small>{voiceUploading ? "Entendendo áudio..." : "Texto ou áudio"}</small>
               <button className="help-send" disabled={busy || !input.trim()} aria-label="Enviar mensagem">Enviar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
             </div>
-          </form>
+          </form>}
           <a className="help-human-support" href={SUPPORT_WHATSAPP_URL} target="_blank" rel="noreferrer"><AppIcon name="whatsapp" /><span>Falar com o suporte</span></a>
         </div>
       </section>
