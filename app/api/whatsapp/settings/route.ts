@@ -7,7 +7,6 @@ import {
   resumeWhatsappConversation,
   saveWhatsappAutomationSettings,
   saveWhatsappConnection,
-  saveWhatsappPlanForOrganization,
 } from "../../../../db/whatsapp";
 
 export const dynamic = "force-dynamic";
@@ -43,11 +42,6 @@ export async function POST(request: Request) {
         rescheduleEnabled: typeof data.rescheduleEnabled === "boolean" ? data.rescheduleEnabled : undefined,
         botEnabled: typeof data.botEnabled === "boolean" ? data.botEnabled : undefined,
         humanTakeoverMinutes: data.humanTakeoverMinutes === undefined ? undefined : Number(data.humanTakeoverMinutes),
-      });
-    } else if (action === "plan") {
-      await saveWhatsappPlanForOrganization(access, {
-        planCode: String(data.planCode ?? "off"),
-        monthlyMessageLimit: Number(data.monthlyMessageLimit ?? 0),
       });
     } else if (action === "connect-manual") {
       await saveWhatsappConnection(access, {
