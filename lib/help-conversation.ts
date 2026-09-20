@@ -27,7 +27,7 @@ export function parseHelpConversationMemory(raw: string | null, now = Date.now()
   try {
     const parsed = JSON.parse(raw) as { updatedAt?: unknown; messages?: unknown };
     const updatedAt = Number(parsed.updatedAt);
-    if (!Number.isFinite(updatedAt) || now - updatedAt > HELP_CONTEXT_TTL_MS || updatedAt > now + 60_000) {
+    if (!Number.isFinite(updatedAt) || now - updatedAt >= HELP_CONTEXT_TTL_MS || updatedAt > now + 60_000) {
       return { updatedAt: now, messages: [] };
     }
     const source = Array.isArray(parsed.messages) ? parsed.messages : [];
