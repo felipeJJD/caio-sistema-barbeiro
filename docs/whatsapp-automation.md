@@ -41,17 +41,25 @@ Valores já citados em conversas anteriores foram hipóteses comerciais e não f
 
 ## C.A. Atende
 
-Evolução prevista:
-- responder dúvidas básicas da barbearia;
-- mandar o link público para agendar;
-- consultar disponibilidade;
-- confirmar agendamentos;
-- ajudar em cancelamento e remarcação;
-- responder preços, endereço e informações configuradas pela barbearia;
-- transferir para atendimento humano;
-- ignorar grupos;
-- não responder contatos/conversas marcados como atendimento humano;
-- usar regras determinísticas primeiro e IA apenas quando realmente necessário.
+O núcleo conversacional econômico já está preparado no código. Ele continua desligado por padrão e só pode ser ligado quando existir conexão Meta válida, pacote de mensagens ativo e automações gerais ligadas.
+
+Regras atuais:
+
+- cumprimento simples recebe uma única saudação com o nome da barbearia e o link público;
+- o link de agendamento é a primeira opção para reduzir conversa desnecessária;
+- preço é lido dos serviços reais da organização e agrupado em uma resposta;
+- disponibilidade usa a agenda real e nunca inventa horários;
+- se faltarem serviço ou dia, o bot pede somente os dados essenciais e preserva um contexto curto para a próxima mensagem;
+- cancelamento e remarcação conversacional ainda não alteram a agenda: nesta etapa o pedido é transferido para atendimento humano;
+- quando o cliente pede uma pessoa, o bot envia uma mensagem curta, notifica o proprietário e fica em silêncio até o proprietário encerrar o atendimento na aba WhatsApp;
+- ofertas comerciais com alta confiança são marcadas como possível oferta e não recebem resposta;
+- mensagens simples usam regras locais; a IA só é consultada quando as regras não conseguem interpretar a intenção;
+- a IA serve apenas para classificar intenção e extrair serviço/profissional/data. Respostas, preços e horários continuam vindo de regras e dados do Cortou Anotou;
+- cada resposta do bot é enfileirada com deduplicação baseada na mensagem recebida;
+- o webhook responde à Meta primeiro e o processamento conversacional roda depois, evitando segurar a confirmação do webhook;
+- mensagens do bot contam no limite interno apenas como mensagens enviadas, enquanto mensagens recebidas não consomem o pacote interno.
+
+A fila também passou a reivindicar uma mensagem como `sending` antes da chamada externa, reduzindo risco de dois executores enviarem a mesma mensagem.
 
 ## Segurança
 
@@ -110,8 +118,9 @@ Também é necessário que o app da Meta esteja configurado para Embedded Signup
 1. Configurar o app/Embedded Signup real da Meta e as variáveis de produção.
 2. Fazer a primeira conexão real com um número de teste.
 3. Templates oficiais e aprovados para confirmação, lembrete, cancelamento e remarcação.
-4. Agendamento periódico do executor da fila.
-5. Histórico visual de enviados, entregues, lidos e falhas.
-6. Completar eventos específicos de coexistência antes do C.A. Atende assumir conversas.
-7. C.A. Atende conversacional com regras antes de IA.
-8. Planos comerciais e cobrança integrada.
+4. Agendamento periódico do executor da fila para lembretes.
+5. Histórico visual completo de enviados, entregues, lidos e falhas.
+6. Completar eventos específicos de coexistência antes de ativar o C.A. Atende em um número real.
+7. Evoluir cancelamento/remarcação pelo chat com validações seguras.
+8. Adicionar informações configuráveis da barbearia como endereço, estacionamento, formas de pagamento e regras de atraso.
+9. Planos comerciais e cobrança integrada.
