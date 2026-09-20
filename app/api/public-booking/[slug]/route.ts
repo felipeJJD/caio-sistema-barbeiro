@@ -50,7 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       phone: String(data.phone ?? ""),
       paymentChoice: String(data.paymentChoice ?? ""),
       isMembership: Boolean(data.isMembership),
-      membershipPlanId: Number(data.membershipPlanId ?? 0),
+      membershipClientId: Number(data.membershipClientId ?? 0),
     });
     return Response.json({ ok: true, booking }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

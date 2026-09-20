@@ -288,6 +288,13 @@
       "when": 1790003000000,
       "tag": "0040_assistant_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1790004000000,
+      "tag": "0041_public_membership_booking",
+      "breakpoints": true
     }
   ]
 }

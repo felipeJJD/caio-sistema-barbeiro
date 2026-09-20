@@ -608,6 +608,7 @@ export const appointments = sqliteTable("appointments", {
   paymentChoice: text("payment_choice").notNull().default("Dinheiro"),
   paymentConfirmationToken: text("payment_confirmation_token"),
   managementTokenHash: text("management_token_hash"),
+  membershipClientId: integer("membership_client_id"),
 }, (table) => [
   index("appointments_organization_date_barber_idx").on(table.organizationId, table.appointmentDate, table.barberId),
 ]);

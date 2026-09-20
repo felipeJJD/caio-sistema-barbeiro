@@ -15,6 +15,7 @@ import { parseBookingWeekdays } from "../lib/booking-weekdays";
 import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWeekdaysTextFromHours, bookingWindowAllows, normalizeWeeklyBookingHours, parseTeamWeeklyBookingHours, parseWeeklyBookingHours, serializeTeamWeeklyBookingHours, serializeWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
 import { isTeamPaymentKind, type TeamPaymentKind } from "../lib/team-payments";
 import { assertTeamPaymentOpen } from "./team-money";
+import { resolveMembershipService } from "../lib/membership-service";
 
 export type DashboardData = {
   dataPeriod: { start: string; end: string };
@@ -29,7 +30,7 @@ export type DashboardData = {
   membershipPayments: Array<{ id: number; clientId: number; clientName: string; planName: string; planKind: string; paymentMethodId: number; paymentName: string; paidMonth: string; occurredAt: string; amountCents: number; feeCents: number }>;
   records: Array<{ id: number; occurredAt: string; clientName: string; barberId: number; barberName: string; serviceId: number; serviceName: string; paymentMethodId: number; paymentName: string; quantity: number; valueCents: number; commissionCents: number; feeCents: number; tipCents: number; origin: string; recordType: string; membershipClientId: number | null }>;
   expenses: Array<{ id: number; occurredAt: string; type: string; description: string; valueCents: number; paid: boolean }>;
-  appointments: Array<{ id: number; appointmentDate: string; appointmentTime: string; clientName: string; phone: string; serviceId: number; serviceName: string; durationMinutes: number; barberId: number; barberName: string; notes: string; status: string; reminderSentAt: string | null; paymentChoice: string }>;
+  appointments: Array<{ id: number; appointmentDate: string; appointmentTime: string; clientName: string; phone: string; serviceId: number; serviceName: string; durationMinutes: number; barberId: number; barberName: string; notes: string; status: string; reminderSentAt: string | null; paymentChoice: string; membershipClientId: number | null }>;
   notifications: AppNotification[];
   products: ShopProduct[];
   productSales: ProductSale[];
@@ -261,7 +262,7 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
       access.isOwner ? db.select().from(expenses).where(and(eq(expenses.organizationId, organizationId), gte(expenses.occurredAt, period.start), lte(expenses.occurredAt, period.end))).orderBy(desc(expenses.occurredAt)) : Promise.resolve([]),
       access.isOwner ? db.select().from(goals).where(and(eq(goals.organizationId, organizationId), eq(goals.month, month))).limit(1) : Promise.resolve([]),
       db.select({ id: dailyRecords.id, occurredAt: dailyRecords.occurredAt, clientName: dailyRecords.clientName, barberId: dailyRecords.barberId, barberName: team.name, serviceId: dailyRecords.serviceId, serviceName: services.name, paymentMethodId: dailyRecords.paymentMethodId, paymentName: paymentMethods.name, quantity: dailyRecords.quantity, valueCents: dailyRecords.valueCents, commissionCents: dailyRecords.commissionCents, feeCents: dailyRecords.feeCents, tipCents: dailyRecords.tipCents, origin: dailyRecords.origin, recordType: dailyRecords.recordType, membershipClientId: dailyRecords.membershipClientId }).from(dailyRecords).innerJoin(team, eq(dailyRecords.barberId, team.id)).innerJoin(services, eq(dailyRecords.serviceId, services.id)).innerJoin(paymentMethods, eq(dailyRecords.paymentMethodId, paymentMethods.id)).where(recordCondition).orderBy(desc(dailyRecords.occurredAt), desc(dailyRecords.id)),
-      db.select({ id: appointments.id, appointmentDate: appointments.appointmentDate, appointmentTime: appointments.appointmentTime, clientName: appointments.clientName, phone: appointments.phone, serviceId: appointments.serviceId, serviceName: services.name, durationMinutes: services.durationMinutes, barberId: appointments.barberId, barberName: team.name, notes: appointments.notes, status: appointments.status, reminderSentAt: appointments.reminderSentAt, paymentChoice: appointments.paymentChoice }).from(appointments).innerJoin(team, eq(appointments.barberId, team.id)).innerJoin(services, eq(appointments.serviceId, services.id)).where(appointmentCondition).orderBy(appointments.appointmentDate, appointments.appointmentTime),
+      db.select({ id: appointments.id, appointmentDate: appointments.appointmentDate, appointmentTime: appointments.appointmentTime, clientName: appointments.clientName, phone: appointments.phone, serviceId: appointments.serviceId, serviceName: services.name, durationMinutes: services.durationMinutes, barberId: appointments.barberId, barberName: team.name, notes: appointments.notes, status: appointments.status, reminderSentAt: appointments.reminderSentAt, paymentChoice: appointments.paymentChoice, membershipClientId: appointments.membershipClientId }).from(appointments).innerJoin(team, eq(appointments.barberId, team.id)).innerJoin(services, eq(appointments.serviceId, services.id)).where(appointmentCondition).orderBy(appointments.appointmentDate, appointments.appointmentTime),
       listNotifications(access),
       getProductsData(access, period),
       getPlatformBillingOffer(),
@@ -357,6 +358,7 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
     const client = (await db.select().from(clients).where(and(eq(clients.id, input.membershipClientId ?? 0), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).limit(1))[0];
     if (!client) throw new Error("Escolha o mensalista.");
     if (client.status !== "Ativo") throw new Error("Este mensalista não está ativo.");
+    if (client.balance <= 0) throw new Error("Este mensalista não tem usos disponíveis no plano.");
     const paymentList = await db.select().from(paymentMethods).where(eq(paymentMethods.organizationId, access.organizationId)).orderBy(paymentMethods.id);
     const selectedPayment = paymentList.find((item) => item.id === input.paymentMethodId);
     const payment = input.productItems?.length
@@ -365,8 +367,8 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
     if (!payment) throw new Error(input.productItems?.length ? "Escolha como os produtos foram pagos." : "Cadastre uma forma de pagamento antes de registrar o uso.");
     const plan = (await db.select().from(plans).where(and(eq(plans.id, client.planId), eq(plans.organizationId, access.organizationId))).limit(1))[0];
     const serviceList = await db.select().from(services).where(and(eq(services.organizationId, access.organizationId), isNull(services.deletedAt)));
-    const service = serviceList.find((item) => item.name.toLowerCase() === (plan?.planKind ?? client.planKind).toLowerCase()) ?? serviceList[0];
-    if (!service) throw new Error("Cadastre o serviço do plano.");
+    const service = resolveMembershipService(plan?.planKind ?? client.planKind, plan?.name ?? client.plan, serviceList);
+    if (!service) throw new Error("O plano deste mensalista precisa estar ligado a um serviço válido.");
     const payout = membershipPayoutCentsForAccessRole(barber.accessRole, plan?.barberPayoutCents, client.planKind);
     const [, inserted] = await db.batch([
       db.update(clients).set({ balance: client.balance - 1 }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId))),
@@ -430,8 +432,8 @@ export async function updateDailyRecord(access: AccessContext, input: { id: numb
     if (!payment) throw new Error(input.productItems?.length ? "Escolha como os produtos foram pagos." : "Cadastre uma forma de pagamento antes de editar o uso.");
     const plan = (await db.select().from(plans).where(and(eq(plans.id, client.planId), eq(plans.organizationId, access.organizationId))).limit(1))[0];
     const serviceList = await db.select().from(services).where(eq(services.organizationId, access.organizationId));
-    const service = serviceList.find((item) => item.name.toLowerCase() === (plan?.planKind ?? client.planKind).toLowerCase()) ?? serviceList[0];
-    if (!service) throw new Error("Cadastre o serviço do plano.");
+    const service = resolveMembershipService(plan?.planKind ?? client.planKind, plan?.name ?? client.plan, serviceList);
+    if (!service) throw new Error("O plano deste mensalista precisa estar ligado a um serviço válido.");
     const payout = membershipPayoutCentsForAccessRole(barber.accessRole, plan?.barberPayoutCents, client.planKind);
     if (existing.membershipClientId && existing.membershipClientId !== client.id) {
       await db.update(clients).set({ balance: sql`${clients.balance} + ${existing.quantity}` }).where(and(eq(clients.id, existing.membershipClientId), eq(clients.organizationId, access.organizationId)));
@@ -594,8 +596,9 @@ export async function completeAppointment(access: AccessContext, input: { id: nu
   if (appointment.status === "Cancelado") throw new Error("Não é possível concluir um agendamento cancelado.");
   if (appointment.status === "Atendido") throw new Error("Este atendimento já foi concluído.");
   if (appointment.paymentChoice === "Mensalista") {
-    if (!input.membershipClientId) throw new Error("Escolha o cadastro do mensalista antes de concluir.");
-    await createDailyRecord(access, { occurredAt: input.occurredAt || appointment.appointmentDate, recordType: "Mensalista", membershipClientId: input.membershipClientId, barberId: appointment.barberId, serviceId: appointment.serviceId, paymentMethodId: input.paymentMethodId, origin: "Assinatura", tipCents: input.tipCents ?? 0 });
+    const membershipClientId = appointment.membershipClientId ?? input.membershipClientId ?? 0;
+    if (!membershipClientId) throw new Error("Escolha o cadastro do mensalista antes de concluir.");
+    await createDailyRecord(access, { occurredAt: input.occurredAt || appointment.appointmentDate, recordType: "Mensalista", membershipClientId, barberId: appointment.barberId, serviceId: appointment.serviceId, paymentMethodId: input.paymentMethodId, origin: "Assinatura", tipCents: input.tipCents ?? 0 });
   } else {
     await createDailyRecord(access, { occurredAt: input.occurredAt || appointment.appointmentDate, recordType: "Avulso", clientName: appointment.clientName, barberId: appointment.barberId, serviceId: appointment.serviceId, paymentMethodId: input.paymentMethodId, origin: "Agendamento", tipCents: input.tipCents ?? 0 });
   }
@@ -604,7 +607,7 @@ export async function completeAppointment(access: AccessContext, input: { id: nu
 export async function markAppointmentReminderSent(access: AccessContext, id: number) { const db = await getDb(); const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Agendamento não encontrado."); requireOwnBarber(access, existing.barberId); if (existing.status !== "Agendado") throw new Error("Confirme o agendamento antes de enviar o lembrete."); await db.update(appointments).set({ reminderSentAt: new Date().toISOString() }).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))); }
 export async function deleteAppointment(access: AccessContext, id: number) { const db = await getDb(); const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Agendamento não encontrado."); requireOwnBarber(access, existing.barberId); await db.delete(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))); }
 
-export async function savePlan(access: AccessContext, input: { id?: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }) { requireOwner(access); if (!input.name.trim() || input.monthlyValueCents < 0 || input.maxUses < 1) throw new Error("Preencha os dados do plano."); const db = await getDb(); const values = { name: input.name.trim(), planKind: input.planKind.trim(), monthlyValueCents: input.monthlyValueCents, maxUses: input.maxUses, barberPayoutCents: input.barberPayoutCents, active: input.active }; if (input.id) { await db.update(plans).set(values).where(and(eq(plans.id, input.id), eq(plans.organizationId, access.organizationId))); await db.update(clients).set({ plan: values.name, planKind: values.planKind, monthlyValueCents: values.monthlyValueCents, maxBalance: values.maxUses }).where(and(eq(clients.planId, input.id), eq(clients.organizationId, access.organizationId))); } else await db.insert(plans).values({ ...values, organizationId: access.organizationId }); }
+export async function savePlan(access: AccessContext, input: { id?: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }) { requireOwner(access); if (!input.name.trim() || input.monthlyValueCents < 0 || input.maxUses < 1) throw new Error("Preencha os dados do plano."); const db = await getDb(); const linkedService = (await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, access.organizationId), eq(services.name, input.planKind.trim()), eq(services.active, true), isNull(services.deletedAt))).limit(1))[0]; if (!linkedService) throw new Error("Escolha um serviço ativo da barbearia para este plano."); const values = { name: input.name.trim(), planKind: input.planKind.trim(), monthlyValueCents: input.monthlyValueCents, maxUses: input.maxUses, barberPayoutCents: input.barberPayoutCents, active: input.active }; if (input.id) { await db.update(plans).set(values).where(and(eq(plans.id, input.id), eq(plans.organizationId, access.organizationId))); await db.update(clients).set({ plan: values.name, planKind: values.planKind, monthlyValueCents: values.monthlyValueCents, maxBalance: values.maxUses }).where(and(eq(clients.planId, input.id), eq(clients.organizationId, access.organizationId))); } else await db.insert(plans).values({ ...values, organizationId: access.organizationId }); }
 export async function deletePlan(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const plan = (await db.select().from(plans).where(and(eq(plans.id, id), eq(plans.organizationId, access.organizationId))).limit(1))[0]; if (!plan) throw new Error("Plano não encontrado."); const linkedClients = await db.select({ id: clients.id }).from(clients).where(and(eq(clients.organizationId, access.organizationId), eq(clients.planId, plan.id), isNull(clients.deletedAt))).limit(1); if (linkedClients.length) throw new Error("Este plano ainda está ligado a clientes mensalistas. Altere o plano desses clientes antes de excluir."); await db.delete(plans).where(and(eq(plans.id, plan.id), eq(plans.organizationId, access.organizationId))); }
 export async function saveClient(access: AccessContext, input: { id?: number; name: string; phone: string; planId: number; paymentMethodId: number; status: string; dueDate: string; paidMonth: string }) {
   requireOwner(access);
