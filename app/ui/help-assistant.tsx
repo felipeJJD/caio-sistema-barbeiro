@@ -119,6 +119,7 @@ function promptFor(field: ActionField, kind: ActionKind) {
 
 export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: DashboardData["viewer"]; data: DashboardData; post: Post; onNavigate:(destination:HelpDestination)=>void }) {
   const [open, setOpen] = useState(false);
+  const [rendered, setRendered] = useState(false);
   const [input, setInput] = useState("");
   const [answerPending, setAnswerPending] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -128,7 +129,6 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const [configAction, setConfigAction] = useState<HelpActionProposal | null>(null);
   const [messages, setMessages] = useState<Message[]>([{ id: 1, role: "assistant", text: "Olá! Posso tirar dúvidas, mostrar onde fazer algo e consultar seus resultados. O que você precisa?" }]);
   const nextMessageId = useRef(2);
-  const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -136,19 +136,55 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const requestInFlight = useRef(false);
   const saveInFlight = useRef(false);
   const panelRef = useRef<HTMLElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const audioUrlsRef = useRef(new Set<string>());
   const voice = useHelpVoiceRecorder({ onSend: sendVoiceBlob, onError: (message) => addMessage("assistant", message) });
+  const closeVoice = voice.close;
   const busy = answerPending || saving || voiceUploading;
   function updateInput(text:string) { draftTextRef.current = text; setInput(text); }
+  const openPanel = useCallback(() => { setRendered(true); setOpen(true); }, []);
   const closeHelp = useCallback(() => {
-    voice.discard();
+    closeVoice();
     setOpen(false);
     window.requestAnimationFrame(() => launcherRef.current?.focus({ preventScroll: true }));
-  }, [voice.discard]);
+  }, [closeVoice]);
 
   useEffect(() => {
-    if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (open || !rendered) return;
+    const timeout = window.setTimeout(() => setRendered(false), 190);
+    return () => window.clearTimeout(timeout);
+  }, [open, rendered]);
+
+  useEffect(() => {
+    if (open && scrollRef.current) {
+      const scroller = scrollRef.current;
+      window.requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; });
+    }
   }, [messages, open, activeField, actionDraft]);
+
+  useEffect(() => {
+    if (!rendered) return;
+    const viewport = window.visualViewport;
+    const sync = () => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      panel.style.setProperty("--help-visible-height", `${viewport?.height ?? window.innerHeight}px`);
+      panel.style.setProperty("--help-visible-height-half", `${(viewport?.height ?? window.innerHeight) / 2}px`);
+      panel.style.setProperty("--help-visible-top", `${viewport?.offsetTop ?? 0}px`);
+      if (document.activeElement === inputRef.current && scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    };
+    sync();
+    viewport?.addEventListener("resize", sync);
+    viewport?.addEventListener("scroll", sync);
+    window.addEventListener("resize", sync);
+    return () => {
+      viewport?.removeEventListener("resize", sync);
+      viewport?.removeEventListener("scroll", sync);
+      window.removeEventListener("resize", sync);
+    };
+  }, [rendered]);
 
   useEffect(() => {
     const field = inputRef.current;
@@ -158,10 +194,9 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   }, [input, open]);
 
   useEffect(() => {
-    const openFromMenu = () => setOpen(true);
-    window.addEventListener("cortou-anotou:open-assistant", openFromMenu);
-    return () => window.removeEventListener("cortou-anotou:open-assistant", openFromMenu);
-  }, []);
+    window.addEventListener("cortou-anotou:open-assistant", openPanel);
+    return () => window.removeEventListener("cortou-anotou:open-assistant", openPanel);
+  }, [openPanel]);
 
   useEffect(() => {
     if (!open) return;
@@ -180,15 +215,14 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         closeHelp();
       }
     };
-    const closeForMenu = () => { voice.discard(); setOpen(false); };
+    const closeForMenu = () => { closeVoice(); setOpen(false); };
     window.addEventListener("keydown", closeOnEscape);
     window.addEventListener("cortou-anotou:open-navigation", closeForMenu);
     return () => {
-      voice.discard();
       window.removeEventListener("keydown", closeOnEscape);
       window.removeEventListener("cortou-anotou:open-navigation", closeForMenu);
     };
-  }, [open, closeHelp, voice.discard]);
+  }, [open, closeHelp, closeVoice]);
 
   useEffect(() => () => {
     for (const url of audioUrlsRef.current) URL.revokeObjectURL(url);
@@ -682,16 +716,16 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const choices = choicesFor(activeField);
   function navigate(destination:HelpDestination) {
     if (!destinationAllowed(destination,viewer.isOwner)) return;
-    voice.discard(); setOpen(false); onNavigate(destination);
+    closeVoice(); setOpen(false); onNavigate(destination);
   }
 
   return <>
-    <button ref={launcherRef} className={"help-launcher"+(open ? " is-open" : "")} type="button" aria-label="Abrir Assistente Cortou Anotou" aria-expanded={open} aria-controls="cortou-anotou-help" onClick={() => setOpen(true)}><span><AppIcon name="help" /></span><strong>Ajuda</strong></button>
-    {open && <>
-      <div className="help-chat-backdrop" onClick={closeHelp} aria-hidden="true" />
-      <section ref={panelRef} className="help-panel help-chat" id="cortou-anotou-help" role="dialog" aria-modal="true" aria-labelledby="help-title">
-        <header className="help-header"><AppIcon name="help" /><div><h2 id="help-title">Assistente Cortou Anotou</h2><small>Pergunte, consulte ou peça para fazer</small></div><button ref={closeRef} type="button" aria-label="Fechar Assistente Cortou Anotou" onClick={closeHelp}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></header>
-        <div className="help-chat-scroll">
+    <button ref={launcherRef} className={"help-launcher"+(open ? " is-open" : "")} type="button" aria-label="Abrir Assistente Cortou Anotou" aria-expanded={open} aria-controls="cortou-anotou-help" onClick={openPanel}><span><AppIcon name="help" /></span><strong>Ajuda</strong></button>
+    {rendered && <>
+      <div className={"help-chat-backdrop" + (open ? "" : " is-closing")} onClick={closeHelp} aria-hidden="true" />
+      <section ref={panelRef} className={"help-panel help-chat" + (open ? "" : " is-closing")} id="cortou-anotou-help" role="dialog" aria-modal="true" aria-labelledby="help-title" inert={!open}>
+        <header className="help-header"><span className="help-header-mark"><AppIcon name="help" /></span><div><h2 id="help-title">Assistente Cortou Anotou</h2><small>Pergunte, consulte ou peça para fazer</small></div><button ref={closeRef} type="button" aria-label="Fechar Assistente Cortou Anotou" onClick={closeHelp}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></header>
+        <div className="help-chat-scroll" ref={scrollRef}>
           <div className="help-messages" role="log" aria-live="polite" aria-relevant="additions">
             {messages.map(message=><div className={"help-message "+message.role+(message.audio ? " voice" : "")} key={message.id}>
               {message.audio
@@ -714,11 +748,11 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
           {choices.length > 0 && <div className="help-choices">{choices.map(choice=><button type="button" disabled={busy} key={choice.label} onClick={()=>{ voice.discard(); updateInput(""); addMessage("user",choice.label); applyAnswer(activeField as ActionField,choice.value); }}>{choice.label}</button>)}</div>}
           {actionDraft && !activeField && <div className="help-confirm"><strong>Confira antes de salvar</strong><dl>{summaryRows(actionDraft).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelAction}>Cancelar</button></div></div>}{configAction && <div className="help-confirm help-config-confirm"><strong>O assistente entendeu assim</strong><dl>{configSummaryRows(configAction).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmConfigAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelConfigAction}>Cancelar</button></div><small className="help-confirm-note">Nada é alterado antes da sua confirmação.</small></div>}
           {actionDraft && activeField && <button type="button" className="help-abandon" onClick={cancelAction}>Cancelar este pedido</button>}
-          <div ref={endRef} />
         </div>
         <div className="help-composer">
           {voice.recording ? <div className="help-voice-recorder" role="group" aria-label="Gravando mensagem de áudio">
             <div className="help-voice-recorder-top">
+              <span className={"help-voice-live"+(voice.paused ? " is-paused" : "")} aria-hidden="true" />
               <time>{formatHelpVoiceTime(voice.seconds)}</time>
               <HelpVoiceWave active={!voice.paused} />
             </div>
@@ -735,17 +769,18 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-5-7-2Z"/></svg>
               </button>
             </div>
-            <small>{voice.paused ? "Gravação pausada" : "Gravando áudio"}</small>
+            <small aria-live="polite">{voice.paused ? "Gravação pausada" : "Gravando áudio"}</small>
           </div> : <form className="help-form" onSubmit={submit}>
             <textarea ref={inputRef} value={input} onChange={event=>updateInput(event.target.value)} maxLength={HELP_MESSAGE_LIMIT} rows={1} placeholder={activeField?"Sua resposta...":"Escreva sua dúvida..."} aria-label="Mensagem para o Assistente Cortou Anotou" />
             <div className="help-composer-actions">
-              <button className="help-mic" type="button" disabled={busy} aria-label="Gravar áudio" onClick={()=>void voice.start()}>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></svg>
-              </button>
-              <small>{voiceUploading ? "Entendendo áudio..." : "Texto ou áudio"}</small>
-              <button className="help-send" disabled={busy || !input.trim()} aria-label="Enviar mensagem">Enviar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+              {input.trim()
+                ? <button className="help-send" disabled={busy} aria-label="Enviar mensagem">Enviar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+                : <button className="help-mic" type="button" disabled={busy || voice.requesting} aria-label="Gravar áudio" onClick={()=>void voice.start()}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></svg>
+                  </button>}
             </div>
           </form>}
+          {(voice.requesting || voice.ready || voiceUploading) && !voice.recording && <small className="help-voice-status" aria-live="polite">{voice.requesting ? "Ativando microfone…" : voiceUploading ? "Entendendo o áudio…" : "Microfone pronto"}</small>}
           <a className="help-human-support" href={SUPPORT_WHATSAPP_URL} target="_blank" rel="noreferrer"><AppIcon name="whatsapp" /><span>Falar com o suporte</span></a>
         </div>
       </section>

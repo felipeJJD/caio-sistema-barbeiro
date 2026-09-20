@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { createHelpMicrophone } from "../../lib/help-microphone";
 
 export type HelpVoicePayload = {
   blob: Blob;
@@ -18,16 +19,6 @@ function chooseMimeType() {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
-async function microphonePermissionState() {
-  try {
-    if (!navigator.permissions?.query) return "prompt" as PermissionState;
-    const status = await navigator.permissions.query({ name: "microphone" as PermissionName });
-    return status.state;
-  } catch {
-    return "prompt" as PermissionState;
-  }
-}
-
 export function useHelpVoiceRecorder({
   onSend,
   onError,
@@ -38,27 +29,28 @@ export function useHelpVoiceRecorder({
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [requesting, setRequesting] = useState(false);
+  const [ready, setReady] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const microphoneRef = useRef<ReturnType<typeof createHelpMicrophone> | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secondsRef = useRef(0);
   const finishModeRef = useRef<"send" | "discard">("discard");
   const mountedRef = useRef(true);
+  const startingRef = useRef(false);
+  const startIdRef = useRef(0);
+  const callbacksRef = useRef({ onSend, onError });
+
+  useEffect(() => { callbacksRef.current = { onSend, onError }; }, [onSend, onError]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
   }, []);
 
-  const releaseStream = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-  }, []);
-
   const reset = useCallback(() => {
     clearTimer();
-    releaseStream();
     recorderRef.current = null;
     chunksRef.current = [];
     secondsRef.current = 0;
@@ -67,7 +59,7 @@ export function useHelpVoiceRecorder({
       setPaused(false);
       setSeconds(0);
     }
-  }, [clearTimer, releaseStream]);
+  }, [clearTimer]);
 
   const finish = useCallback((mode: "send" | "discard") => {
     finishModeRef.current = mode;
@@ -80,30 +72,30 @@ export function useHelpVoiceRecorder({
       recorder.stop();
     } catch {
       reset();
+      microphoneRef.current?.idle();
     }
   }, [reset]);
 
   const start = useCallback(async () => {
-    if (recording) return;
+    if (startingRef.current || recorderRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      onError("Este navegador não oferece gravação de áudio aqui. Atualize o navegador ou use o campo de texto.");
+      callbacksRef.current.onError("Este navegador não oferece gravação de áudio aqui. Atualize o navegador ou use o campo de texto.");
       return;
     }
-    const permission = await microphonePermissionState();
-    if (permission === "denied") {
-      onError("O microfone está bloqueado para este site. Libere o microfone nos ajustes do navegador e tente novamente.");
-      return;
-    }
+    startingRef.current = true;
+    const startId = ++startIdRef.current;
+    setRequesting(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      streamRef.current = stream;
-      try { localStorage.setItem("ca-help-microphone-granted", "1"); } catch {}
+      // Request capture directly from the tap. Querying Permissions first can
+      // consume user activation on Safari and cannot grant access itself.
+      microphoneRef.current ??= createHelpMicrophone(
+        () => navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        }),
+        (value) => { if (mountedRef.current) setReady(value); },
+      );
+      const stream = await microphoneRef.current!.acquire();
+      if (startId !== startIdRef.current || !mountedRef.current) return;
       const mimeType = chooseMimeType();
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       recorderRef.current = recorder;
@@ -114,8 +106,9 @@ export function useHelpVoiceRecorder({
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
       recorder.onerror = () => {
-        onError("A gravação foi interrompida. Tente novamente.");
+        callbacksRef.current.onError("A gravação foi interrompida. Tente novamente.");
         reset();
+        microphoneRef.current?.release();
       };
       recorder.onstop = () => {
         const shouldSend = finishModeRef.current === "send";
@@ -123,7 +116,8 @@ export function useHelpVoiceRecorder({
         const durationSeconds = Math.max(1, secondsRef.current);
         const blob = new Blob(chunksRef.current, { type });
         reset();
-        if (shouldSend && blob.size > 0) void onSend({ blob, durationSeconds, mimeType: type });
+        microphoneRef.current?.idle();
+        if (shouldSend && blob.size > 0) void callbacksRef.current.onSend({ blob, durationSeconds, mimeType: type });
       };
       recorder.start(250);
       setRecording(true);
@@ -137,15 +131,40 @@ export function useHelpVoiceRecorder({
         if (secondsRef.current >= 120) finish("send");
       }, 1000);
     } catch (error) {
-      releaseStream();
+      if (startId !== startIdRef.current || !mountedRef.current) return;
+      recorderRef.current = null;
+      clearTimer();
+      microphoneRef.current?.release();
       const name = error instanceof DOMException ? error.name : "";
       if (name === "NotAllowedError" || name === "SecurityError") {
-        onError("O microfone não foi liberado. Toque em Permitir uma vez; depois o navegador deve lembrar dessa escolha.");
-      } else {
-        onError("Não consegui abrir o microfone. Tente novamente.");
+        callbacksRef.current.onError("Microfone bloqueado. Libere nas permissões deste site no Safari ou nos Ajustes do iPhone e tente novamente.");
+      } else if (name === "NotFoundError") {
+        callbacksRef.current.onError("Não encontrei um microfone neste aparelho.");
+      } else if (name !== "AbortError") {
+        callbacksRef.current.onError("Não consegui abrir o microfone. Verifique se outro app está usando o áudio e tente novamente.");
+      }
+    } finally {
+      if (startId === startIdRef.current) {
+        startingRef.current = false;
+        if (mountedRef.current) setRequesting(false);
       }
     }
-  }, [clearTimer, finish, onError, onSend, recording, releaseStream, reset]);
+  }, [clearTimer, finish, reset]);
+
+  const close = useCallback(() => {
+    ++startIdRef.current;
+    startingRef.current = false;
+    finishModeRef.current = "discard";
+    const recorder = recorderRef.current;
+    if (recorder) {
+      recorder.onstop = null;
+      recorder.onerror = null;
+      try { if (recorder.state !== "inactive") recorder.stop(); } catch {}
+    }
+    reset();
+    microphoneRef.current?.release();
+    if (mountedRef.current) setRequesting(false);
+  }, [reset]);
 
   const togglePause = useCallback(() => {
     const recorder = recorderRef.current;
@@ -157,24 +176,33 @@ export function useHelpVoiceRecorder({
       } else if (recorder.state === "paused") {
         recorder.resume();
         setPaused(false);
+      } else {
+        return;
       }
     } catch {
-      onError("Não consegui pausar a gravação.");
+      callbacksRef.current.onError("Não consegui pausar a gravação.");
     }
-  }, [onError]);
+  }, []);
 
   const send = useCallback(() => finish("send"), [finish]);
   const discard = useCallback(() => finish("discard"), [finish]);
 
-  useEffect(() => () => {
-    mountedRef.current = false;
-    finishModeRef.current = "discard";
-    try { recorderRef.current?.stop(); } catch {}
-    clearTimer();
-    releaseStream();
-  }, [clearTimer, releaseStream]);
+  useEffect(() => {
+    mountedRef.current = true;
+    const releaseWhenHidden = () => {
+      if (document.visibilityState === "hidden") close();
+    };
+    document.addEventListener("visibilitychange", releaseWhenHidden);
+    window.addEventListener("pagehide", close);
+    return () => {
+      mountedRef.current = false;
+      close();
+      document.removeEventListener("visibilitychange", releaseWhenHidden);
+      window.removeEventListener("pagehide", close);
+    };
+  }, [close]);
 
-  return { recording, paused, seconds, start, togglePause, send, discard };
+  return { recording, paused, seconds, requesting, ready, start, togglePause, send, discard, close };
 }
 
 export function HelpVoiceWave({ active = false, progress = 0 }: { active?: boolean; progress?: number }) {
@@ -201,6 +229,7 @@ export function HelpVoiceBubble({
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
 
   const togglePlay = async () => {
     const audio = audioRef.current;
@@ -225,9 +254,12 @@ export function HelpVoiceBubble({
       preload="metadata"
       onTimeUpdate={(event) => {
         const audio = event.currentTarget;
+        setElapsed(Math.floor(audio.currentTime));
         setProgress(audio.duration ? (audio.currentTime / audio.duration) * 100 : 0);
       }}
-      onEnded={() => { setPlaying(false); setProgress(0); }}
+      onPlay={() => setPlaying(true)}
+      onPause={() => setPlaying(false)}
+      onEnded={() => { setPlaying(false); setProgress(0); setElapsed(0); }}
     />
     <div className="help-voice-player">
       <button type="button" className="help-voice-play" aria-label={playing ? "Pausar áudio" : "Reproduzir áudio"} onClick={togglePlay}>
@@ -236,8 +268,8 @@ export function HelpVoiceBubble({
           : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z" /></svg>}
       </button>
       <div className="help-voice-track">
-        <HelpVoiceWave progress={progress} />
-        <small>{formatted}</small>
+        <div role="progressbar" aria-label="Progresso do áudio" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}><HelpVoiceWave progress={progress} /></div>
+        <small>{formatHelpVoiceTime(elapsed)} / {formatted}</small>
       </div>
     </div>
     <div className="help-voice-meta">
