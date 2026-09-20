@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { showAppToast } from "./app-toast";
 
 type WhatsappStatusPayload = {
@@ -10,6 +10,11 @@ type WhatsappStatusPayload = {
     wabaId: string;
     phoneNumberId: string;
     displayPhoneNumber: string;
+    verifiedName: string;
+    onboardingMode: string;
+    tokenExpiresAt: string | null;
+    webhookSubscribedAt: string | null;
+    registeredAt: string | null;
     connectedAt: string | null;
     updatedAt: string | null;
   };
@@ -37,6 +42,46 @@ type WhatsappApiPayload = {
   error?: string;
 };
 
+type WhatsappSignupConfig = {
+  ready: boolean;
+  appId: string;
+  configId: string;
+  graphVersion: string;
+  missing: string[];
+  supportsCoexistence: boolean;
+};
+
+type WhatsappConnectPayload = WhatsappApiPayload & {
+  config?: WhatsappSignupConfig;
+};
+
+type EmbeddedSignupMode = "cloud" | "coexistence";
+
+type MetaLoginResponse = {
+  status?: string;
+  authResponse?: { code?: string };
+};
+
+type MetaSignupEvent = {
+  type?: string;
+  event?: string;
+  data?: {
+    waba_id?: string;
+    phone_number_id?: string;
+    error_message?: string;
+  };
+};
+
+declare global {
+  interface Window {
+    FB?: {
+      init: (options: { appId: string; cookie?: boolean; xfbml?: boolean; version: string }) => void;
+      login: (callback: (response: MetaLoginResponse) => void, options: Record<string, unknown>) => void;
+    };
+    fbAsyncInit?: () => void;
+  }
+}
+
 const reminderOptions = [1, 2, 3, 6, 12, 24];
 
 function statusLabel(status: string) {
@@ -60,15 +105,23 @@ export function WhatsappAutomation() {
   const [data, setData] = useState<WhatsappStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
+  const [signupConfig, setSignupConfig] = useState<WhatsappSignupConfig | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const signupCodeRef = useRef<string | null>(null);
+  const signupSessionRef = useRef<{ wabaId: string; phoneNumberId: string } | null>(null);
+  const signupModeRef = useRef<EmbeddedSignupMode>("coexistence");
+  const completingSignupRef = useRef(false);
 
   async function load(signal?: AbortSignal) {
     setLoading(true);
     try {
-      const response = await fetch("/api/whatsapp/settings", { cache: "no-store", signal });
-      const payload = await response.json() as WhatsappApiPayload;
-      if (!response.ok || !payload.whatsapp) throw new Error(payload.error ?? "Não foi possível carregar o WhatsApp.");
+      const response = await fetch("/api/whatsapp/connect", { cache: "no-store", signal });
+      const payload = await response.json() as WhatsappConnectPayload;
+      if (!response.ok || !payload.whatsapp || !payload.config) throw new Error(payload.error ?? "Não foi possível carregar o WhatsApp.");
       setData(payload.whatsapp);
+      setSignupConfig(payload.config);
       setFeedback(null);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
@@ -83,6 +136,154 @@ export function WhatsappAutomation() {
     void load(controller.signal);
     return () => controller.abort();
   }, []);
+
+  const completeEmbeddedSignup = useCallback(async () => {
+    const code = signupCodeRef.current;
+    const session = signupSessionRef.current;
+    if (!code || !session || completingSignupRef.current) return;
+    completingSignupRef.current = true;
+    setConnecting(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/whatsapp/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code,
+          wabaId: session.wabaId,
+          phoneNumberId: session.phoneNumberId,
+          mode: signupModeRef.current,
+        }),
+      });
+      const payload = await response.json() as WhatsappApiPayload;
+      if (!response.ok || !payload.whatsapp) throw new Error(payload.error ?? "Não foi possível concluir a conexão com a Meta.");
+      setData(payload.whatsapp);
+      showAppToast("WhatsApp conectado ao Cortou Anotou.");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Não foi possível concluir a conexão com a Meta.");
+    } finally {
+      signupCodeRef.current = null;
+      signupSessionRef.current = null;
+      completingSignupRef.current = false;
+      setConnecting(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    function receiveMetaSignupEvent(event: MessageEvent) {
+      try {
+        const origin = new URL(event.origin);
+        if (origin.protocol !== "https:" || !(origin.hostname === "facebook.com" || origin.hostname.endsWith(".facebook.com"))) return;
+      } catch {
+        return;
+      }
+
+      let message: MetaSignupEvent | null = null;
+      try {
+        message = typeof event.data === "string" ? JSON.parse(event.data) as MetaSignupEvent : event.data as MetaSignupEvent;
+      } catch {
+        return;
+      }
+      if (!message || message.type !== "WA_EMBEDDED_SIGNUP") return;
+
+      if (String(message.event ?? "").startsWith("FINISH")) {
+        const wabaId = String(message.data?.waba_id ?? "");
+        const phoneNumberId = String(message.data?.phone_number_id ?? "");
+        if (wabaId && phoneNumberId) {
+          signupSessionRef.current = { wabaId, phoneNumberId };
+          void completeEmbeddedSignup();
+        }
+        return;
+      }
+
+      if (message.event === "CANCEL") {
+        signupCodeRef.current = null;
+        signupSessionRef.current = null;
+        setConnecting(false);
+        setFeedback("A conexão com a Meta foi cancelada antes de terminar.");
+      }
+      if (message.event === "ERROR") {
+        signupCodeRef.current = null;
+        signupSessionRef.current = null;
+        setConnecting(false);
+        setFeedback(message.data?.error_message || "A Meta não conseguiu concluir a conexão. Tente novamente.");
+      }
+    }
+    window.addEventListener("message", receiveMetaSignupEvent);
+    return () => window.removeEventListener("message", receiveMetaSignupEvent);
+  }, [completeEmbeddedSignup]);
+
+  useEffect(() => {
+    if (!signupConfig?.ready || data?.connection.status === "connected") return;
+
+    function initializeSdk() {
+      if (!window.FB || !signupConfig) return;
+      window.FB.init({
+        appId: signupConfig.appId,
+        cookie: true,
+        xfbml: false,
+        version: signupConfig.graphVersion,
+      });
+      setSdkReady(true);
+    }
+
+    if (window.FB) {
+      initializeSdk();
+      return;
+    }
+
+    window.fbAsyncInit = initializeSdk;
+    if (document.getElementById("facebook-jssdk")) return;
+    const script = document.createElement("script");
+    script.id = "facebook-jssdk";
+    script.async = true;
+    script.defer = true;
+    script.crossOrigin = "anonymous";
+    script.src = "https://connect.facebook.net/pt_BR/sdk.js";
+    script.onerror = () => {
+      setSdkReady(false);
+      setFeedback("Não foi possível carregar a conexão da Meta. Verifique a internet e tente novamente.");
+    };
+    document.head.appendChild(script);
+  }, [signupConfig, data?.connection.status]);
+
+  function launchEmbeddedSignup(mode: EmbeddedSignupMode) {
+    if (!signupConfig?.ready) {
+      setFeedback("A conta Meta do Cortou Anotou ainda precisa ser finalizada antes da primeira conexão.");
+      return;
+    }
+    if (!sdkReady || !window.FB) {
+      setFeedback("A conexão da Meta ainda está carregando. Aguarde alguns segundos e tente novamente.");
+      return;
+    }
+
+    signupModeRef.current = mode;
+    signupCodeRef.current = null;
+    signupSessionRef.current = null;
+    setFeedback(null);
+    setConnecting(true);
+
+    const extras: Record<string, unknown> = { setup: {}, sessionInfoVersion: "3" };
+    if (mode === "coexistence") extras.featureType = "whatsapp_business_app_onboarding";
+
+    window.FB.login((response) => {
+      const code = String(response.authResponse?.code ?? "");
+      if (!code) {
+        setConnecting(false);
+        setFeedback(response.status === "unknown"
+          ? "A conexão foi fechada ou cancelada antes de terminar."
+          : "A Meta não devolveu a autorização necessária. Tente novamente.");
+        return;
+      }
+      signupCodeRef.current = code;
+      void completeEmbeddedSignup();
+    }, {
+      config_id: signupConfig.configId,
+      response_type: "code",
+      override_default_response_type: true,
+      extras,
+    });
+  }
 
   async function saveSettings(next: Partial<WhatsappStatusPayload["settings"]>, toast = "Automação do WhatsApp atualizada.") {
     if (!data || saving) return false;
@@ -168,7 +369,8 @@ export function WhatsappAutomation() {
         <span>CONEXÃO</span>
         <strong>{statusLabel(data.connection.status)}</strong>
         <small>{connected ? data.connection.displayPhoneNumber || "Número conectado à Meta" : "Nenhuma conta WhatsApp Business vinculada"}</small>
-        {connected && data.connection.connectedAt && <em>Conectado em {formatDate(data.connection.connectedAt)}</em>}
+        {connected && data.connection.verifiedName && <small className="whatsapp-verified-name">{data.connection.verifiedName}</small>}
+        {connected && data.connection.connectedAt && <em>{data.connection.onboardingMode === "coexistence" ? "WhatsApp Business + Cortou Anotou" : "Cloud API"} · conectado em {formatDate(data.connection.connectedAt)}</em>}
       </article>
 
       <article className="panel whatsapp-status-card">
@@ -187,14 +389,21 @@ export function WhatsappAutomation() {
       </article>
     </div>
 
-    {!connected && <section className="panel whatsapp-connect-card">
+    {!connected && <section className="panel whatsapp-connect-card whatsapp-connect-live">
       <div className="whatsapp-connect-icon">◎</div>
-      <div>
-        <span>PRÓXIMO PASSO</span>
+      <div className="whatsapp-connect-copy">
+        <span>CONEXÃO OFICIAL META</span>
         <h3>Conectar o WhatsApp Business da barbearia</h3>
-        <p>A estrutura já está pronta. A conexão oficial pela Meta será feita por aqui, sem o proprietário precisar lidar com token, WABA ID ou configurações técnicas.</p>
+        <p>Você entra pela própria Meta e escolhe o número. O Cortou Anotou recebe somente a autorização necessária para cuidar das mensagens da sua barbearia.</p>
+        {!signupConfig?.ready && <div className="whatsapp-meta-pending"><strong>Preparação da Meta pendente</strong><small>A integração já está pronta no Cortou Anotou. Falta ativar as credenciais oficiais da plataforma para liberar este botão.</small></div>}
       </div>
-      <button type="button" disabled>Conexão oficial em preparação</button>
+      <div className="whatsapp-connect-actions">
+        <button type="button" className="whatsapp-connect-primary" disabled={!signupConfig?.ready || !sdkReady || connecting} onClick={() => launchEmbeddedSignup("coexistence")}>
+          {connecting ? "Conectando..." : !signupConfig?.ready ? "Aguardando ativação da Meta" : !sdkReady ? "Carregando Meta..." : "Conectar meu WhatsApp atual"}
+        </button>
+        <button type="button" className="whatsapp-connect-secondary" disabled={!signupConfig?.ready || !sdkReady || connecting} onClick={() => launchEmbeddedSignup("cloud")}>Conectar outro número</button>
+        <small><strong>Já usa WhatsApp Business no celular?</strong> Use a primeira opção. A Meta verifica a elegibilidade para manter o aplicativo funcionando junto com o Cortou Anotou.</small>
+      </div>
     </section>}
 
     <section className="panel whatsapp-automation-panel">
