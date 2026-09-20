@@ -344,6 +344,30 @@ export async function notifyOwnersOfAttendance(access: AccessContext, attendance
   }
 }
 
+export async function notifyOwnersOfWhatsappHandoff(input: {
+  organizationId: number;
+  messageId: number;
+  phone: string;
+  preview: string;
+}) {
+  try {
+    const digits = input.phone.replace(/\D/g, "");
+    const ending = digits.slice(-4);
+    await deliverNotification({
+      organizationId: input.organizationId,
+      kind: "whatsapp-human-handoff",
+      title: "Cliente pediu atendimento humano",
+      body: `${ending ? `WhatsApp final ${ending}: ` : ""}${input.preview.slice(0,140) || "Abra o WhatsApp para responder."}`,
+      target: "/?section=WhatsApp",
+      relatedRecordId: input.messageId,
+      tag: `whatsapp-handoff-${input.messageId}`,
+      topic: `whatsapp-handoff:${input.messageId}`,
+    });
+  } catch {
+    // O atendimento automático nunca pode falhar por causa de uma notificação.
+  }
+}
+
 export async function notifyOwnersOfPublicBooking(booking: PublicBookingNotification) {
   try {
     const title = booking.status === "Aguardando pagamento" ? "Novo horário aguardando Pix" : booking.status === "Aguardando" ? "Novo horário aguardando confirmação" : "Novo horário agendado pelo site";

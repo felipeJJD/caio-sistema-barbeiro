@@ -26,6 +26,12 @@ type WhatsappStatusPayload = {
     cancellationEnabled: boolean;
     rescheduleEnabled: boolean;
     botEnabled: boolean;
+    economyMode: boolean;
+    bookingLinkFirst: boolean;
+    spamFilterEnabled: boolean;
+    aiFallbackEnabled: boolean;
+    greetingText: string;
+    handoffText: string;
     humanTakeoverMinutes: number;
     planCode: string;
     monthlyMessageLimit: number;
@@ -35,6 +41,12 @@ type WhatsappStatusPayload = {
     sentThisMonth: number;
     remainingThisMonth: number;
   };
+  humanHandoffs: Array<{
+    phone: string;
+    lastInboundPreview: string;
+    humanRequestedAt: string | null;
+    lastInboundAt: string | null;
+  }>;
 };
 
 type WhatsappApiPayload = {
@@ -330,6 +342,27 @@ export function WhatsappAutomation() {
     }
   }
 
+  async function resumeHandoff(phone: string) {
+    if (!data || saving) return;
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/whatsapp/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "resume-conversation", phone }),
+      });
+      const payload = await response.json() as WhatsappApiPayload;
+      if (!response.ok || !payload.whatsapp) throw new Error(payload.error ?? "Não foi possível encerrar o atendimento humano.");
+      setData(payload.whatsapp);
+      showAppToast("Atendimento humano encerrado. O C.A. Atende pode responder novamente.");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Não foi possível encerrar o atendimento humano.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function submitReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -450,15 +483,33 @@ export function WhatsappAutomation() {
       </div>
     </section>
 
-    <section className="panel whatsapp-assistant-preview">
+    <section className="panel whatsapp-assistant-preview whatsapp-assistant-ready">
       <div className="whatsapp-assistant-badge">C.A.</div>
-      <div>
-        <span>PRÓXIMA ETAPA</span>
-        <h3>C.A. Atende</h3>
-        <p>Depois da conexão com a Meta, vamos liberar o assistente para responder dúvidas, consultar horários, mandar o link da agenda e ajudar o cliente a cancelar ou remarcar.</p>
+      <div className="whatsapp-assistant-copy">
+        <span>C.A. ATENDE</span>
+        <h3>Atendimento econômico preparado</h3>
+        <p>Saudação em uma mensagem, link da agenda primeiro, horários e preços consultados no Cortou Anotou, ofertas comerciais sem resposta e IA somente quando as regras não entenderem o pedido.</p>
+        <div className="whatsapp-assistant-tags"><small>LINK PRIMEIRO</small><small>FILTRO DE OFERTAS</small><small>IA SOB DEMANDA</small><small>TRANSFERÊNCIA HUMANA</small></div>
       </div>
-      <div className="whatsapp-coming-soon">EM PREPARAÇÃO</div>
+      <label className={canEnable && data.settings.enabled ? "whatsapp-bot-switch" : "whatsapp-bot-switch disabled"}>
+        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte a Meta primeiro" : !hasPackage ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "Responde somente quando necessário"}</small></span>
+        <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled:event.target.checked }, event.target.checked ? "C.A. Atende ligado no modo econômico." : "C.A. Atende desligado.")} />
+        <i />
+      </label>
     </section>
+
+    {data.humanHandoffs.length > 0 && <section className="panel whatsapp-human-queue">
+      <div className="whatsapp-human-queue-heading"><span>ATENDIMENTO HUMANO</span><h3>Clientes esperando uma pessoa</h3><p>O bot fica em silêncio nesses contatos até você encerrar o atendimento aqui.</p></div>
+      <div className="whatsapp-human-list">
+        {data.humanHandoffs.map((item) => {
+          const ending = item.phone.replace(/\D/g, "").slice(-4);
+          return <div className="whatsapp-human-item" key={item.phone}>
+            <div><strong>WhatsApp final {ending || "----"}</strong><small>{item.lastInboundPreview || "Cliente pediu atendimento humano."}</small>{item.humanRequestedAt && <em>{formatDate(item.humanRequestedAt)}</em>}</div>
+            <button type="button" onClick={() => void resumeHandoff(item.phone)} disabled={saving}>Encerrar atendimento</button>
+          </div>;
+        })}
+      </div>
+    </section>}
 
     {connected && <section className="panel whatsapp-danger-zone">
       <div><strong>Desconectar WhatsApp</strong><small>As automações param imediatamente. Seus agendamentos e histórico continuam intactos.</small></div>

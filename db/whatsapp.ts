@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import type { AccessContext } from "./access";
 import { requireOwner, requirePlatformAdmin } from "./access";
 import { getDb } from "./index";
@@ -40,6 +40,12 @@ export type WhatsappAutomationStatus = {
     cancellationEnabled: boolean;
     rescheduleEnabled: boolean;
     botEnabled: boolean;
+    economyMode: boolean;
+    bookingLinkFirst: boolean;
+    spamFilterEnabled: boolean;
+    aiFallbackEnabled: boolean;
+    greetingText: string;
+    handoffText: string;
     humanTakeoverMinutes: number;
     planCode: string;
     monthlyMessageLimit: number;
@@ -49,6 +55,12 @@ export type WhatsappAutomationStatus = {
     sentThisMonth: number;
     remainingThisMonth: number;
   };
+  humanHandoffs: Array<{
+    phone: string;
+    lastInboundPreview: string;
+    humanRequestedAt: string | null;
+    lastInboundAt: string | null;
+  }>;
 };
 
 const defaultSettings = {
@@ -59,6 +71,12 @@ const defaultSettings = {
   cancellationEnabled: true,
   rescheduleEnabled: true,
   botEnabled: false,
+  economyMode: true,
+  bookingLinkFirst: true,
+  spamFilterEnabled: true,
+  aiFallbackEnabled: true,
+  greetingText: "",
+  handoffText: "",
   humanTakeoverMinutes: 120,
   planCode: "off",
   monthlyMessageLimit: 0,
@@ -107,12 +125,27 @@ async function sentCountThisMonth(organizationId: number) {
   return Number(row?.count ?? 0);
 }
 
+async function humanHandoffsForOrganization(organizationId: number) {
+  const db = await getDb();
+  return db.select({
+    phone: whatsappConversations.phone,
+    lastInboundPreview: whatsappConversations.lastInboundPreview,
+    humanRequestedAt: whatsappConversations.humanRequestedAt,
+    lastInboundAt: whatsappConversations.lastInboundAt,
+  }).from(whatsappConversations).where(and(
+    eq(whatsappConversations.organizationId, organizationId),
+    eq(whatsappConversations.pauseReason, "human_takeover"),
+    isNull(whatsappConversations.automationPausedUntil),
+  )).orderBy(desc(whatsappConversations.humanRequestedAt), desc(whatsappConversations.lastInboundAt)).limit(12);
+}
+
 export async function getWhatsappAutomationStatus(access: AccessContext): Promise<WhatsappAutomationStatus> {
   requireOwner(access);
-  const [settings, connection, sentThisMonth] = await Promise.all([
+  const [settings, connection, sentThisMonth, humanHandoffs] = await Promise.all([
     settingsForOrganization(access.organizationId),
     connectionForOrganization(access.organizationId),
     sentCountThisMonth(access.organizationId),
+    humanHandoffsForOrganization(access.organizationId),
   ]);
   const monthlyMessageLimit = Math.max(0, Number(settings.monthlyMessageLimit ?? 0));
   return {
@@ -138,6 +171,12 @@ export async function getWhatsappAutomationStatus(access: AccessContext): Promis
       cancellationEnabled: Boolean(settings.cancellationEnabled),
       rescheduleEnabled: Boolean(settings.rescheduleEnabled),
       botEnabled: Boolean(settings.botEnabled),
+      economyMode: Boolean(settings.economyMode),
+      bookingLinkFirst: Boolean(settings.bookingLinkFirst),
+      spamFilterEnabled: Boolean(settings.spamFilterEnabled),
+      aiFallbackEnabled: Boolean(settings.aiFallbackEnabled),
+      greetingText: String(settings.greetingText ?? ""),
+      handoffText: String(settings.handoffText ?? ""),
       humanTakeoverMinutes: Number(settings.humanTakeoverMinutes ?? 120),
       planCode: String(settings.planCode ?? "off"),
       monthlyMessageLimit,
@@ -147,6 +186,7 @@ export async function getWhatsappAutomationStatus(access: AccessContext): Promis
       sentThisMonth,
       remainingThisMonth: Math.max(0, monthlyMessageLimit - sentThisMonth),
     },
+    humanHandoffs,
   };
 }
 
@@ -158,6 +198,12 @@ export async function saveWhatsappAutomationSettings(access: AccessContext, inpu
   cancellationEnabled?: boolean;
   rescheduleEnabled?: boolean;
   botEnabled?: boolean;
+  economyMode?: boolean;
+  bookingLinkFirst?: boolean;
+  spamFilterEnabled?: boolean;
+  aiFallbackEnabled?: boolean;
+  greetingText?: string;
+  handoffText?: string;
   humanTakeoverMinutes?: number;
 }) {
   requireOwner(access);
@@ -178,6 +224,12 @@ export async function saveWhatsappAutomationSettings(access: AccessContext, inpu
     cancellationEnabled: input.cancellationEnabled ?? Boolean(current.cancellationEnabled),
     rescheduleEnabled: input.rescheduleEnabled ?? Boolean(current.rescheduleEnabled),
     botEnabled: input.botEnabled ?? Boolean(current.botEnabled),
+    economyMode: input.economyMode ?? Boolean(current.economyMode),
+    bookingLinkFirst: input.bookingLinkFirst ?? Boolean(current.bookingLinkFirst),
+    spamFilterEnabled: input.spamFilterEnabled ?? Boolean(current.spamFilterEnabled),
+    aiFallbackEnabled: input.aiFallbackEnabled ?? Boolean(current.aiFallbackEnabled),
+    greetingText: input.greetingText === undefined ? String(current.greetingText ?? "") : input.greetingText.trim().slice(0, 700),
+    handoffText: input.handoffText === undefined ? String(current.handoffText ?? "") : input.handoffText.trim().slice(0, 500),
     humanTakeoverMinutes,
     planCode: String(current.planCode ?? "off"),
     monthlyMessageLimit: Number(current.monthlyMessageLimit ?? 0),
@@ -198,6 +250,12 @@ export async function saveWhatsappAutomationSettings(access: AccessContext, inpu
       cancellationEnabled: values.cancellationEnabled,
       rescheduleEnabled: values.rescheduleEnabled,
       botEnabled: values.botEnabled,
+      economyMode: values.economyMode,
+      bookingLinkFirst: values.bookingLinkFirst,
+      spamFilterEnabled: values.spamFilterEnabled,
+      aiFallbackEnabled: values.aiFallbackEnabled,
+      greetingText: values.greetingText,
+      handoffText: values.handoffText,
       humanTakeoverMinutes: values.humanTakeoverMinutes,
       planCode: values.planCode,
       monthlyMessageLimit: values.monthlyMessageLimit,
@@ -644,6 +702,40 @@ export async function queueAppointmentWhatsappSafely(kind: Exclude<WhatsappAutom
   }
 }
 
+export async function queueWhatsappTextReply(input: {
+  organizationId: number;
+  phone: string;
+  text: string;
+  inboundProviderMessageId: string;
+}) {
+  const phone = normalizeWhatsappPhone(input.phone);
+  const text = input.text.trim().replace(/\n{3,}/g, "\n\n").slice(0, 3500);
+  if (!phone || !text || !input.inboundProviderMessageId) return { queued:false, reason:"invalid" as const };
+  const [settings, connection] = await Promise.all([
+    settingsForOrganization(input.organizationId),
+    connectionForOrganization(input.organizationId),
+  ]);
+  if (!settings.enabled || !settings.botEnabled || !connection || connection.status !== "connected" || Number(settings.monthlyMessageLimit) <= 0) {
+    return { queued:false, reason:"automation_inactive" as const };
+  }
+  const db = await getDb();
+  const now = new Date().toISOString();
+  const inserted = await db.insert(whatsappMessages).values({
+    organizationId: input.organizationId,
+    appointmentId: null,
+    direction: "outbound",
+    kind: "bot_text",
+    phone,
+    templateName: "",
+    dedupeKey: `bot:${input.inboundProviderMessageId}`,
+    status: "queued",
+    scheduledAt: now,
+    payloadJson: JSON.stringify({ text }),
+    updatedAt: now,
+  }).onConflictDoNothing().returning({ id: whatsappMessages.id });
+  return { queued:Boolean(inserted[0]?.id), reason:inserted[0]?.id ? "queued" as const : "duplicate" as const };
+}
+
 function graphVersion() {
   const value = String(process.env.WHATSAPP_GRAPH_VERSION ?? "").trim();
   if (!/^v\d+\.\d+$/.test(value)) throw new Error("Configure WHATSAPP_GRAPH_VERSION antes de enviar mensagens.");
@@ -670,13 +762,14 @@ async function sendQueuedMessage(message: typeof whatsappMessages.$inferSelect) 
 
   const token = await decryptSecret(connection.encryptedAccessToken, connection.accessTokenIv);
   const payload = JSON.parse(message.payloadJson || "{}") as Record<string, string>;
-  const response = await fetch(`https://graph.facebook.com/${graphVersion()}/${encodeURIComponent(connection.phoneNumberId)}/messages`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
+  const messageBody = message.kind === "bot_text"
+    ? {
+      messaging_product: "whatsapp",
+      to: message.phone,
+      type: "text",
+      text: { preview_url: false, body: String(payload.text ?? "").slice(0,3500) },
+    }
+    : {
       messaging_product: "whatsapp",
       to: message.phone,
       type: "template",
@@ -685,7 +778,14 @@ async function sendQueuedMessage(message: typeof whatsappMessages.$inferSelect) 
         language: { code: String(settings.templateLanguage ?? "pt_BR") },
         components: [{ type: "body", parameters: templateParameters(message.kind as WhatsappAutomationKind, payload) }],
       },
-    }),
+    };
+  const response = await fetch(`https://graph.facebook.com/${graphVersion()}/${encodeURIComponent(connection.phoneNumberId)}/messages`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(messageBody),
   });
   const result = await response.json().catch(() => ({})) as {
     messages?: Array<{ id?: string }>;
@@ -710,8 +810,14 @@ export async function processWhatsappQueue(options: { organizationId?: number; l
   let sent = 0;
   let failed = 0;
   for (const message of queue) {
+    const claimedAt = new Date().toISOString();
+    const claimed = await db.update(whatsappMessages).set({
+      status: "sending",
+      updatedAt: claimedAt,
+    }).where(and(eq(whatsappMessages.id, message.id), eq(whatsappMessages.status, "queued"))).returning({ id: whatsappMessages.id });
+    if (!claimed[0]?.id) continue;
     try {
-      const providerMessageId = await sendQueuedMessage(message);
+      const providerMessageId = await sendQueuedMessage({ ...message, status:"sending", updatedAt:claimedAt });
       const sentAt = new Date().toISOString();
       await db.update(whatsappMessages).set({
         providerMessageId,
@@ -719,7 +825,7 @@ export async function processWhatsappQueue(options: { organizationId?: number; l
         sentAt,
         errorText: "",
         updatedAt: sentAt,
-      }).where(and(eq(whatsappMessages.id, message.id), eq(whatsappMessages.status, "queued")));
+      }).where(and(eq(whatsappMessages.id, message.id), eq(whatsappMessages.status, "sending")));
       await db.insert(whatsappConversations).values({
         organizationId: message.organizationId,
         phone: message.phone,
@@ -737,7 +843,7 @@ export async function processWhatsappQueue(options: { organizationId?: number; l
         failedAt,
         errorText: error instanceof Error ? error.message.slice(0, 500) : "Falha desconhecida ao enviar.",
         updatedAt: failedAt,
-      }).where(and(eq(whatsappMessages.id, message.id), eq(whatsappMessages.status, "queued")));
+      }).where(and(eq(whatsappMessages.id, message.id), eq(whatsappMessages.status, "sending")));
       failed += 1;
     }
   }
@@ -782,6 +888,9 @@ export async function resumeWhatsappConversation(access: AccessContext, phoneVal
   await db.update(whatsappConversations).set({
     automationPausedUntil: null,
     pauseReason: "",
+    botState: "",
+    botContextJson: "{}",
+    humanRequestedAt: null,
     updatedAt: new Date().toISOString(),
   }).where(and(eq(whatsappConversations.organizationId, access.organizationId), eq(whatsappConversations.phone, phone)));
 }
@@ -794,7 +903,9 @@ export async function isWhatsappConversationPaused(organizationId: number, phone
     eq(whatsappConversations.organizationId, organizationId),
     eq(whatsappConversations.phone, phone),
   )).limit(1))[0];
-  return Boolean(conversation?.automationPausedUntil && conversation.automationPausedUntil > new Date().toISOString());
+  if (!conversation) return false;
+  if (conversation.pauseReason === "human_takeover" && !conversation.automationPausedUntil) return true;
+  return Boolean(conversation.automationPausedUntil && conversation.automationPausedUntil > new Date().toISOString());
 }
 
 type MetaWebhookPayload = {
@@ -815,10 +926,20 @@ function timestampIso(value?: string) {
   return new Date(seconds * 1000).toISOString();
 }
 
+export type WhatsappInboundTextEvent = {
+  organizationId: number;
+  messageRowId: number;
+  providerMessageId: string;
+  phone: string;
+  text: string;
+  receivedAt: string;
+};
+
 export async function handleWhatsappWebhook(payload: MetaWebhookPayload) {
   const db = await getDb();
   let received = 0;
   let statuses = 0;
+  const inboundTextEvents: WhatsappInboundTextEvent[] = [];
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
       const value = change.value;
@@ -832,7 +953,7 @@ export async function handleWhatsappWebhook(payload: MetaWebhookPayload) {
         const phone = normalizeWhatsappPhone(String(message.from ?? ""));
         if (!providerMessageId || !phone) continue;
         const receivedAt = timestampIso(message.timestamp);
-        await db.insert(whatsappMessages).values({
+        const inserted = await db.insert(whatsappMessages).values({
           organizationId: connection.organizationId,
           appointmentId: null,
           direction: "inbound",
@@ -845,15 +966,26 @@ export async function handleWhatsappWebhook(payload: MetaWebhookPayload) {
           sentAt: receivedAt,
           payloadJson: JSON.stringify(message),
           updatedAt: receivedAt,
-        }).onConflictDoNothing();
+        }).onConflictDoNothing().returning({ id: whatsappMessages.id });
+        if (!inserted[0]?.id) continue;
+        const preview = String(message.text?.body ?? "").trim().slice(0,240);
         await db.insert(whatsappConversations).values({
           organizationId: connection.organizationId,
           phone,
           lastInboundAt: receivedAt,
+          lastInboundPreview: preview,
           updatedAt: receivedAt,
         }).onConflictDoUpdate({
           target: [whatsappConversations.organizationId, whatsappConversations.phone],
-          set: { lastInboundAt: receivedAt, updatedAt: receivedAt },
+          set: { lastInboundAt: receivedAt, lastInboundPreview: preview, updatedAt: receivedAt },
+        });
+        if (message.type === "text" && preview) inboundTextEvents.push({
+          organizationId: connection.organizationId,
+          messageRowId: inserted[0].id,
+          providerMessageId,
+          phone,
+          text: preview,
+          receivedAt,
         });
         received += 1;
       }
@@ -876,5 +1008,5 @@ export async function handleWhatsappWebhook(payload: MetaWebhookPayload) {
       }
     }
   }
-  return { received, statuses };
+  return { received, statuses, inboundTextEvents };
 }

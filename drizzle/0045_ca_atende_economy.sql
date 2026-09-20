@@ -1,0 +1,13 @@
+ALTER TABLE `whatsapp_automation_settings` ADD `economy_mode` integer DEFAULT 1 NOT NULL;
+ALTER TABLE `whatsapp_automation_settings` ADD `booking_link_first` integer DEFAULT 1 NOT NULL;
+ALTER TABLE `whatsapp_automation_settings` ADD `spam_filter_enabled` integer DEFAULT 1 NOT NULL;
+ALTER TABLE `whatsapp_automation_settings` ADD `ai_fallback_enabled` integer DEFAULT 1 NOT NULL;
+ALTER TABLE `whatsapp_automation_settings` ADD `greeting_text` text DEFAULT '' NOT NULL;
+ALTER TABLE `whatsapp_automation_settings` ADD `handoff_text` text DEFAULT '' NOT NULL;
+ALTER TABLE `whatsapp_conversations` ADD `bot_state` text DEFAULT '' NOT NULL;
+ALTER TABLE `whatsapp_conversations` ADD `bot_context_json` text DEFAULT '{}' NOT NULL;
+ALTER TABLE `whatsapp_conversations` ADD `last_intent` text DEFAULT '' NOT NULL;
+ALTER TABLE `whatsapp_conversations` ADD `last_inbound_preview` text DEFAULT '' NOT NULL;
+ALTER TABLE `whatsapp_conversations` ADD `last_bot_reply_at` text;
+ALTER TABLE `whatsapp_conversations` ADD `suspected_offer_at` text;
+ALTER TABLE `whatsapp_conversations` ADD `human_requested_at` text;

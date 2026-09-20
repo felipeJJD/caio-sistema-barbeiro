@@ -40,6 +40,12 @@ export async function POST(request: Request) {
         cancellationEnabled: typeof data.cancellationEnabled === "boolean" ? data.cancellationEnabled : undefined,
         rescheduleEnabled: typeof data.rescheduleEnabled === "boolean" ? data.rescheduleEnabled : undefined,
         botEnabled: typeof data.botEnabled === "boolean" ? data.botEnabled : undefined,
+        economyMode: typeof data.economyMode === "boolean" ? data.economyMode : undefined,
+        bookingLinkFirst: typeof data.bookingLinkFirst === "boolean" ? data.bookingLinkFirst : undefined,
+        spamFilterEnabled: typeof data.spamFilterEnabled === "boolean" ? data.spamFilterEnabled : undefined,
+        aiFallbackEnabled: typeof data.aiFallbackEnabled === "boolean" ? data.aiFallbackEnabled : undefined,
+        greetingText: typeof data.greetingText === "string" ? data.greetingText : undefined,
+        handoffText: typeof data.handoffText === "string" ? data.handoffText : undefined,
         humanTakeoverMinutes: data.humanTakeoverMinutes === undefined ? undefined : Number(data.humanTakeoverMinutes),
       });
     } else if (action === "disconnect") {

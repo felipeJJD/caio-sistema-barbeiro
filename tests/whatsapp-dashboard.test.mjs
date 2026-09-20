@@ -38,10 +38,20 @@ test("chave geral só pode ser ligada com conexão e pacote ativos", () => {
   assert.match(whatsappUi, /disabled=\{!canEnable \|\| saving\}/);
 });
 
-test("C.A. Atende conversacional aparece como próxima etapa e não como função ativa", () => {
-  assert.match(whatsappUi, /PRÓXIMA ETAPA/);
-  assert.match(whatsappUi, /C\.A\. Atende/);
-  assert.match(whatsappUi, /EM PREPARAÇÃO/);
+test("C.A. Atende aparece preparado em modo econômico e só liga com conexão, pacote e automações", () => {
+  assert.match(whatsappUi, /Atendimento econômico preparado/);
+  assert.match(whatsappUi, /LINK PRIMEIRO/);
+  assert.match(whatsappUi, /FILTRO DE OFERTAS/);
+  assert.match(whatsappUi, /IA SOB DEMANDA/);
+  assert.match(whatsappUi, /checked=\{data\.settings\.botEnabled\}/);
+  assert.match(whatsappUi, /disabled=\{!canEnable \|\| !data\.settings\.enabled \|\| saving\}/);
+});
+
+test("fila humana mantém o bot em silêncio até o proprietário encerrar", () => {
+  assert.match(whatsappUi, /Clientes esperando uma pessoa/);
+  assert.match(whatsappUi, /O bot fica em silêncio/);
+  assert.match(whatsappUi, /resume-conversation/);
+  assert.match(whatsappUi, /Encerrar atendimento/);
 });
 
 test("painel possui ajustes responsivos específicos para iPhone/mobile", () => {
