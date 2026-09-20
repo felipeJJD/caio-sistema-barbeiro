@@ -13,6 +13,19 @@ const isoDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() 
 const dayLabel = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 const paymentChoices = (payments: PublicBookingData["payments"]) => [payments.pixEnabled && "Pix", payments.cashEnabled && "Dinheiro", payments.debitEnabled && "Débito", payments.creditEnabled && "Crédito"].filter(Boolean) as string[];
 
+function servicePriority(name: string) {
+  const value = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (value === "corte") return 0;
+  if (value === "barba") return 1;
+  if (value.includes("corte") && value.includes("barba")) return 2;
+  if (value.includes("corte") && value.includes("bigode")) return 3;
+  if (value.includes("corte") && value.includes("sobrancelha")) return 4;
+  return 20;
+}
+function orderedBookingServices(services: PublicBookingData["services"]) {
+  return [...services].sort((left, right) => servicePriority(left.name) - servicePriority(right.name) || left.name.localeCompare(right.name, "pt-BR"));
+}
+
 function monthDays(month: Date) {
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
@@ -68,8 +81,14 @@ function PixBookingPayment({ slug, result }: { slug: string; result: { id: numbe
 }
 
 export function PublicBookingApp({ data, today }: { data: PublicBookingData; today: string }) {
-  const [serviceId, setServiceId] = useState(data.services[0]?.id ?? 0);
+  const orderedServices = useMemo(() => orderedBookingServices(data.services), [data.services]);
+  const [serviceId, setServiceId] = useState(() => orderedBookingServices(data.services)[0]?.id ?? 0);
   const [showAllServices, setShowAllServices] = useState(false);
+  const [membershipPlanId, setMembershipPlanId] = useState(0);
+  const [membershipPickerOpen, setMembershipPickerOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [clientName, setClientName] = useState("");
+  const [phone, setPhone] = useState("");
   const [barberId, setBarberId] = useState(0);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
@@ -84,11 +103,11 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ id: number; status: string; barberName: string; serviceName: string; requiresApproval: boolean; paymentChoice: string; priceCents: number; pixKey: string; paymentToken: string | null; managementToken: string } | null>(null);
   const service = data.services.find((item) => item.id === serviceId);
-  const membershipSchedulingService = data.services.find((item) => {
-    const name = item.name.toLocaleLowerCase("pt-BR");
-    return name.includes("corte") && !name.includes("barba");
-  }) ?? data.services[0];
-  const visibleServices = showAllServices ? data.services : data.services.slice(0, 4);
+  const membershipPlan = data.membershipPlans.find((item) => item.id === membershipPlanId);
+  const visibleServices = showAllServices ? orderedServices : orderedServices.slice(0, 5);
+  const selectedSlot = slots.find((slot) => slot.time === selectedTime);
+  const selectedBarberName = barberId ? data.barbers.find((item) => item.id === barberId)?.name : selectedSlot?.barberName;
+  const selectedServiceLabel = isMembership && membershipPlan ? `Mensalista · ${membershipPlan.planKind}` : service?.name ?? "";
   const calendarDays = useMemo(() => monthDays(month), [month]);
   const maxDate = useMemo(() => { const value = new Date(`${today}T12:00:00`); value.setDate(value.getDate() + 90); return isoDate(value); }, [today]);
   const cover = data.gallery.find((image) => image.kind === "cover");
@@ -168,24 +187,48 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
     };
   }, [barberId, data.organization.slug, selectedDate, serviceId]);
 
-  function resetDate() { setSelectedDate(""); setSelectedTime(""); setSlots([]); setResult(null); }
-  function changeService(id: number) { setIsMembership(false); setServiceId(id); resetDate(); }
+  function resetDate() { setSelectedDate(""); setSelectedTime(""); setSlots([]); setResult(null); setReviewOpen(false); }
+  function changeService(id: number) { setIsMembership(false); setMembershipPlanId(0); setServiceId(id); resetDate(); }
   function chooseMembership() {
-    if (!membershipSchedulingService) { setError("A barbearia precisa cadastrar um serviço antes de liberar horários para mensalistas."); return; }
+    if (!data.membershipPlans.length) { setError("A barbearia ainda não tem um plano mensalista ativo ligado a um serviço disponível."); return; }
+    setMembershipPickerOpen(true);
+    setError(null);
+  }
+  function chooseMembershipPlan(id: number) {
+    const plan = data.membershipPlans.find((item) => item.id === id);
+    if (!plan) return;
     setIsMembership(true);
-    setServiceId(membershipSchedulingService.id);
+    setMembershipPlanId(plan.id);
+    setServiceId(plan.serviceId);
+    setMembershipPickerOpen(false);
     resetDate();
   }
   function changeBarber(id: number) { setBarberId(id); resetDate(); }
+  function editReview(sectionId: string) {
+    setReviewOpen(false);
+    window.setTimeout(() => document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" }), 40);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedDate || !selectedTime) { setError("Escolha o dia e o horário."); return; }
+    if (isMembership && !membershipPlan) { setError("Escolha qual é o seu plano mensalista."); return; }
+    try {
+      validClientName(clientName);
+      if (phone.replace(/\D/g, "").length < 8) throw new Error("Informe um telefone ou WhatsApp válido.");
+      if (!isMembership && !paymentChoice) throw new Error("Escolha como deseja pagar.");
+      setError(null);
+      setReviewOpen(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Confira seus dados antes de continuar.");
+    }
+  }
+
+  async function confirmBooking() {
+    if (!selectedDate || !selectedTime || !serviceId) return;
     setSubmitting(true);
     setError(null);
-    const form = new FormData(event.currentTarget);
     try {
-      const clientName = validClientName(String(form.get("clientName") ?? ""));
       const response = await fetch(`/api/public-booking/${encodeURIComponent(data.organization.slug)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -194,18 +237,21 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
           time: selectedTime,
           serviceId,
           barberId,
-          clientName,
-          phone: String(form.get("phone") ?? ""),
+          clientName: validClientName(clientName),
+          phone,
           paymentChoice,
           isMembership,
-          website: String(form.get("website") ?? ""),
+          membershipPlanId,
+          website: "",
         }),
       });
-      const body = await response.json() as { booking?: { id: number; status: string; barberName: string; serviceName: string; requiresApproval: boolean; paymentChoice: string; priceCents: number; pixKey: string; paymentToken: string | null; managementToken: string }; error?: string };
+      const body = await response.json() as { booking?: { id: number; status: string; barberName: string; serviceName: string; membershipPlanName?: string; requiresApproval: boolean; paymentChoice: string; priceCents: number; pixKey: string; paymentToken: string | null; managementToken: string }; error?: string };
       if (!response.ok || !body.booking) throw new Error(body.error ?? "Não foi possível concluir o agendamento.");
+      setReviewOpen(false);
       setResult(body.booking);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível concluir o agendamento.");
+      setReviewOpen(false);
     } finally {
       setSubmitting(false);
     }
@@ -232,15 +278,17 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
       <div className={`public-booking-intro${cover || workImages.length || shopImages.length ? " public-booking-intro-after-gallery" : ""}`} id="agendamento"><span>RÁPIDO E SEM LIGAÇÃO</span><h1>Agende seu horário</h1><p>Escolha o serviço, o profissional e veja somente os horários realmente disponíveis.</p></div>
       <div className="booking-steps" aria-label="Etapas"><span className={serviceId ? "done" : "active"}>1 <b>Serviço</b></span><i /><span className={selectedDate ? "done" : "active"}>2 <b>Data</b></span><i /><span className={selectedTime ? "done" : "active"}>3 <b>Horário</b></span></div>
 
-      <section className="booking-card booking-services-card"><div className="booking-card-heading"><span>1</span><div><strong>Escolha o atendimento</strong><small>Mensalistas usam o plano sem escolher pagamento</small></div></div><div className="booking-option-grid services"><button type="button" className={`membership-service${isMembership ? " selected" : ""}`} onClick={chooseMembership}><span><AppIcon name="members" /></span><div><strong>Mensalista</strong><small>Agendar um uso do meu plano</small></div><b><AppIcon name="check" /></b></button>{visibleServices.map((item) => <button type="button" className={!isMembership && serviceId === item.id ? "selected" : ""} onClick={() => changeService(item.id)} key={item.id}><span><AppIcon name="scissors" /></span><div><strong>{item.name}</strong><small>{item.durationMinutes} min · {money(item.priceCents)}</small></div><b><AppIcon name="check" /></b></button>)}</div>{data.services.length > 4 && <button type="button" className="booking-show-more" onClick={() => setShowAllServices((value) => !value)}>{showAllServices ? "Ver menos serviços" : `Ver mais ${data.services.length - 4} serviço${data.services.length - 4 === 1 ? "" : "s"}`}<b>{showAllServices ? "↑" : "↓"}</b></button>}</section>
+      <section className="booking-card booking-services-card" id="booking-service"><div className="booking-card-heading"><span>1</span><div><strong>Escolha o atendimento</strong><small>Selecione primeiro o serviço que você quer fazer</small></div></div><div className="booking-option-grid services">{visibleServices.map((item) => <button type="button" className={!isMembership && serviceId === item.id ? "selected" : ""} onClick={() => changeService(item.id)} key={item.id}><span><AppIcon name="scissors" /></span><div><strong>{item.name}</strong><small>{item.durationMinutes} min · {money(item.priceCents)}</small></div><b><AppIcon name="check" /></b></button>)}</div>{orderedServices.length > 5 && <button type="button" className="booking-show-more" onClick={() => setShowAllServices((value) => !value)}>{showAllServices ? "Ver menos serviços" : `Ver mais ${orderedServices.length - 5} serviço${orderedServices.length - 5 === 1 ? "" : "s"}`}<b>{showAllServices ? "↑" : "↓"}</b></button>}<button type="button" className={`booking-membership-entry${isMembership ? " selected" : ""}`} onClick={chooseMembership}><span><AppIcon name="members" /></span><div><strong>{isMembership && membershipPlan ? `Mensalista · ${membershipPlan.planKind}` : "Sou mensalista"}</strong><small>{isMembership && membershipPlan ? membershipPlan.name : "Escolher qual plano vou usar"}</small></div><b>{isMembership ? "Alterar" : "Ver planos"} →</b></button></section>
 
-      <section className="booking-card"><div className="booking-card-heading"><span>2</span><div><strong>Escolha o profissional</strong><small>Ou deixe a barbearia encontrar um horário</small></div></div><div className="booking-option-grid barbers"><button type="button" className={barberId === 0 ? "selected" : ""} onClick={() => changeBarber(0)}><span><AppIcon name="members" /></span><div><strong>Qualquer profissional</strong><small>Primeiro horário disponível</small></div><b><AppIcon name="check" /></b></button>{data.barbers.map((item) => { const dayHours = selectedDate ? bookingHoursForDate(item.weeklyHours, selectedDate) : null; const unavailable = Boolean(selectedDate && !dayHours?.enabled); return <button type="button" disabled={unavailable} className={`${barberId === item.id ? "selected" : ""}${unavailable ? " unavailable" : ""}`.trim()} onClick={() => changeBarber(item.id)} key={item.id}>{item.photoUrl ? <img className="booking-barber-photo" src={item.photoUrl} alt={`Foto de ${item.name}`} loading="lazy" /> : <span>{item.name.slice(0, 1).toUpperCase()}</span>}<div><strong>{item.name}</strong><small>{unavailable ? "Folga neste dia" : "Selecionar profissional"}</small></div><b><AppIcon name="check" /></b></button>; })}</div></section>
+      <section className="booking-card" id="booking-professional"><div className="booking-card-heading"><span>2</span><div><strong>Escolha o profissional</strong><small>Ou deixe a barbearia encontrar um horário</small></div></div><div className="booking-option-grid barbers"><button type="button" className={barberId === 0 ? "selected" : ""} onClick={() => changeBarber(0)}><span><AppIcon name="members" /></span><div><strong>Qualquer profissional</strong><small>Primeiro horário disponível</small></div><b><AppIcon name="check" /></b></button>{data.barbers.map((item) => { const dayHours = selectedDate ? bookingHoursForDate(item.weeklyHours, selectedDate) : null; const unavailable = Boolean(selectedDate && !dayHours?.enabled); return <button type="button" disabled={unavailable} className={`${barberId === item.id ? "selected" : ""}${unavailable ? " unavailable" : ""}`.trim()} onClick={() => changeBarber(item.id)} key={item.id}>{item.photoUrl ? <img className="booking-barber-photo" src={item.photoUrl} alt={`Foto de ${item.name}`} loading="lazy" /> : <span>{item.name.slice(0, 1).toUpperCase()}</span>}<div><strong>{item.name}</strong><small>{unavailable ? "Folga neste dia" : "Selecionar profissional"}</small></div><b><AppIcon name="check" /></b></button>; })}</div></section>
 
-      <section className="booking-card"><div className="booking-card-heading"><span>3</span><div><strong>Escolha o dia</strong><small>Disponibilidade para os próximos 90 dias</small></div></div><div className={`booking-calendar${selectedDate ? " compact" : ""}`}>{selectedDate ? <div className="booking-selected-date"><div><small>DATA ESCOLHIDA</small><strong>{dayLabel(selectedDate)}</strong></div><button type="button" onClick={resetDate}>Trocar data</button></div> : <><div className="booking-calendar-nav"><button type="button" aria-label="Mês anterior" disabled={month <= new Date(`${today.slice(0, 7)}-01T12:00:00`)} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button><strong>{month.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</strong><button type="button" aria-label="Próximo mês" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>›</button></div><div className="booking-weekdays">{["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"].map((item) => <span key={item}>{item}</span>)}</div><div className="booking-days">{calendarDays.map((day, index) => { if (!day) return <i key={`blank-${index}`} />; const value = isoDate(new Date(month.getFullYear(), month.getMonth(), day)); const closed = !isPublicBookingDateAllowed(value, data.organization.weekdays); const disabled = value < today || value > maxDate || closed; return <button type="button" disabled={disabled} title={closed ? "Fechado" : undefined} className={value === selectedDate ? "selected" : ""} onClick={() => setSelectedDate(value)} key={value}>{day}</button>; })}</div></>}</div></section>
+      <section className="booking-card" id="booking-date"><div className="booking-card-heading"><span>3</span><div><strong>Escolha o dia</strong><small>Disponibilidade para os próximos 90 dias</small></div></div><div className={`booking-calendar${selectedDate ? " compact" : ""}`}>{selectedDate ? <div className="booking-selected-date"><div><small>DATA ESCOLHIDA</small><strong>{dayLabel(selectedDate)}</strong></div><button type="button" onClick={resetDate}>Trocar data</button></div> : <><div className="booking-calendar-nav"><button type="button" aria-label="Mês anterior" disabled={month <= new Date(`${today.slice(0, 7)}-01T12:00:00`)} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button><strong>{month.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</strong><button type="button" aria-label="Próximo mês" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>›</button></div><div className="booking-weekdays">{["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"].map((item) => <span key={item}>{item}</span>)}</div><div className="booking-days">{calendarDays.map((day, index) => { if (!day) return <i key={`blank-${index}`} />; const value = isoDate(new Date(month.getFullYear(), month.getMonth(), day)); const closed = !isPublicBookingDateAllowed(value, data.organization.weekdays); const disabled = value < today || value > maxDate || closed; return <button type="button" disabled={disabled} title={closed ? "Fechado" : undefined} className={value === selectedDate ? "selected" : ""} onClick={() => setSelectedDate(value)} key={value}>{day}</button>; })}</div></>}</div></section>
 
-      {selectedDate && <section className="booking-card booking-times-card"><div className="booking-card-heading"><span>4</span><div><strong>Horários disponíveis</strong><small>{isMembership ? "Mensalista" : service?.name} · {service?.durationMinutes ?? 30} minutos</small></div></div>{loadingSlots ? <div className="booking-loading"><i /><span>Consultando a agenda...</span></div> : slots.length ? <div className="booking-times">{slots.map((slot) => <button type="button" className={selectedTime === slot.time ? "selected" : ""} onClick={() => setSelectedTime(slot.time)} key={`${slot.time}-${slot.barberId}`}><strong>{slot.time}</strong>{barberId === 0 && <small>{slot.barberName}</small>}</button>)}</div> : <div className="booking-no-slots"><span>◷</span><strong>Nenhum horário livre neste dia</strong><button type="button" onClick={resetDate}>Escolher outra data</button></div>}</section>}
+      {selectedDate && <section className="booking-card booking-times-card" id="booking-time"><div className="booking-card-heading"><span>4</span><div><strong>Horários disponíveis</strong><small>{isMembership ? "Mensalista" : service?.name} · {service?.durationMinutes ?? 30} minutos</small></div></div>{loadingSlots ? <div className="booking-loading"><i /><span>Consultando a agenda...</span></div> : slots.length ? <div className="booking-times">{slots.map((slot) => <button type="button" className={selectedTime === slot.time ? "selected" : ""} onClick={() => setSelectedTime(slot.time)} key={`${slot.time}-${slot.barberId}`}><strong>{slot.time}</strong>{barberId === 0 && <small>{slot.barberName}</small>}</button>)}</div> : <div className="booking-no-slots"><span>◷</span><strong>Nenhum horário livre neste dia</strong><button type="button" onClick={resetDate}>Escolher outra data</button></div>}</section>}
 
-      {selectedTime && <section className="booking-card booking-contact-card"><div className="booking-card-heading"><span>5</span><div><strong>{isMembership ? "Identifique seu plano" : "Seus dados e pagamento"}</strong><small>{isMembership ? "A barbearia localizará seu cadastro pelo nome e telefone" : "Escolha como deseja pagar"}</small></div></div><form onSubmit={submit}><label><span>Seu nome</span><input name="clientName" autoComplete="name" placeholder="Como podemos chamar você?" minLength={2} maxLength={100} pattern="[A-Za-zÀ-ÖØ-öø-ÿ .’'-]+" title="Use somente letras no nome" required /></label><label><span>Telefone ou WhatsApp</span><input name="phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="(41) 99999-9999" maxLength={30} required /></label>{!isMembership && (paymentOptions.length ? <fieldset className="booking-payment-options"><legend>Como você quer pagar?</legend>{paymentOptions.map((option) => <label key={option}><input type="radio" name="paymentChoice" value={option} checked={paymentChoice === option} onChange={() => setPaymentChoice(option)} /><span><strong>{option}</strong><small>{option === "Pix" ? "Pagamento integral antecipado" : "Pagamento na barbearia"}</small></span></label>)}</fieldset> : <p className="booking-error" role="alert">A barbearia ainda não liberou uma forma de pagamento.</p>)}<label className="booking-honeypot" aria-hidden="true"><span>Site</span><input name="website" tabIndex={-1} autoComplete="off" /></label>{error && <p className="booking-error" role="alert">{error}</p>}<div className="booking-summary"><span>{isMembership ? "Mensalista" : service?.name}</span><strong>{dayLabel(selectedDate)} · {selectedTime}</strong><small>{barberId ? data.barbers.find((item) => item.id === barberId)?.name : slots.find((slot) => slot.time === selectedTime)?.barberName}{!isMembership ? ` · ${paymentChoice}` : ""}</small></div><button className="booking-submit" disabled={submitting || (!isMembership && !paymentChoice)}>{submitting ? "Enviando..." : !isMembership && paymentChoice === "Pix" ? "Continuar para o Pix" : data.organization.requiresApproval ? "Solicitar agendamento" : "Confirmar agendamento"}<b>→</b></button></form></section>}
+      {selectedTime && <section className="booking-card booking-contact-card" id="booking-contact"><div className="booking-card-heading"><span>5</span><div><strong>{isMembership ? "Identifique seu plano" : "Seus dados e pagamento"}</strong><small>{isMembership ? "A barbearia localizará seu cadastro pelo nome e telefone" : "Escolha como deseja pagar"}</small></div></div><form onSubmit={submit}><label><span>Seu nome</span><input name="clientName" value={clientName} onChange={(event) => setClientName(event.target.value)} autoComplete="name" placeholder="Como podemos chamar você?" minLength={2} maxLength={100} pattern="[A-Za-zÀ-ÖØ-öø-ÿ .’'-]+" title="Use somente letras no nome" required /></label><label><span>Telefone ou WhatsApp</span><input name="phone" value={phone} onChange={(event) => setPhone(event.target.value)} type="tel" inputMode="tel" autoComplete="tel" placeholder="(41) 99999-9999" maxLength={30} required /></label>{!isMembership && (paymentOptions.length ? <fieldset className="booking-payment-options"><legend>Como você quer pagar?</legend>{paymentOptions.map((option) => <label key={option}><input type="radio" name="paymentChoice" value={option} checked={paymentChoice === option} onChange={() => setPaymentChoice(option)} /><span><strong>{option}</strong><small>{option === "Pix" ? "Pagamento integral antecipado" : "Pagamento na barbearia"}</small></span></label>)}</fieldset> : <p className="booking-error" role="alert">A barbearia ainda não liberou uma forma de pagamento.</p>)}<label className="booking-honeypot" aria-hidden="true"><span>Site</span><input name="website" tabIndex={-1} autoComplete="off" /></label>{error && <p className="booking-error" role="alert">{error}</p>}<div className="booking-summary"><span>{selectedServiceLabel}</span><strong>{dayLabel(selectedDate)} · {selectedTime}</strong><small>{selectedBarberName}{!isMembership ? ` · ${paymentChoice}` : membershipPlan ? ` · ${membershipPlan.name}` : ""}</small></div><button className="booking-submit" disabled={submitting || (!isMembership && !paymentChoice)}>{isMembership ? "Revisar agendamento" : paymentChoice === "Pix" ? "Revisar antes do Pix" : "Revisar agendamento"}<b>→</b></button></form></section>}
+      {membershipPickerOpen && <div className="booking-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMembershipPickerOpen(false); }}><section className="booking-modal membership-picker" role="dialog" aria-modal="true" aria-labelledby="membership-picker-title"><button type="button" className="booking-modal-close" aria-label="Fechar" onClick={() => setMembershipPickerOpen(false)}>×</button><span className="booking-modal-kicker">CLIENTE MENSALISTA</span><h2 id="membership-picker-title">Qual é o seu plano?</h2><p>Escolha o plano que você usa para reservar o tempo correto na agenda.</p><div>{data.membershipPlans.map((plan) => <button type="button" className={membershipPlanId === plan.id ? "selected" : ""} onClick={() => chooseMembershipPlan(plan.id)} key={plan.id}><span><AppIcon name="members" /></span><div><strong>{plan.planKind}</strong><small>{plan.name} · {plan.maxUses} uso{plan.maxUses === 1 ? "" : "s"}/mês · {money(plan.monthlyValueCents)}</small><em>{plan.durationMinutes} min</em></div><b><AppIcon name="check" /></b></button>)}</div></section></div>}
+      {reviewOpen && <div className="booking-modal-backdrop review" role="presentation"><section className="booking-modal booking-review-modal" role="dialog" aria-modal="true" aria-labelledby="booking-review-title"><button type="button" className="booking-modal-close" aria-label="Voltar ao agendamento" onClick={() => setReviewOpen(false)}>×</button><span className="booking-modal-kicker">CONFIRA ANTES DE ENVIAR</span><small className="booking-review-shop">{data.organization.name}</small><h2 id="booking-review-title">Está tudo certo?</h2><p>Veja os detalhes do seu atendimento antes de mandar o pedido para a barbearia.</p><div className="booking-review-list"><button type="button" onClick={() => editReview("booking-service")}><span>Serviço</span><strong>{selectedServiceLabel}</strong><small>{isMembership && membershipPlan ? membershipPlan.name : service ? `${service.durationMinutes} min · ${money(service.priceCents)}` : ""}</small><em>Alterar</em></button><button type="button" onClick={() => editReview("booking-professional")}><span>Profissional</span><strong>{selectedBarberName || "Qualquer profissional"}</strong><em>Alterar</em></button><button type="button" onClick={() => editReview("booking-date")}><span>Data</span><strong>{dayLabel(selectedDate)}</strong><em>Alterar</em></button><button type="button" onClick={() => editReview("booking-time")}><span>Horário</span><strong>{selectedTime}</strong><em>Alterar</em></button>{!isMembership && <button type="button" onClick={() => editReview("booking-contact")}><span>Pagamento</span><strong>{paymentChoice}</strong><em>Alterar</em></button>}</div>{error && <p className="booking-error" role="alert">{error}</p>}<div className="booking-review-actions"><button type="button" className="booking-review-back" disabled={submitting} onClick={() => setReviewOpen(false)}>Voltar e alterar</button><button type="button" className="booking-review-confirm" disabled={submitting} onClick={() => void confirmBooking()}>{submitting ? "Confirmando..." : "Confirmar agendamento"}<b>→</b></button></div><small className="booking-review-note">O horário só é enviado agora. Se algo mudou na agenda, o sistema confere novamente antes de salvar.</small></section></div>}
       {error && !selectedTime && <p className="booking-error global" role="alert">{error}</p>}
       <footer className="public-booking-footer"><span>Horários atualizados em tempo real</span><small>Agendamento protegido por Cortou Anotou</small></footer>
     </section>
