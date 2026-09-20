@@ -155,7 +155,7 @@ function teamNameFrom(text: string) {
 function parseServiceAction(text: string, clean: string): ParsedHelpAction {
   if (!actionVerb(clean) && !/\b(custa|dura|demora)\b/.test(clean)) return null;
   if (!/\bservico\b|\bcorte\b|\bbarba\b|\bsobrancelha\b/.test(clean)) return null;
-  const create = /\b(cria|criar|cadastre|cadastrar|adiciona|adicionar)\b/.test(clean);
+  const create = /\b(cria|criar|cadastre|cadastrar|adiciona|adicionar|novo|nova)\b/.test(clean);
   const name = serviceNameFrom(text);
   const price = moneyAfter(text, /(?:r\$\s*|custa\s*|valor(?:\s+de)?\s*|pre[cç]o(?:\s+de)?\s*|por\s+)(\d+(?:[.,]\d{1,2})?)/i) || moneyCents(text);
   const duration = durationMinutes(text);
