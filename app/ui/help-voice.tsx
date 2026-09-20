@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
 export type HelpVoicePayload = {
   blob: Blob;
@@ -178,7 +178,7 @@ export function useHelpVoiceRecorder({
 }
 
 export function HelpVoiceWave({ active = false, progress = 0 }: { active?: boolean; progress?: number }) {
-  return <span className={"help-voice-wave" + (active ? " active" : "")} style={{ "--voice-progress": `${Math.max(0, Math.min(100, progress))}%` } as React.CSSProperties}>
+  return <span className={"help-voice-wave" + (active ? " active" : "")} style={{ "--voice-progress": `${Math.max(0, Math.min(100, progress))}%` } as CSSProperties}>
     {Array.from({ length: 23 }, (_, index) => <i key={index} />)}
   </span>;
 }
