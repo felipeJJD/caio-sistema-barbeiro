@@ -654,34 +654,34 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   }
 
   return <>
-    <button ref={launcherRef} className={"help-launcher"+(open ? " is-open" : "")} type="button" aria-label="Abrir Central de ajuda" aria-expanded={open} aria-controls="cortou-anotou-help" onClick={() => setOpen(true)}><span><AppIcon name="help" /></span><strong>Ajuda</strong></button>
+    <button ref={launcherRef} className={"help-launcher"+(open ? " is-open" : "")} type="button" aria-label="Abrir Assistente Cortou Anotou" aria-expanded={open} aria-controls="cortou-anotou-help" onClick={() => setOpen(true)}><span><AppIcon name="help" /></span><strong>Ajuda</strong></button>
     {open && <>
       <div className="help-chat-backdrop" onClick={closeHelp} aria-hidden="true" />
       <section ref={panelRef} className="help-panel help-chat" id="cortou-anotou-help" role="dialog" aria-modal="true" aria-labelledby="help-title">
-        <header className="help-header"><AppIcon name="help" /><div><h2 id="help-title">Central de ajuda</h2><small>Cortou Anotou</small></div><button ref={closeRef} type="button" aria-label="Minimizar Central de ajuda" onClick={closeHelp}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button></header>
+        <header className="help-header"><AppIcon name="help" /><div><h2 id="help-title">Assistente Cortou Anotou</h2><small>Pergunte, consulte ou peça para fazer</small></div><button ref={closeRef} type="button" aria-label="Fechar Assistente Cortou Anotou" onClick={closeHelp}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></header>
         <div className="help-chat-scroll">
           <div className="help-messages" role="log" aria-live="polite" aria-relevant="additions">
             {messages.map(message=><div className={"help-message "+message.role} key={message.id}>
               <p>{message.text}</p>
               {message.destination && <button type="button" className="help-destination" disabled={busy} onClick={()=>navigate(message.destination!)}>{message.destination.label}<span aria-hidden="true">→</span></button>}
               {message.suggestions && <div className="help-inline-suggestions">{message.suggestions.map(text=><button type="button" key={text} disabled={busy} onClick={()=>void ask(text)}>{text}</button>)}</div>}
-              {message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
+              {message.link && <a className="help-destination help-link" href={message.link.url} target="_blank" rel="noreferrer">{message.link.label}<span aria-hidden="true">↗</span></a>}{message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
             </div>)}
             {answerPending && <div className="help-message assistant typing" aria-label="Consultando, aguarde"><i /><i /><i /></div>}
           </div>
           {messages.length === 1 && <div className="help-starter-prompts">{helpSuggestions.map(text=><button type="button" key={text} onClick={()=>void ask(text)}>{text}<span aria-hidden="true">↗</span></button>)}</div>}
           {choices.length > 0 && <div className="help-choices">{choices.map(choice=><button type="button" disabled={busy} key={choice.label} onClick={()=>{ stopVoice(); updateInput(""); addMessage("user",choice.label); applyAnswer(activeField as ActionField,choice.value); }}>{choice.label}</button>)}</div>}
-          {actionDraft && !activeField && <div className="help-confirm"><strong>Confira antes de salvar</strong><dl>{summaryRows(actionDraft).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelAction}>Cancelar</button></div></div>}
+          {actionDraft && !activeField && <div className="help-confirm"><strong>Confira antes de salvar</strong><dl>{summaryRows(actionDraft).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelAction}>Cancelar</button></div></div>}{configAction && <div className="help-confirm help-config-confirm"><strong>O assistente entendeu assim</strong><dl>{configSummaryRows(configAction).filter(row=>row[1]).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><div><button type="button" className="help-confirm-button" disabled={saving} onClick={()=>void confirmConfigAction()}>{saving?"Salvando...":"Confirmar e salvar"}</button><button type="button" className="help-cancel-button" disabled={saving} onClick={cancelConfigAction}>Cancelar</button></div><small className="help-confirm-note">Nada é alterado antes da sua confirmação.</small></div>}
           {actionDraft && activeField && <button type="button" className="help-abandon" onClick={cancelAction}>Cancelar este pedido</button>}
           <div ref={endRef} />
         </div>
         <div className="help-composer">
-          {listening && <div className="help-recording" role="status"><span />Ouvindo. Pode falar sem pressa.<button type="button" onClick={stopVoice}>Concluir</button></div>}
+          {listening && <div className="help-recording" role="status"><span />Ouvindo... fale normalmente. Toque na seta para enviar.</div>}
           <form className="help-form" onSubmit={submit}>
-            <textarea ref={inputRef} value={input} onChange={event=>{stopVoice();updateInput(event.target.value);}} maxLength={HELP_MESSAGE_LIMIT} rows={1} placeholder={activeField?"Sua resposta...":"Escreva sua dúvida..."} aria-label="Mensagem para a Central de ajuda" />
+            <textarea ref={inputRef} value={input} onChange={event=>{stopVoice();updateInput(event.target.value);}} maxLength={HELP_MESSAGE_LIMIT} rows={1} placeholder={listening?"":activeField?"Sua resposta...":"Escreva sua dúvida..."} aria-label="Mensagem para o Assistente Cortou Anotou" />
             <div className="help-composer-actions">
-              <button className={listening?"help-mic listening":"help-mic"} type="button" disabled={busy} aria-pressed={listening} aria-label={listening?"Concluir gravação":"Ditar mensagem"} onClick={startVoice}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></svg></button>
-              <small>{listening?"Revise antes de enviar":"Texto ou voz"}</small>
+              <button className={listening?"help-mic listening":"help-mic"} type="button" disabled={busy} aria-pressed={listening} aria-label={listening?"Enviar mensagem de voz":"Falar com o assistente"} onClick={toggleVoice}><svg viewBox="0 0 24 24" aria-hidden="true">{listening?<path d="M12 19V5M6 11l6-6 6 6"/>:<><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></>}</svg></button>
+              <small>{listening?"Ouvindo...":"Texto ou voz"}</small>
               <button className="help-send" disabled={busy || !input.trim()} aria-label="Enviar mensagem">Enviar <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
             </div>
           </form>
