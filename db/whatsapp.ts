@@ -3,6 +3,7 @@ import type { AccessContext } from "./access";
 import { requireOwner, requirePlatformAdmin } from "./access";
 import { getDb } from "./index";
 import { decryptSecret, encryptSecret } from "./platform-secrets";
+import { normalizeWhatsappPhone, whatsappReminderAt } from "../lib/whatsapp";
 import {
   appointments,
   organizations,
@@ -71,15 +72,6 @@ function monthStartIso() {
 function normalizeTemplateName(value: string, fallback: string) {
   const normalized = value.trim().toLowerCase();
   return /^[a-z0-9_]{3,120}$/.test(normalized) ? normalized : fallback;
-}
-
-export function normalizeWhatsappPhone(value: string) {
-  let digits = value.replace(/\D/g, "");
-  if (digits.startsWith("00")) digits = digits.slice(2);
-  while (digits.startsWith("0")) digits = digits.slice(1);
-  if ((digits.length === 10 || digits.length === 11) && !digits.startsWith("55")) digits = `55${digits}`;
-  if (digits.length < 10 || digits.length > 15) return "";
-  return digits;
 }
 
 async function settingsForOrganization(organizationId: number) {
@@ -344,11 +336,6 @@ function templateFor(settings: Awaited<ReturnType<typeof settingsForOrganization
   return normalizeTemplateName(String(settings.rescheduleTemplate), defaultSettings.rescheduleTemplate);
 }
 
-function appointmentInstant(date: string, time: string) {
-  const instant = new Date(`${date}T${time}:00-03:00`);
-  return Number.isFinite(instant.getTime()) ? instant : null;
-}
-
 async function cancelPendingAppointmentMessages(organizationId: number, appointmentId: number, kinds: WhatsappAutomationKind[]) {
   const db = await getDb();
   if (!kinds.length) return;
@@ -420,11 +407,8 @@ export async function queueAppointmentWhatsapp(kind: Exclude<WhatsappAutomationK
   const mainQueued = await enqueueMessage(kind, appointment, settings, now);
 
   if ((kind === "confirmation" || kind === "rescheduled") && settings.reminderEnabled) {
-    const instant = appointmentInstant(appointment.appointmentDate, appointment.appointmentTime);
-    if (instant) {
-      const reminderAt = new Date(instant.getTime() - Number(settings.reminderHoursBefore) * 60 * 60 * 1000);
-      if (reminderAt.getTime() > Date.now() + 60_000) await enqueueMessage("reminder", appointment, settings, reminderAt.toISOString());
-    }
+    const reminderAt = whatsappReminderAt(appointment.appointmentDate, appointment.appointmentTime, Number(settings.reminderHoursBefore));
+    if (reminderAt) await enqueueMessage("reminder", appointment, settings, reminderAt);
   }
 
   return { queued: mainQueued, reason: mainQueued ? "queued" as const : "duplicate_or_disabled" as const };
