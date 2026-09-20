@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import type { AccessContext } from "./access";
 import { requireOwner, requirePlatformAdmin } from "./access";
 import { getDb } from "./index";
@@ -135,6 +135,7 @@ async function humanHandoffsForOrganization(organizationId: number) {
   }).from(whatsappConversations).where(and(
     eq(whatsappConversations.organizationId, organizationId),
     eq(whatsappConversations.pauseReason, "human_takeover"),
+    isNull(whatsappConversations.automationPausedUntil),
   )).orderBy(desc(whatsappConversations.humanRequestedAt), desc(whatsappConversations.lastInboundAt)).limit(12);
 }
 
