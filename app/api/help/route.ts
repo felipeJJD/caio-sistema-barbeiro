@@ -43,7 +43,7 @@ export async function POST(request:Request) {
 
     // Only one interpretation call. The deterministic fallback runs only when
     // the model is unavailable or returned a malformed/unlisted intent.
-    const interpreted=await interpretHelp(messages,access.isOwner,profile,pending);
+    const interpreted=await interpretHelp(messages,access.isOwner,profile,pending,access.name);
     if(interpreted?.kind==="tool")return json(await executeHelpTool(access,reconcileHelpIntent(question,interpreted.intent,access.isOwner),profile));
     if(interpreted?.kind==="action"){
       if(interpreted.action.kind==="public-booking-link"){
@@ -57,6 +57,7 @@ export async function POST(request:Request) {
       const guide=guideReply(interpreted.topic,access.isOwner);
       if(guide)return json(guide);
     }
+    if(interpreted?.kind==="chat")return json({answer:interpreted.answer});
     if(interpreted?.kind==="clarify")return json(fallback?await executeHelpTool(access,fallback,profile):{answer:interpreted.answer});
     if(fallback)return json(await executeHelpTool(access,fallback,profile));
     if(pending)return json({answer:"Para mudar a proposta, diga o valor ou horário desejado; para começar outro pedido, cancele a proposta anterior."});
@@ -76,7 +77,8 @@ export async function POST(request:Request) {
     const guideId=findGuide(question);
     if(guideId)return json(guideReply(guideId,access.isOwner)!);
     const clean=normalizeHelp(question);
-    if(/^(oi|ola|opa|bom dia|boa tarde|boa noite|tudo bem)$/.test(clean))return json({answer:"Olá! Posso consultar sua agenda, produção e configurações, ou preparar uma alteração para você confirmar. O que precisa?",suggestions:["Como está a agenda hoje?","Quanto faturei este mês?"]});
+    const firstName=access.name.trim().split(/\s+/)[0]?.slice(0,40) || "";
+    if(/^(oi|ola|opa|bom dia|boa tarde|boa noite|tudo bem)$/.test(clean))return json({answer:`${firstName ? `Oi, ${firstName}!` : "Oi!"} Tudo certo por aqui. Pode falar comigo do seu jeito.`});
     return json({answer:"Me conte qual parte do aplicativo você quer conferir ou mudar. Por exemplo: 'quais horários tenho hoje?' ou 'quanto a barbearia faturou ontem?'.",suggestions:["Como está a agenda hoje?","Por que meu cliente não consegue agendar?"]});
   }catch(error){
     if(error instanceof RateLimitError)return json({error:error.message},429);
