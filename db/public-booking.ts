@@ -10,6 +10,7 @@ import { validClientName } from "../lib/client-name";
 import { parseBookingWeekdays } from "../lib/booking-weekdays";
 import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWindowAllows, parseTeamWeeklyBookingHours, parseWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
 import { availableMembershipUses, membershipNameMatches, membershipNameNeedsPhone, normalizeMembershipIdentity, phoneDigits, resolveMembershipService } from "../lib/membership-service";
+import { processWhatsappQueueSafely, queueAppointmentWhatsappSafely } from "./whatsapp";
 
 export type PublicBookingData = {
   organization: {
@@ -443,6 +444,10 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     time: input.time,
     status,
   });
+  if (status === "Agendado") {
+    const queued = await queueAppointmentWhatsappSafely("confirmation", appointmentId);
+    if (queued.queued) await processWhatsappQueueSafely(data.organization.id, 3);
+  }
   return {
     id: appointmentId,
     status,
@@ -533,6 +538,8 @@ export async function cancelPublicBooking(slug: string, token: string) {
     eq(appointments.organizationId, row.organizationId),
   ));
   await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date: row.date, time: row.time, status: "Cancelado" }, "cancelled");
+  const queued = await queueAppointmentWhatsappSafely("cancellation", row.appointmentId);
+  if (queued.queued) await processWhatsappQueueSafely(row.organizationId, 3);
   return getPublicBookingManagement(slug, token);
 }
 
@@ -567,5 +574,9 @@ export async function reschedulePublicBooking(slug: string, token: string, date:
   `).bind(date, time, newStatus, row.appointmentId, row.organizationId, row.organizationId, date, row.barberId, row.appointmentId, requestedEnd, requestedStart).first<{ id: number }>();
   if (!updated) throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
   await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date, time, status: newStatus }, "rescheduled");
+  if (newStatus === "Agendado") {
+    const queued = await queueAppointmentWhatsappSafely("rescheduled", row.appointmentId);
+    if (queued.queued) await processWhatsappQueueSafely(row.organizationId, 3);
+  }
   return getPublicBookingManagement(slug, token);
 }

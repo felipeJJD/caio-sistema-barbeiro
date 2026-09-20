@@ -16,6 +16,7 @@ import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWeekdaysTextFromH
 import { isTeamPaymentKind, type TeamPaymentKind } from "../lib/team-payments";
 import { assertTeamPaymentOpen } from "./team-money";
 import { resolveMembershipService } from "../lib/membership-service";
+import { processWhatsappQueueSafely, queueAppointmentWhatsappSafely } from "./whatsapp";
 
 export type DashboardData = {
   dataPeriod: { start: string; end: string };
@@ -656,8 +657,20 @@ export async function cancelAppointment(access: AccessContext, id: number) {
     date: existing.appointmentDate,
     time: existing.appointmentTime,
   });
+  const queued = await queueAppointmentWhatsappSafely("cancellation", id);
+  if (queued.queued) await processWhatsappQueueSafely(access.organizationId, 3);
 }
-export async function confirmAppointment(access: AccessContext, id: number) { const db = await getDb(); const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Agendamento não encontrado."); requireOwnBarber(access, existing.barberId); if (existing.status !== "Aguardando") return; await db.update(appointments).set({ status: "Agendado" }).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))); }
+
+export async function confirmAppointment(access: AccessContext, id: number) {
+  const db = await getDb();
+  const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0];
+  if (!existing) throw new Error("Agendamento não encontrado.");
+  requireOwnBarber(access, existing.barberId);
+  if (existing.status !== "Aguardando") return;
+  await db.update(appointments).set({ status: "Agendado" }).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId)));
+  const queued = await queueAppointmentWhatsappSafely("confirmation", id);
+  if (queued.queued) await processWhatsappQueueSafely(access.organizationId, 3);
+}
 export async function completeAppointment(access: AccessContext, input: { id: number; occurredAt: string; paymentMethodId: number; membershipClientId?: number; tipCents?: number }) {
   const db = await getDb();
   const appointment = (await db.select().from(appointments).where(and(eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId))).limit(1))[0];
