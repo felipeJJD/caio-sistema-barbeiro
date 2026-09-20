@@ -98,7 +98,15 @@ ${topics.map(t=>`${t.id}: ${t.answer}`).join("\n")}`,
         }}}
       })
     });
-    if (!response.ok) { console.warn("help_model_unavailable", {status:response.status}); return null; }
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const failure = await response.json() as {error?:{message?:string}};
+        detail = failure.error?.message?.slice(0,300) || "";
+      } catch {}
+      console.warn("help_model_unavailable", {status:response.status, detail});
+      return null;
+    }
     const payload = await response.json() as {status?:string;output?:Array<{type:string;content?:Array<{type:string;text?:string}>}>};
     if (payload.status && payload.status !== "completed") return null;
     const outputText = payload.output?.filter(o=>o.type === "message").flatMap(o=>o.content || []).filter(c=>c.type === "output_text").map(c=>c.text || "").join("");
