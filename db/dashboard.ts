@@ -21,7 +21,7 @@ export type DashboardData = {
   dataPeriod: { start: string; end: string };
   viewer: { name: string; email: string; role: "owner" | "barber"; isOwner: boolean; isPlatformAdmin: boolean; teamMemberId: number; organizationName: string; accountType: "barbershop" | "individual"; organizationStatus: string; trialEndsAt: string | null };
   clients: Array<{ id: number; name: string; phone: string; plan: string; planKind: string; planId: number; paymentMethodId: number; paymentName: string; balance: number; maxBalance: number; dueDate: string; status: string; monthlyValueCents: number; paidMonth: string; usedThisMonth: number; remaining: number; overLimit: boolean }>;
-  plans: Array<{ id: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }>;
+  plans: Array<{ id: number; name: string; planKind: string; serviceId: number | null; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }>;
   team: Array<{ id: number; name: string; role: string; loginEmail: string | null; accessRole: string; commissionCents: number; commissionRateBps: number; active: boolean; hasPassword: boolean; weeklyHours: WeeklyBookingHours }>;
   teamPayments: Array<{ id: number; teamMemberId: number; teamMemberName: string; occurredAt: string; kind: TeamPaymentKind; reason: string; valueCents: number }>;
   services: Array<{ id: number; name: string; priceCents: number; durationMinutes: number; active: boolean }>;
@@ -30,7 +30,7 @@ export type DashboardData = {
   membershipPayments: Array<{ id: number; clientId: number; clientName: string; planName: string; planKind: string; paymentMethodId: number; paymentName: string; paidMonth: string; occurredAt: string; amountCents: number; feeCents: number }>;
   records: Array<{ id: number; occurredAt: string; clientName: string; barberId: number; barberName: string; serviceId: number; serviceName: string; paymentMethodId: number; paymentName: string; quantity: number; valueCents: number; commissionCents: number; feeCents: number; tipCents: number; origin: string; recordType: string; membershipClientId: number | null }>;
   expenses: Array<{ id: number; occurredAt: string; type: string; description: string; valueCents: number; paid: boolean }>;
-  appointments: Array<{ id: number; appointmentDate: string; appointmentTime: string; clientName: string; phone: string; serviceId: number; serviceName: string; durationMinutes: number; barberId: number; barberName: string; notes: string; status: string; reminderSentAt: string | null; paymentChoice: string; membershipClientId: number | null }>;
+  appointments: Array<{ id: number; appointmentDate: string; appointmentTime: string; clientName: string; phone: string; serviceId: number; serviceName: string; durationMinutes: number; barberId: number; barberName: string; notes: string; status: string; reminderSentAt: string | null; paymentChoice: string; membershipClientId: number | null; membershipPlanId: number | null; membershipCreditState: string | null }>;
   notifications: AppNotification[];
   products: ShopProduct[];
   productSales: ProductSale[];
@@ -348,7 +348,7 @@ function validTipCents(value = 0) {
   return tip;
 }
 
-export async function createDailyRecord(access: AccessContext, input: { occurredAt: string; recordType: string; clientName?: string; membershipClientId?: number; barberId: number; serviceId?: number; paymentMethodId?: number; origin?: string; tipCents?: number; productItems?: ProductSaleItemInput[] }) {
+export async function createDailyRecord(access: AccessContext, input: { occurredAt: string; recordType: string; clientName?: string; membershipClientId?: number; appointmentId?: number; barberId: number; serviceId?: number; paymentMethodId?: number; origin?: string; tipCents?: number; productItems?: ProductSaleItemInput[] }) {
   requireOwnBarber(access, input.barberId);
   const tipCents = validTipCents(input.tipCents);
   const db = await getDb();
@@ -358,7 +358,13 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
     const client = (await db.select().from(clients).where(and(eq(clients.id, input.membershipClientId ?? 0), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).limit(1))[0];
     if (!client) throw new Error("Escolha o mensalista.");
     if (client.status !== "Ativo") throw new Error("Este mensalista não está ativo.");
-    if (client.balance <= 0) throw new Error("Este mensalista não tem usos disponíveis no plano.");
+    const reservedAppointments = await db.select({ id: appointments.id }).from(appointments).where(and(
+      eq(appointments.organizationId, access.organizationId),
+      eq(appointments.membershipClientId, client.id),
+      eq(appointments.membershipCreditState, "reserved"),
+    ));
+    const otherReservedUses = reservedAppointments.filter((item) => item.id !== input.appointmentId).length;
+    if (client.balance - otherReservedUses <= 0) throw new Error("Este mensalista não tem créditos disponíveis fora dos horários já reservados.");
     const paymentList = await db.select().from(paymentMethods).where(eq(paymentMethods.organizationId, access.organizationId)).orderBy(paymentMethods.id);
     const selectedPayment = paymentList.find((item) => item.id === input.paymentMethodId);
     const payment = input.productItems?.length
@@ -367,12 +373,12 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
     if (!payment) throw new Error(input.productItems?.length ? "Escolha como os produtos foram pagos." : "Cadastre uma forma de pagamento antes de registrar o uso.");
     const plan = (await db.select().from(plans).where(and(eq(plans.id, client.planId), eq(plans.organizationId, access.organizationId))).limit(1))[0];
     const serviceList = await db.select().from(services).where(and(eq(services.organizationId, access.organizationId), isNull(services.deletedAt)));
-    const service = resolveMembershipService(plan?.planKind ?? client.planKind, plan?.name ?? client.plan, serviceList);
+    const service = resolveMembershipService(plan?.planKind ?? client.planKind, plan?.name ?? client.plan, serviceList, plan?.serviceId);
     if (!service) throw new Error("O plano deste mensalista precisa estar ligado a um serviço válido.");
     const payout = membershipPayoutCentsForAccessRole(barber.accessRole, plan?.barberPayoutCents, client.planKind);
     const [, inserted] = await db.batch([
       db.update(clients).set({ balance: client.balance - 1 }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId))),
-      db.insert(dailyRecords).values({ organizationId: access.organizationId, occurredAt: input.occurredAt, clientName: client.name, barberId: barber.id, serviceId: service.id, paymentMethodId: payment.id, quantity: 1, valueCents: 0, commissionRateBps: 0, commissionCents: payout, tipCents, feeCents: 0, origin: "Assinatura", recordType: "Mensalista", membershipClientId: client.id }).returning({ id: dailyRecords.id }),
+      db.insert(dailyRecords).values({ organizationId: access.organizationId, occurredAt: input.occurredAt, clientName: client.name, barberId: barber.id, serviceId: service.id, paymentMethodId: payment.id, quantity: 1, valueCents: 0, commissionRateBps: 0, commissionCents: payout, tipCents, feeCents: 0, origin: "Assinatura", recordType: "Mensalista", membershipClientId: client.id, appointmentId: input.appointmentId ?? null }).returning({ id: dailyRecords.id }),
     ]);
     const recordId = inserted[0]?.id;
     if (input.productItems?.length) {
@@ -396,7 +402,7 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
   if (!service) throw new Error("Informe cliente e serviço.");
   const clientName = validClientName(input.clientName ?? "", 120);
   const valueCents = service.priceCents;
-  const inserted = await db.insert(dailyRecords).values({ organizationId: access.organizationId, occurredAt: input.occurredAt, clientName, barberId: barber.id, serviceId: service.id, paymentMethodId: payment.id, quantity: 1, valueCents, commissionRateBps: barber.commissionRateBps, commissionCents: Math.round(valueCents * barber.commissionRateBps / 10000), tipCents, feeCents: Math.round(valueCents * payment.feeBps / 10000), origin: input.origin ?? "Retorno", recordType: "Avulso", membershipClientId: null }).returning({ id: dailyRecords.id });
+  const inserted = await db.insert(dailyRecords).values({ organizationId: access.organizationId, occurredAt: input.occurredAt, clientName, barberId: barber.id, serviceId: service.id, paymentMethodId: payment.id, quantity: 1, valueCents, commissionRateBps: barber.commissionRateBps, commissionCents: Math.round(valueCents * barber.commissionRateBps / 10000), tipCents, feeCents: Math.round(valueCents * payment.feeBps / 10000), origin: input.origin ?? "Retorno", recordType: "Avulso", membershipClientId: null, appointmentId: input.appointmentId ?? null }).returning({ id: dailyRecords.id });
   const recordId = inserted[0]?.id;
   if (input.productItems?.length) {
     if (!recordId) throw new Error("Não foi possível vincular os produtos ao atendimento.");
@@ -432,7 +438,7 @@ export async function updateDailyRecord(access: AccessContext, input: { id: numb
     if (!payment) throw new Error(input.productItems?.length ? "Escolha como os produtos foram pagos." : "Cadastre uma forma de pagamento antes de editar o uso.");
     const plan = (await db.select().from(plans).where(and(eq(plans.id, client.planId), eq(plans.organizationId, access.organizationId))).limit(1))[0];
     const serviceList = await db.select().from(services).where(eq(services.organizationId, access.organizationId));
-    const service = resolveMembershipService(plan?.planKind ?? client.planKind, plan?.name ?? client.plan, serviceList);
+    const service = resolveMembershipService(plan?.planKind ?? client.planKind, plan?.name ?? client.plan, serviceList, plan?.serviceId);
     if (!service) throw new Error("O plano deste mensalista precisa estar ligado a um serviço válido.");
     const payout = membershipPayoutCentsForAccessRole(barber.accessRole, plan?.barberPayoutCents, client.planKind);
     if (existing.membershipClientId && existing.membershipClientId !== client.id) {
@@ -607,7 +613,7 @@ export async function completeAppointment(access: AccessContext, input: { id: nu
 export async function markAppointmentReminderSent(access: AccessContext, id: number) { const db = await getDb(); const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Agendamento não encontrado."); requireOwnBarber(access, existing.barberId); if (existing.status !== "Agendado") throw new Error("Confirme o agendamento antes de enviar o lembrete."); await db.update(appointments).set({ reminderSentAt: new Date().toISOString() }).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))); }
 export async function deleteAppointment(access: AccessContext, id: number) { const db = await getDb(); const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Agendamento não encontrado."); requireOwnBarber(access, existing.barberId); await db.delete(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))); }
 
-export async function savePlan(access: AccessContext, input: { id?: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }) { requireOwner(access); if (!input.name.trim() || input.monthlyValueCents < 0 || input.maxUses < 1) throw new Error("Preencha os dados do plano."); const db = await getDb(); const linkedService = (await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, access.organizationId), eq(services.name, input.planKind.trim()), eq(services.active, true), isNull(services.deletedAt))).limit(1))[0]; if (!linkedService) throw new Error("Escolha um serviço ativo da barbearia para este plano."); const values = { name: input.name.trim(), planKind: input.planKind.trim(), monthlyValueCents: input.monthlyValueCents, maxUses: input.maxUses, barberPayoutCents: input.barberPayoutCents, active: input.active }; if (input.id) { await db.update(plans).set(values).where(and(eq(plans.id, input.id), eq(plans.organizationId, access.organizationId))); await db.update(clients).set({ plan: values.name, planKind: values.planKind, monthlyValueCents: values.monthlyValueCents, maxBalance: values.maxUses }).where(and(eq(clients.planId, input.id), eq(clients.organizationId, access.organizationId))); } else await db.insert(plans).values({ ...values, organizationId: access.organizationId }); }
+export async function savePlan(access: AccessContext, input: { id?: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }) { requireOwner(access); if (!input.name.trim() || input.monthlyValueCents < 0 || input.maxUses < 1) throw new Error("Preencha os dados do plano."); const db = await getDb(); const linkedService = (await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, access.organizationId), eq(services.name, input.planKind.trim()), eq(services.active, true), isNull(services.deletedAt))).limit(1))[0]; if (!linkedService) throw new Error("Escolha um serviço ativo da barbearia para este plano."); const values = { name: input.name.trim(), planKind: input.planKind.trim(), serviceId: linkedService.id, monthlyValueCents: input.monthlyValueCents, maxUses: input.maxUses, barberPayoutCents: input.barberPayoutCents, active: input.active }; if (input.id) { await db.update(plans).set(values).where(and(eq(plans.id, input.id), eq(plans.organizationId, access.organizationId))); await db.update(clients).set({ plan: values.name, planKind: values.planKind, monthlyValueCents: values.monthlyValueCents, maxBalance: values.maxUses }).where(and(eq(clients.planId, input.id), eq(clients.organizationId, access.organizationId))); } else await db.insert(plans).values({ ...values, organizationId: access.organizationId }); }
 export async function deletePlan(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const plan = (await db.select().from(plans).where(and(eq(plans.id, id), eq(plans.organizationId, access.organizationId))).limit(1))[0]; if (!plan) throw new Error("Plano não encontrado."); const linkedClients = await db.select({ id: clients.id }).from(clients).where(and(eq(clients.organizationId, access.organizationId), eq(clients.planId, plan.id), isNull(clients.deletedAt))).limit(1); if (linkedClients.length) throw new Error("Este plano ainda está ligado a clientes mensalistas. Altere o plano desses clientes antes de excluir."); await db.delete(plans).where(and(eq(plans.id, plan.id), eq(plans.organizationId, access.organizationId))); }
 export async function saveClient(access: AccessContext, input: { id?: number; name: string; phone: string; planId: number; paymentMethodId: number; status: string; dueDate: string; paidMonth: string }) {
   requireOwner(access);
