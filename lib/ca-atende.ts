@@ -1,4 +1,4 @@
-import { appDate } from "./app-date";
+import { appDate, appTimeMinutes } from "./app-date";
 
 export type CaAtendeIntent =
   | "greeting"
@@ -14,6 +14,7 @@ export type CaAtendeIntent =
 export type CaAtendeInterpretation = {
   intent: CaAtendeIntent;
   date: string;
+  time: string;
   service: string;
   barber: string;
   source: "rule" | "ai";
@@ -22,6 +23,7 @@ export type CaAtendeInterpretation = {
 export type CaAtendeContextMemory = {
   intent?: string;
   date?: string;
+  time?: string;
   service?: string;
   barber?: string;
 };
@@ -42,7 +44,22 @@ export function caAtendeTomorrow(today = appDate()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export function extractCaAtendeDate(value: string, today = appDate()) {
+export function extractCaAtendeTime(value: string) {
+  const text = normalizeCaAtendeText(value);
+  const colon = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(text);
+  if (colon) return `${String(Number(colon[1])).padStart(2,"0")}:${colon[2]}`;
+  const hours = /\b(?:as|a|pelas)?\s*([01]?\d|2[0-3])\s*(?:h|hs|hora|horas)\b/.exec(text);
+  if (hours) return `${String(Number(hours[1])).padStart(2,"0")}:00`;
+  return "";
+}
+
+function addDays(dateValue: string, days: number) {
+  const date = new Date(`${dateValue}T12:00:00-03:00`);
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+}
+
+export function extractCaAtendeDate(value: string, today = appDate(), currentMinutes = appTimeMinutes()) {
   const text = normalizeCaAtendeText(value);
   if (/\b(hoje|hj)\b/.test(text)) return today;
   if (/\bamanha\b/.test(text)) return caAtendeTomorrow(today);
@@ -56,6 +73,24 @@ export function extractCaAtendeDate(value: string, today = appDate()) {
     const result = `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
     const parsed = new Date(`${result}T12:00:00-03:00`);
     if (Number.isFinite(parsed.getTime()) && parsed.getFullYear() === year && parsed.getMonth() + 1 === month && parsed.getDate() === day) return result;
+  }
+
+  const weekdayNames = [
+    ["domingo",0],["segunda",1],["segunda feira",1],["terca",2],["terca feira",2],
+    ["quarta",3],["quarta feira",3],["quinta",4],["quinta feira",4],["sexta",5],["sexta feira",5],
+    ["sabado",6],
+  ] as const;
+  const found = weekdayNames.find(([name]) => text.includes(name));
+  if (found) {
+    const todayDate = new Date(`${today}T12:00:00-03:00`);
+    const todayWeekday = todayDate.getDay();
+    let delta = (found[1] - todayWeekday + 7) % 7;
+    const desiredTime = extractCaAtendeTime(value);
+    if (delta === 0 && desiredTime) {
+      const [hour, minute] = desiredTime.split(":").map(Number);
+      if (hour * 60 + minute <= currentMinutes) delta = 7;
+    }
+    return addDays(today, delta);
   }
   return "";
 }
@@ -73,21 +108,22 @@ export function highConfidenceCommercialOffer(value: string) {
 export function classifyCaAtendeByRule(value: string): CaAtendeInterpretation {
   const text = normalizeCaAtendeText(value);
   const date = extractCaAtendeDate(value);
-  if (!text) return { intent:"unknown", date:"", service:"", barber:"", source:"rule" };
-  if (highConfidenceCommercialOffer(value)) return { intent:"spam", date:"", service:"", barber:"", source:"rule" };
+  const time = extractCaAtendeTime(value);
+  if (!text) return { intent:"unknown", date:"", time:"", service:"", barber:"", source:"rule" };
+  if (highConfidenceCommercialOffer(value)) return { intent:"spam", date:"", time:"", service:"", barber:"", source:"rule" };
   if (/\b(quero|preciso|posso|gostaria).{0,28}\b(falar|conversar).{0,22}\b(dono|proprietario|responsavel|barbeiro|pessoa|atendente|humano)\b/.test(text)
     || /\b(falar com o dono|falar com proprietario|falar com responsavel|atendimento humano)\b/.test(text)) {
-    return { intent:"human", date, service:"", barber:"", source:"rule" };
+    return { intent:"human", date, time, service:"", barber:"", source:"rule" };
   }
-  if (/\b(cancelar|cancela|cancelamento|desmarcar|desmarca)\b/.test(text)) return { intent:"cancel", date, service:"", barber:"", source:"rule" };
-  if (/\b(remarcar|remarca|mudar meu horario|trocar meu horario|mudar o horario|trocar o horario)\b/.test(text)) return { intent:"reschedule", date, service:"", barber:"", source:"rule" };
-  if (/\b(preco|precos|valor|valores|quanto custa|quanto e|tabela)\b/.test(text)) return { intent:"prices", date, service:"", barber:"", source:"rule" };
-  if (/\b(horario|horarios|vaga|vagas|disponivel|disponibilidade|tem hora|tem horario)\b/.test(text)) return { intent:"availability", date, service:"", barber:"", source:"rule" };
-  if (/\b(agendar|agenda|marcar|marca um horario|marcar horario|quero cortar|quero fazer a barba)\b/.test(text)) return { intent:"booking", date, service:"", barber:"", source:"rule" };
+  if (/\b(cancelar|cancela|cancelamento|desmarcar|desmarca)\b/.test(text)) return { intent:"cancel", date, time, service:"", barber:"", source:"rule" };
+  if (/\b(remarcar|remarca|mudar meu horario|trocar meu horario|mudar o horario|trocar o horario)\b/.test(text)) return { intent:"reschedule", date, time, service:"", barber:"", source:"rule" };
+  if (/\b(preco|precos|valor|valores|quanto custa|quanto e|tabela)\b/.test(text)) return { intent:"prices", date, time, service:"", barber:"", source:"rule" };
+  if (/\b(horario|horarios|vaga|vagas|disponivel|disponibilidade|tem hora|tem horario)\b/.test(text)) return { intent:"availability", date, time, service:"", barber:"", source:"rule" };
+  if (/\b(agendar|agenda|marcar|marca um horario|marcar horario|quero cortar|quero fazer a barba)\b/.test(text)) return { intent:"booking", date, time, service:"", barber:"", source:"rule" };
   if (text.length <= 70 && /^(oi|ola|opa|e ai|bom dia|boa tarde|boa noite|tudo bem|oi tudo bem|ola tudo bem|salve|fala)(\b|$)/.test(text)) {
-    return { intent:"greeting", date, service:"", barber:"", source:"rule" };
+    return { intent:"greeting", date, time, service:"", barber:"", source:"rule" };
   }
-  return { intent:"unknown", date, service:"", barber:"", source:"rule" };
+  return { intent:"unknown", date, time, service:"", barber:"", source:"rule" };
 }
 
 export function formatCaAtendeMoney(cents: number) {
@@ -98,6 +134,7 @@ export function mergeCaAtendeMemory(memory: CaAtendeContextMemory, next: Partial
   return {
     intent: next.intent || memory.intent || "",
     date: next.date || memory.date || "",
+    time: next.time || memory.time || "",
     service: next.service || memory.service || "",
     barber: next.barber || memory.barber || "",
   };
