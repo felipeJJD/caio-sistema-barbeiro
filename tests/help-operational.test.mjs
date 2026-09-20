@@ -26,6 +26,10 @@ test("conversa sobre faturamento altera só data, profissional e métrica explic
   assert.equal(intents.fallbackHelpIntent("Quantos reais eu fiz na sexta?",null,true,now).metric,"summary");
   const agenda=intents.fallbackHelpIntent("Agenda hoje",null,true,now);
   assert.equal(intents.fallbackHelpIntent("Quanto a barbearia faturou ontem?",agenda,true,now).tool,"get_revenue");
+  const revenue=intents.fallbackHelpIntent("Quanto a barbearia faturou hoje?",null,true,now);
+  const analysis=intents.fallbackHelpIntent("E o que você acha desse faturamento? Você acha que tá bom?",revenue,true,now);
+  assert.equal(analysis.tool,"analyze_performance");
+  assert.equal(analysis.start,revenue.start);assert.equal(analysis.end,revenue.end);assert.equal(analysis.scope,"shop");
 });
 
 test("agenda mantém domínio de appointments entre cinco turnos e aceita áudio coloquial",()=>{
@@ -103,12 +107,20 @@ sqlite.exec(`CREATE TABLE organizations (id INTEGER,name TEXT,slug TEXT,public_b
 CREATE TABLE team(id INTEGER,name TEXT,organization_id INTEGER,active INTEGER,weekly_booking_hours TEXT);
 CREATE TABLE services(id INTEGER,name TEXT,organization_id INTEGER,active INTEGER,deleted_at TEXT,price_cents INTEGER,duration_minutes INTEGER);
 CREATE TABLE appointments(id INTEGER,organization_id INTEGER,appointment_date TEXT,appointment_time TEXT,client_name TEXT,service_id INTEGER,barber_id INTEGER,status TEXT);
-CREATE TABLE daily_records(id INTEGER,organization_id INTEGER,occurred_at TEXT,client_name TEXT,barber_id INTEGER,value_cents INTEGER);
+CREATE TABLE daily_records(id INTEGER,organization_id INTEGER,occurred_at TEXT,client_name TEXT,barber_id INTEGER,value_cents INTEGER,tip_cents INTEGER DEFAULT 0,quantity INTEGER DEFAULT 1,created_at TEXT);
+CREATE TABLE product_sales(id INTEGER,organization_id INTEGER,occurred_at TEXT,seller_team_member_id INTEGER,quantity INTEGER,unit_price_cents INTEGER,created_at TEXT);
+CREATE TABLE membership_payments(id INTEGER,organization_id INTEGER,occurred_at TEXT,amount_cents INTEGER,created_at TEXT);
 INSERT INTO organizations VALUES (10,'Kaio Barbearia','kaio',1,1,'08:00','19:00','1,2,3,4,5,6','', 'active',NULL,NULL,0,1,1,1,NULL),(20,'Outra','outra',1,1,'08:00','19:00','1,2,3,4,5,6','', 'active',NULL,NULL,0,1,1,1,NULL);
 INSERT INTO team VALUES (1,'Kaio',10,1,''),(2,'Davi',10,1,''),(3,'Eduardo',10,1,''),(4,'Pessoa externa',20,1,'');
 INSERT INTO services VALUES (1,'Corte',10,1,NULL,3000,30),(2,'Corte',20,1,NULL,999999,30);
 INSERT INTO appointments VALUES (11,10,'2026-09-20','09:00','João',1,2,'Agendado'),(12,10,'2026-09-20','16:00','Carlos',1,3,'Aguardando'),(13,10,'2026-09-20','17:00','Ana',1,2,'Cancelado'),(14,20,'2026-09-20','18:00','Vazamento',2,4,'Agendado');
-INSERT INTO daily_records VALUES (21,10,'2026-09-20','João',2,3000),(22,20,'2026-09-20','Vazamento',4,999999);`);
+INSERT INTO daily_records (id,organization_id,occurred_at,client_name,barber_id,value_cents,tip_cents,quantity,created_at) VALUES
+(21,10,'2026-09-20','João',2,3000,0,1,'2026-09-20 10:00:00'),
+(22,20,'2026-09-20','Vazamento',4,999999,0,1,'2026-09-20 10:00:00'),
+(31,10,'2026-09-13','A',2,10000,0,2,'2026-09-13 10:00:00'),
+(32,10,'2026-09-06','B',2,9000,0,2,'2026-09-06 10:00:00'),
+(33,10,'2026-08-30','C',2,11000,0,3,'2026-08-30 10:00:00'),
+(34,10,'2026-08-23','D',2,10000,0,2,'2026-08-23 10:00:00');`);
 let calls=0;
 const db={prepare(sql){return {sql,args:[],bind(...args){this.args=args;return this;},async all(){calls++;return {success:true,results:sqlite.prepare(sql).all(...this.args)};}};}};
 globalThis.__operationalTestEnv={DB:db};
@@ -132,6 +144,14 @@ test("appointments é consultado realmente; exclui cancelados, dados de outros t
   assert.match(atFour.answer,/Carlos/);assert.doesNotMatch(atFour.answer,/João/);
   const atFive=await tools.executeHelpTool(owner,{...intent,atTime:"17:00"});
   assert.match(atFive.answer,/Não encontrei/);
+});
+test("pergunta de opinião sobre faturamento vira análise comparativa, não relatório repetido",async()=>{
+  const analysis=intents.fallbackHelpIntent("Você acha que esse faturamento tá bom?",intents.fallbackHelpIntent("Quanto a barbearia faturou hoje?",null,true,now),true,now);
+  const result=await tools.executeHelpTool(owner,analysis);
+  assert.match(result.answer,/R\$\s*30,00|R\$ 30,00/);
+  assert.match(result.answer,/histórico|média|ritmo/i);
+  assert.doesNotMatch(result.answer,/Sobra da barbearia/);
+  assert.equal(result.contextMessage.includes('"tool":"analyze_performance"'),true);
 });
 test("funcionário não recebe equipe nem colega, nem via troca de tool",async()=>{
   const before=calls;
