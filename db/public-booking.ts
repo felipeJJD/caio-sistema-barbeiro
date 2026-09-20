@@ -574,7 +574,9 @@ export async function reschedulePublicBooking(slug: string, token: string, date:
   `).bind(date, time, newStatus, row.appointmentId, row.organizationId, row.organizationId, date, row.barberId, row.appointmentId, requestedEnd, requestedStart).first<{ id: number }>();
   if (!updated) throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
   await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date, time, status: newStatus }, "rescheduled");
-  const queued = await queueAppointmentWhatsappSafely("rescheduled", row.appointmentId);
-  if (queued.queued && newStatus === "Agendado") await processWhatsappQueueSafely(row.organizationId, 3);
+  if (newStatus === "Agendado") {
+    const queued = await queueAppointmentWhatsappSafely("rescheduled", row.appointmentId);
+    if (queued.queued) await processWhatsappQueueSafely(row.organizationId, 3);
+  }
   return getPublicBookingManagement(slug, token);
 }
