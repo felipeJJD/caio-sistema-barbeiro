@@ -11,6 +11,7 @@ export const HELP_TOOLS = {
   get_next_appointment: { domain: "agenda", description: "Próximo cliente agendado depois da hora atual" },
   get_available_slots: { domain: "agenda", description: "Vagas reais da página pública, para um serviço e uma data" },
   get_revenue: { domain: "financeiro", description: "Faturamento, sobra e quantidade de atendimentos realizados" },
+  analyze_performance: { domain: "financeiro", description: "Analisa se o faturamento/ritmo está bom, fraco ou normal comparando com o próprio histórico em períodos equivalentes" },
   get_employee_results: { domain: "atendimentos", description: "Produção e comissão gerada de um profissional" },
   get_financial_summary: { domain: "financeiro", description: "Resumo financeiro da barbearia" },
   get_commission_breakdown: { domain: "financeiro", description: "Explicação da comissão gerada, gorjetas e diferença para pagamentos" },
@@ -108,7 +109,9 @@ export function periodFromSpeech(question: string, now = new Date()): {start:str
 export function continueHelpIntent(question: string, previous: HelpIntent, now = new Date()): HelpIntent {
   const clean = normalizeHelp(question);
   const patch: Partial<HelpIntent> = periodFromSpeech(question,now) ?? {};
-  if (/\b(faturou|faturamento|ganhou|ganhei|fiz|reais|lucro|comissao|quanto\b.*\bfez)\b/.test(clean)) {
+  const asksAnalysis = /\b(o que (?:voce )?acha|acha desse|acha desses|ta bom|esta bom|ta fraco|esta fraco|ta ruim|esta ruim|como estamos|como ta o ritmo|como esta o ritmo|isso e normal|desempenho|desse faturamento|esse faturamento|desses numeros|esses numeros)\b/.test(clean);
+  if (asksAnalysis && ["get_revenue","get_employee_results","get_financial_summary","get_commission_breakdown","analyze_performance"].includes(previous.tool)) patch.tool="analyze_performance";
+  else if (/\b(faturou|faturamento|ganhou|ganhei|fiz|reais|lucro|comissao|quanto\b.*\bfez)\b/.test(clean)) {
     const report=parseReport(question,true,now);
     patch.tool=/\b(comissao)\b.*\b(errad|explica|calculo)\b/.test(clean)?"get_commission_breakdown":report&&!('clarification' in report)&&report.person?"get_employee_results":"get_revenue";
     if(report&&!('clarification' in report)) {
@@ -157,6 +160,7 @@ export function atTimeFromSpeech(question:string):string {
 }
 
 const READ_DOMAINS: Array<{tool:HelpToolId;pattern:RegExp}> = [
+  {tool:"analyze_performance",pattern:/\b(o que (?:voce )?acha|ta bom|esta bom|ta fraco|esta fraco|ta ruim|esta ruim|como estamos|como ta o ritmo|como esta o ritmo|isso e normal|desempenho)\b.*\b(faturamento|resultado|numeros?|barbearia|movimento)?|\b(desse faturamento|esse faturamento|desses numeros|esses numeros)\b/},
   {tool:"diagnose_booking_problem",pattern:/\b(cliente|pessoa)\b.*\b(nao consegue|nao da|falhou|erro|problema)\b.*\b(agend\w*|marc\w*|horario\w*)\b|\b(agendamento|link)\b.*\b(erro|nao funciona|falhou)/},
   {tool:"get_available_slots",pattern:/\b(livres?|disponiveis?|vagas?)\b.*\b(horarios?|agenda|agendar)|\b(horarios?|agenda)\b.*\b(livres?|disponiveis?|vagas?)\b/},
   {tool:"get_next_appointment",pattern:/\b(proximo|proxima)\s+(cliente|horario|agendamento)\b/},
@@ -183,12 +187,16 @@ export function fallbackHelpIntent(question:string, previous:HelpIntent|null, ow
   if (/\b(onde|ensina|significa)\b|^como (faco|mudo|registro|funciona|crio)\b/.test(clean) && !/\b(esta errado|nao funciona)\b/.test(clean)) return null;
   if (isShortHelpContinuation(question,previous)) return continueHelpIntent(question,previous!,now);
   const detected=READ_DOMAINS.find(item=>item.pattern.test(clean))?.tool;
+  const analysisFromContext = detected==="analyze_performance" && previous && ["get_revenue","get_employee_results","get_financial_summary","get_commission_breakdown","analyze_performance"].includes(previous.tool)
+    ? continueHelpIntent(question,{...previous,tool:"analyze_performance"},now)
+    : null;
+  if (analysisFromContext) return normalizeHelpIntent({...analysisFromContext,tool:"analyze_performance",metric:"summary"});
   const parsed=parseReport(question,owner,now);
   const tool:HelpToolId|undefined=detected??(parsed&&!('clarification' in parsed)? parsed.person?"get_employee_results":"get_revenue":undefined);
   if (!tool) return null;
   const period=periodFromSpeech(question,now)??(parsed&&!('clarification' in parsed)?{start:parsed.start,end:parsed.end}:null)??{start:appDate(now),end:appDate(now)};
   const person=parsed&&!('clarification' in parsed)?parsed.person??"":"";
-  return normalizeHelpIntent({tool,...period,scope:parsed&&!('clarification' in parsed)?parsed.scope:owner?"shop":"self",metric:parsed&&!('clarification' in parsed)?parsed.metric:"summary",person,afterTime:afterTimeFromSpeech(question),atTime:atTimeFromSpeech(question),service:"",client:""});
+  return normalizeHelpIntent({tool,...period,scope:parsed&&!('clarification' in parsed)?parsed.scope:owner?"shop":"self",metric:tool==="analyze_performance"?"summary":parsed&&!('clarification' in parsed)?parsed.metric:"summary",person,afterTime:afterTimeFromSpeech(question),atTime:atTimeFromSpeech(question),service:"",client:""});
 }
 
 // Protect high-confidence distinctions (appointment versus completed record)
@@ -202,7 +210,7 @@ export function reconcileHelpIntent(question:string, interpreted:HelpIntent, own
   const time=afterTimeFromSpeech(question);
   const exact=atTimeFromSpeech(question);
   const clean=normalizeHelp(question);
-  const mentionedPerson=explicit.person&&["get_revenue","get_employee_results","get_commission_breakdown"].includes(explicit.tool)?{person:explicit.person,scope:"self" as const}:{};
+  const mentionedPerson=explicit.person&&["get_revenue","get_employee_results","get_commission_breakdown","analyze_performance"].includes(explicit.tool)?{person:explicit.person,scope:"self" as const}:{};
   const shopScope=/\b(barbearia|equipe|todos|geral)\b/.test(clean)?{person:"",scope:"shop" as const}:{};
   const moneyMetric=/\b(reais|dinheiro|faturamento|comissao|lucro|valor)\b/.test(clean)?{metric:"summary" as const}:{};
   return {...interpreted,tool,...mentionedPerson,...shopScope,...moneyMetric,...(period??{}),...(time?{afterTime:time,atTime:""}:{}),...(exact?{atTime:exact,afterTime:""}:{})};
