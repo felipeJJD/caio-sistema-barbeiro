@@ -294,6 +294,27 @@ export async function getPublicBookingSlots(slug: string, date: string, serviceI
   return slots;
 }
 
+export async function getPublicBookingSlotsExpanded(slug: string, date: string, serviceId: number, barberId = 0): Promise<PublicBookingSlot[]> {
+  const context = await availabilityContext(slug, date, serviceId, barberId);
+  const dayHours = bookingHoursForDate(context.data.organization.weeklyHours, date);
+  if (!dayHours?.enabled) return [];
+  const opening = toMinutes(dayHours.openingTime);
+  const closing = toMinutes(dayHours.closingTime);
+  if (!Number.isFinite(opening) || !Number.isFinite(closing) || opening >= closing) return [];
+  const nowParts = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+  const minimumTodayStart = Number(nowParts.find((part) => part.type === "hour")?.value ?? 0) * 60 + Number(nowParts.find((part) => part.type === "minute")?.value ?? 0);
+  const slots: PublicBookingSlot[] = [];
+  for (let start = opening; start + context.service.durationMinutes <= closing; start += 30) {
+    if (date === appDate() && start <= minimumTodayStart) continue;
+    for (const barber of context.candidateBarbers) {
+      if (!bookingWindowAllows(bookingHoursForDate(barber.weeklyHours, date), start, context.service.durationMinutes)) continue;
+      if (!barberIsFree(barber.id, start, context.service.durationMinutes, context.appointmentRows)) continue;
+      slots.push({ time: toTime(start), barberId: barber.id, barberName: barber.name });
+    }
+  }
+  return slots;
+}
+
 export async function createPublicBooking(slug: string, input: { date: string; time: string; serviceId: number; barberId: number; clientName: string; phone: string; paymentChoice: string; isMembership?: boolean; membershipClientId?: number }) {
   const clientName = validClientName(input.clientName);
   const phone = input.phone.replace(/[^0-9+()\-\s]/g, "").trim().slice(0, 30);
