@@ -158,7 +158,7 @@ export function PublicSignupForm({ signupSource, referralCode = "" }: { signupSo
       </div>
       {confirmation && <div className={password === confirmation ? "password-match ok" : "password-match error"} role="status">{password === confirmation ? "✓ As senhas são iguais." : "As senhas ainda estão diferentes."}</div>}
       <label className="public-honeypot" aria-hidden="true"><span>Site da empresa</span><input name="companyWebsite" tabIndex={-1} autoComplete="off" /></label>
-      <label className="public-terms"><input name="termsAccepted" type="checkbox" required /><span>Concordo com os termos do teste e com o uso dos dados necessários para operar minha conta.</span></label>
+      <label className="public-terms"><input name="termsAccepted" type="checkbox" required /><span>Concordo com os <Link href="/termos-de-uso" target="_blank" rel="noopener noreferrer">Termos de Uso</Link> e a <Link href="/privacidade" target="_blank" rel="noopener noreferrer">Política de Privacidade</Link> para operar minha conta.</span></label>
       <button className="public-submit" disabled={pending}><span>{pending ? "Criando seu acesso..." : "Começar meus 14 dias grátis"}</span>{!pending && <b aria-hidden="true">→</b>}</button>
       <div className="public-existing-account"><span>Já possui uma conta?</span><a href={loginEmail ? `/?email=${encodeURIComponent(loginEmail)}` : "/"}>Fazer login</a></div>
       <small>Depois do teste, você escolhe se quer continuar. Sem cobrança automática durante os 14 dias.</small>
