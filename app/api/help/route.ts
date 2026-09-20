@@ -38,7 +38,7 @@ export async function POST(request:Request) {
 
     const previous=lastHelpIntent(messages);
     const fallback=fallbackHelpIntent(question,previous,access.isOwner);
-    const direct=isShortHelpContinuation(question,previous)||(!previous&&fallback?.tool==="get_revenue"&&Boolean(parseReport(question,access.isOwner)));
+    const direct=isShortHelpContinuation(question,previous)||fallback?.tool==="analyze_performance"||(!previous&&fallback?.tool==="get_revenue"&&Boolean(parseReport(question,access.isOwner)));
     if(direct&&fallback&&!pending)return json(await executeHelpTool(access,fallback,profile));
 
     // Only one interpretation call. The deterministic fallback runs only when
