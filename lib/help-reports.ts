@@ -45,9 +45,9 @@ export function parseReport(question: string, owner: boolean, now = new Date()):
   if (!validReportRange(start,end)) return { clarification: "Confira as datas. Posso consultar um período de até um ano, como de 01/08/2026 a 31/08/2026." };
   const self = /\b(eu|meu|minha|meus|minhas|fiz|ganhei|faturei)\b/.test(text);
   const shop = /\b(barbearia|equipe|todos|geral|salao)\b/.test(text);
-  const candidate = (question.match(/\b(?:quanto|quantos)\s+(?:que\s+)?(?:(?:o|a)\s+)?([\p{L}][\p{L} ]*?)\s+(?:fez|faturou|ganhou|atendeu)\b/iu)?.[1] || question.match(/\b(?:faturamento|comiss[aã]o|comiss[oõ]es|resultado)\s+(?:do|da)\s+([\p{L}][\p{L} ]*?)(?=\s+(?:hoje|ontem|neste|nesse|no|na|em|de)\b|[?!.,]|$)/iu)?.[1])?.trim() || null;
+  const candidate = (question.match(/\b(?:quanto|quantos)\s+(?:reais?\s+)?(?:que\s+)?(?:(?:o|a)\s+)?([\p{L}][\p{L} ]*?)\s+(?:fez|faturou|ganhou|atendeu)\b/iu)?.[1] || question.match(/\b(?:faturamento|comiss[aã]o|comiss[oõ]es|resultado)\s+(?:do|da)\s+([\p{L}][\p{L} ]*?)(?=\s+(?:hoje|ontem|neste|nesse|no|na|em|de)\b|[?!.,]|$)/iu)?.[1])?.trim() || null;
   const person = candidate && !/^(eu|voce|barbearia|minha barbearia|a barbearia)$/i.test(normalizeHelp(candidate)) ? candidate : null;
-  return { start, end, scope: shop ? "shop" : self || !owner || person ? "self" : "shop", metric: /\b(quantos|quantidade)\b/.test(text) ? "count" : "summary", person: shop ? null : person };
+  return { start, end, scope: shop ? "shop" : self || !owner || person ? "self" : "shop", metric: /\b(quantos|quantidade)\b/.test(text) && !/\b(reais|real|r\$|dinheiro|faturamento|comissao|lucro|valor)\b/.test(text) ? "count" : "summary", person: person ?? null };
 }
 
 export function formatReport(report: ReportRequest, totals: ReportTotals, viewerId: number) {
@@ -115,4 +115,3 @@ export function formatReportReply(report: ReportRequest, totals: ReportTotals, v
   ];
   return { answer, details: detailLines.join("\n") };
 }
-

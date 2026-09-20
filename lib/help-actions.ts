@@ -93,10 +93,6 @@ const dayNames: Array<[RegExp, number]> = [
   [/\bs[aá]bado\b/i, 6],
 ];
 
-function dayNumber(name: string) {
-  return dayNames.find(([pattern]) => pattern.test(name))?.[1] ?? -1;
-}
-
 function daysIn(text: string) {
   const clean = normalizeHelp(text);
   if (/todos os dias|todo dia/.test(clean)) return [0,1,2,3,4,5,6];
@@ -142,7 +138,9 @@ function serviceNameFrom(text: string) {
   const explicit = text.match(/(?:servi[cç]o|servico)\s+(.+?)(?=\s+(?:de|por|a|custa|valor|pre[cç]o|dura|demora|com|r\$)\b|\s+\d+(?:[.,]\d+)?\s*(?:reais?|conto|min|hora)|$)/i);
   if (explicit?.[1]) return explicit[1].trim().replace(/^(?:de|do|da)\s+/i, "");
   const mine = text.match(/(?:meu|minha)\s+([\p{L}][\p{L}\s+&-]*?)(?=\s+(?:custa|vale|dura|demora|fica|vai)\b)/iu);
-  return mine?.[1]?.trim() ?? "";
+  if (mine?.[1]) return mine[1].trim();
+  const described=text.match(/\b(?:muda|mudar|altera|alterar|ajusta|ajustar|coloca|colocar|define)\s+(?:o|a)\s+([\p{L}][\p{L}\s+&-]*?)(?=\s+(?:para|pra|de|em|por|a|dura|com)\b|\s+\d+|$)/iu);
+  return described?.[1]?.trim()??"";
 }
 
 function teamNameFrom(text: string) {
@@ -157,7 +155,7 @@ function parseServiceAction(text: string, clean: string): ParsedHelpAction {
   if (!/\bservico\b|\bcorte\b|\bbarba\b|\bsobrancelha\b/.test(clean)) return null;
   const create = /\b(cria|criar|cadastre|cadastrar|adiciona|adicionar|novo|nova)\b/.test(clean);
   const name = serviceNameFrom(text);
-  const price = moneyAfter(text, /(?:r\$\s*|custa\s*|valor(?:\s+de)?\s*|pre[cç]o(?:\s+de)?\s*|por\s+)(\d+(?:[.,]\d{1,2})?)/i) || moneyCents(text);
+  const price = moneyAfter(text, /(?:r\$\s*|custa\s*|valor(?:\s+de)?\s*|pre[cç]o(?:\s+de)?\s*|por\s+)(\d+(?:[.,]\d{1,2})?)(?!\s*(?:minutos?|min|horas?)\b)/i) || (/\b(reais?|conto(?:s)?)\b|r\$/i.test(text) ? moneyCents(text) : 0);
   const duration = durationMinutes(text);
   if (!name) return { clarification: create ? "Qual é o nome do serviço que você quer criar?" : "Qual serviço você quer alterar?" };
   if (create && !price) return { clarification: `Qual será o preço do serviço ${name}?` };
@@ -292,4 +290,15 @@ export function normalizeModelAction(value: unknown): HelpActionProposal | null 
   }) : [];
   action.summary = typeof raw.summary === "string" ? raw.summary.trim().slice(0,240) : "";
   return action;
+}
+
+// A correction changes the proposal, never executes it. Other corrections go
+// through the interpreter and return another confirmation card.
+export function revisePendingHelpAction(previous:HelpActionProposal, question:string):HelpActionProposal|null {
+  if (previous.kind!=="service" || previous.mode!=="update") return null;
+  const said=question.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+  if (!/\b(na verdade|corrige|muda|coloca|deixa|quero)\b/.test(said)) return null;
+  const duration=Number(said.match(/\b(\d{1,3})\s*(?:minutos?|min)?\b/)?.[1]);
+  if (!Number.isInteger(duration)||duration<5||duration>480) return null;
+  return {...previous,durationMinutes:duration,summary:`Atualizar a duração de ${previous.target||previous.name} para ${duration} minutos`};
 }

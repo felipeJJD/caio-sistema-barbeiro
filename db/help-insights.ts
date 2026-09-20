@@ -120,7 +120,7 @@ export function formatClientReturnReply(opportunities: ClientReturnOpportunity[]
   }).join("\n");
   return {
     answer: headline + (monthCount ? ` Também encontrei ${monthCount} que vieram no mês passado e ainda não vieram neste.` : ""),
-    details,
+    details: `${details}\nA comparação usa o nome escrito nos atendimentos; confira no Histórico se houver homônimos antes de entrar em contato.`,
     contextMessage: "[contexto seguro] Mostrei oportunidades de retorno de clientes com base no hábito e em quem veio no mês passado.",
   };
 }
