@@ -1,6 +1,6 @@
 import { and, eq, gte, lte, or, sql } from "drizzle-orm";
 import type { AccessContext } from "./access";
-import { requireOwner } from "./access";
+import { requireOwner, requirePlatformAdmin } from "./access";
 import { getDb } from "./index";
 import { decryptSecret, encryptSecret } from "./platform-secrets";
 import {
@@ -188,24 +188,44 @@ export async function saveWhatsappAutomationSettings(access: AccessContext, inpu
   };
   await db.insert(whatsappAutomationSettings).values(values).onConflictDoUpdate({
     target: whatsappAutomationSettings.organizationId,
-    set: { ...values, organizationId: undefined },
+    set: {
+      enabled: values.enabled,
+      confirmationEnabled: values.confirmationEnabled,
+      reminderEnabled: values.reminderEnabled,
+      reminderHoursBefore: values.reminderHoursBefore,
+      cancellationEnabled: values.cancellationEnabled,
+      rescheduleEnabled: values.rescheduleEnabled,
+      botEnabled: values.botEnabled,
+      humanTakeoverMinutes: values.humanTakeoverMinutes,
+      planCode: values.planCode,
+      monthlyMessageLimit: values.monthlyMessageLimit,
+      confirmationTemplate: values.confirmationTemplate,
+      reminderTemplate: values.reminderTemplate,
+      cancellationTemplate: values.cancellationTemplate,
+      rescheduleTemplate: values.rescheduleTemplate,
+      templateLanguage: values.templateLanguage,
+      updatedAt: values.updatedAt,
+    },
   });
   return getWhatsappAutomationStatus(access);
 }
 
 export async function saveWhatsappPlanForOrganization(access: AccessContext, input: {
+  organizationId: number;
   planCode: string;
   monthlyMessageLimit: number;
 }) {
-  requireOwner(access);
-  const current = await settingsForOrganization(access.organizationId);
+  requirePlatformAdmin(access);
+  const organizationId = Math.round(Number(input.organizationId));
+  if (!Number.isInteger(organizationId) || organizationId <= 0) throw new Error("Barbearia inválida.");
+  const current = await settingsForOrganization(organizationId);
   const monthlyMessageLimit = Math.round(Number(input.monthlyMessageLimit));
   if (!Number.isFinite(monthlyMessageLimit) || monthlyMessageLimit < 0 || monthlyMessageLimit > 100000) throw new Error("Limite mensal de mensagens inválido.");
   const planCode = input.planCode.trim().toLowerCase().slice(0, 40) || "off";
   const db = await getDb();
   const now = new Date().toISOString();
   await db.insert(whatsappAutomationSettings).values({
-    organizationId: access.organizationId,
+    organizationId,
     ...defaultSettings,
     enabled: Boolean(current.enabled),
     confirmationEnabled: Boolean(current.confirmationEnabled),
