@@ -186,5 +186,5 @@ test("respostas curtas de continuação usam memória antes de gastar IA", () =>
 
 test("link público nunca expõe domínio técnico do Railway", () => {
   assert.match(botDb, /railway\\\.app/);
-  assert.match(botDb, /https:\\/\\/cortouanotou\.com\.br/);
+  assert.ok(botDb.includes("https://cortouanotou.com.br"));
 });
