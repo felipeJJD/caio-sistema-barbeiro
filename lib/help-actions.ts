@@ -107,7 +107,7 @@ function daysIn(text: string) {
 }
 
 function timeRange(text: string) {
-  const range = text.match(/(?:das?|de)\s*(\d{1,2}(?::\d{2})?|\d{1,2}h\d{0,2})\s*(?:[àa]|at[eé]|-)\s*(\d{1,2}(?::\d{2})?|\d{1,2}h\d{0,2})/i)
+  const range = text.match(/(?:das?|de)\s*(\d{1,2}(?::\d{2})?|\d{1,2}h\d{0,2})\s*(?:às?|as?|até|ate|-)\s*(\d{1,2}(?::\d{2})?|\d{1,2}h\d{0,2})/i)
     ?? text.match(/\b(\d{1,2}(?::\d{2})?|\d{1,2}h\d{0,2})\s*[-–]\s*(\d{1,2}(?::\d{2})?|\d{1,2}h\d{0,2})\b/i);
   if (range) return { openingTime: normalizeTime(range[1]), closingTime: normalizeTime(range[2]) };
   const opens = text.match(/(?:abre|entra|come[cç]a)\s*(?:[àa]s?\s*)?(\d{1,2}(?::\d{2})?|\d{1,2}h\d{0,2})/i);
