@@ -8,8 +8,9 @@ import { AppIcon } from "./app-icon";
 
 import { destinationAllowed, HELP_MESSAGE_LIMIT, requestedHelpAction, type HelpDestination, type HelpReply } from "../../lib/help-guide";
 import { createHelpDictation, type Recognition } from "../../lib/help-dictation";
+import type { HelpActionProposal, HelpScheduleChange } from "../../lib/help-actions";
 
-type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string };
+type Message = { id: number; role: "user" | "assistant"; text: string; destination?: HelpDestination; suggestions?: string[]; retry?: string; link?: { label: string; url: string } };
 type Post = (body: Record<string, string | number | boolean>, success: string) => Promise<boolean>;
 type ActionKind = "record" | "appointment" | "expense";
 type ActionField = "recordType" | "clientName" | "membershipClient" | "service" | "payment" | "barber" | "appointmentDate" | "appointmentTime" | "expenseDescription" | "expenseValue" | "expenseType" | "expensePaid";
@@ -123,6 +124,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const [listening, setListening] = useState(false);
   const [actionDraft, setActionDraft] = useState<ActionDraft | null>(null);
   const [activeField, setActiveField] = useState<ActionField | null>(null);
+  const [configAction, setConfigAction] = useState<HelpActionProposal | null>(null);
   const [messages, setMessages] = useState<Message[]>([{ id: 1, role: "assistant", text: "Olá! Posso tirar dúvidas, mostrar onde fazer algo e consultar seus resultados. O que você precisa?" }]);
   const nextMessageId = useRef(2);
   const endRef = useRef<HTMLDivElement>(null);
@@ -131,6 +133,8 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
   const closeRef = useRef<HTMLButtonElement>(null);
   const dictationRef = useRef<ReturnType<typeof createHelpDictation> | null>(null);
   const draftTextRef = useRef("");
+  const voiceTextRef = useRef("");
+  const manualVoiceSendRef = useRef(false);
   const requestInFlight = useRef(false);
   const saveInFlight = useRef(false);
   const panelRef = useRef<HTMLElement>(null);
