@@ -69,7 +69,7 @@ type WhatsappConnectPayload = WhatsappApiPayload & {
 
 type CaAtendeTestState = {
   botState: string;
-  memory: { intent?: string; date?: string; service?: string; barber?: string };
+  memory: { intent?: string; date?: string; time?: string; service?: string; barber?: string };
   paused: boolean;
 };
 
