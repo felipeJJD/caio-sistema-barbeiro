@@ -61,6 +61,23 @@ Regras atuais:
 
 A fila também passou a reivindicar uma mensagem como `sending` antes da chamada externa, reduzindo risco de dois executores enviarem a mesma mensagem.
 
+## Teste interno do C.A. Atende
+
+A aba WhatsApp possui um laboratório de conversa que usa o mesmo motor do atendimento real sem depender da Meta. O proprietário pode escrever como se fosse um cliente e conferir a resposta antes de conectar qualquer número.
+
+No laboratório:
+
+- nenhuma mensagem é enviada à Meta;
+- nenhum cliente real recebe mensagem;
+- nenhum agendamento é criado, alterado ou cancelado;
+- preços e horários podem ser consultados nos dados reais da própria barbearia;
+- a interface mostra se a decisão veio de regra local ou IA e se houve consulta à agenda/serviços;
+- pedido de atendimento humano simula o silêncio do bot até a conversa ser reiniciada;
+- oferta comercial de alta confiança mostra que o bot ficaria em silêncio;
+- o contexto da conversa fica somente no estado do teste e pode ser zerado com “Reiniciar conversa”.
+
+O modo de teste reutiliza a mesma função de composição de resposta usada pelo webhook real. Isso evita manter um “bot de demonstração” diferente do que irá para produção.
+
 ## Segurança
 
 - Todas as consultas e gravações são isoladas por organizationId.
