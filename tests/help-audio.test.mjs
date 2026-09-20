@@ -34,3 +34,11 @@ test("transcrição passa por rota autenticada e limita tamanho", () => {
   assert.match(transcribeRoute, /audio\/transcriptions/);
   assert.match(transcribeRoute, /gpt-4o-mini-transcribe/);
 });
+
+
+test("rota aceita MIME do Safari com codec e variantes m4a/aac", () => {
+  assert.match(transcribeRoute, /split\(";"\)\[0\]/);
+  assert.match(transcribeRoute, /audio\/x-m4a/);
+  assert.match(transcribeRoute, /audio\/aac/);
+  assert.match(transcribeRoute, /help_audio_unsupported_type/);
+});
