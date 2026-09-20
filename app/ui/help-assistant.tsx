@@ -393,7 +393,14 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
     const left = normalize(value);
     const right = normalize(candidate);
     if (!left || !right) return false;
-    return left === right || right.includes(left) || left.includes(right);
+    return left === right;
+  }
+
+  function uniqueNamed<T extends {name:string}>(items:T[], value:string):T|undefined {
+    const exact=items.filter(item=>sameName(value,item.name));
+    if(exact.length===1)return exact[0];
+    const first=items.filter(item=>normalize(item.name).split(" ")[0]===normalize(value));
+    return first.length===1?first[0]:undefined;
   }
 
   function mergeSchedule(base: DashboardData["agendaSettings"]["weeklyHours"], changes: HelpScheduleChange[]) {
@@ -472,7 +479,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
       let ok = false;
       if (configAction.kind === "service") {
         const current = configAction.mode === "update"
-          ? data.services.find((item) => sameName(configAction.target || configAction.name, item.name))
+          ? uniqueNamed(data.services,configAction.target || configAction.name)
           : undefined;
         if (configAction.mode === "update" && !current) throw new Error("Não encontrei esse serviço cadastrado.");
         const name = configAction.name || current?.name || "";
@@ -482,11 +489,11 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         ok = await post({ action: "save-service", id: current?.id ?? 0, name, priceCents, durationMinutes: duration, active: current?.active ?? true }, current ? "Serviço atualizado pelo assistente." : "Serviço criado pelo assistente.");
       } else if (configAction.kind === "plan") {
         const current = configAction.mode === "update"
-          ? data.plans.find((item) => sameName(configAction.target || configAction.name, item.name))
+          ? uniqueNamed(data.plans,configAction.target || configAction.name)
           : undefined;
         if (configAction.mode === "update" && !current) throw new Error("Não encontrei esse plano cadastrado.");
         const serviceName = configAction.serviceName
-          ? data.services.find((item) => sameName(configAction.serviceName, item.name))?.name
+          ? uniqueNamed(data.services,configAction.serviceName)?.name
           : current?.planKind;
         const name = configAction.name || current?.name || "";
         const monthlyValueCents = configAction.monthlyValueCents || current?.monthlyValueCents || 0;
@@ -496,7 +503,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         ok = await post({ action: "save-plan", id: current?.id ?? 0, name, planKind: serviceName, monthlyValueCents, maxUses, barberPayoutCents: payout, active: current?.active ?? true }, current ? "Plano atualizado pelo assistente." : "Plano criado pelo assistente.");
       } else if (configAction.kind === "payment") {
         const current = configAction.mode === "update"
-          ? data.paymentMethods.find((item) => sameName(configAction.target || configAction.name, item.name))
+          ? uniqueNamed(data.paymentMethods,configAction.target || configAction.name)
           : undefined;
         if (configAction.mode === "update" && !current) throw new Error("Não encontrei essa forma de pagamento.");
         const name = configAction.name || current?.name || "";
@@ -514,7 +521,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
           weeklyHours: JSON.stringify(weeklyHours),
         }, "Agenda atualizada pelo assistente.");
       } else if (configAction.kind === "team-hours") {
-        const member = data.team.find((item) => sameName(configAction.target, item.name));
+        const member = uniqueNamed(data.team,configAction.target);
         if (!member) throw new Error("Não encontrei esse profissional na equipe.");
         const weeklyHours = mergeSchedule(member.weeklyHours, configAction.scheduleChanges);
         ok = await post({
@@ -562,9 +569,10 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
       } else if (/^(cancelar|cancela|nao)$/.test(normalizedQuestion)) {
         cancelConfigAction();
       } else {
-        addMessage("assistant", "Tenho uma alteração aguardando confirmação. Confirme para salvar ou cancele para fazer outro pedido.");
+        // Let the assistant replace the pending proposal. Nothing is saved until
+        // the user confirms the new summary card.
       }
-      return;
+      if (/^(confirmar|confirma|pode|pode salvar|salvar|sim|fechado|cancelar|cancela|nao)$/.test(normalizedQuestion)) return;
     }
 
     if (actionDraft && normalizedQuestion === "cancelar") {
@@ -599,15 +607,18 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
         method: "POST",
         headers: { "content-type": "application/json" },
         signal: AbortSignal.timeout(20000),
-        body: JSON.stringify({ messages: memory.messages }),
+        body: JSON.stringify({ messages: memory.messages, ...(configAction?{pendingAction:configAction}:{}) }),
       });
       const result = await response.json() as Partial<HelpReply> & {error?:string};
       if (response.ok && result.contextMessage) rememberContext("assistant", result.contextMessage);
+      if (response.ok && configAction) setConfigAction(null);
       if (response.ok && result.action?.kind === "public-booking-link") {
         const slug = data.agendaSettings.publicBookingSlug;
         const url = slug ? `${window.location.origin}/agendar/${encodeURIComponent(slug)}` : "";
-        addMessage("assistant", url ? "Aqui está seu link público de agendamento." : "O link público ainda não está disponível. Confira o Agendamento público nas Configurações.", {
+        const answer = result.answer?.replace(`Link: /agendar/${slug}`,`Link: ${url}`);
+        addMessage("assistant", answer || (url ? "Aqui está seu link público de agendamento." : "O link público ainda não está disponível. Confira o Agendamento público nas Configurações."), {
           link: url ? { label: "Abrir link de agendamento", url } : undefined,
+          details: result.details,
         });
       } else {
         addMessage("assistant", result.answer ?? result.error ?? "Não consegui responder agora. Tente novamente em instantes.", {
@@ -617,7 +628,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
           insight: response.ok ? result.insight : undefined,
           retry: response.ok ? undefined : cleanQuestion,
         });
-        if (response.ok && result.action) setConfigAction(result.action);
+        if (response.ok) setConfigAction(result.action ?? null);
       }
     } catch {
       addMessage("assistant", "Não consegui responder agora. Verifique sua conexão e tente novamente.", {retry:cleanQuestion});
@@ -775,7 +786,7 @@ export function HelpAssistant({ viewer, data, post, onNavigate }: { viewer: Dash
               {message.details && message.showDetails && <div className="help-message-details">{message.details}</div>}
               {message.destination && <button type="button" className="help-destination" disabled={busy} onClick={()=>navigate(message.destination!)}>{message.destination.label}<span aria-hidden="true">→</span></button>}
               {message.suggestions && <div className="help-inline-suggestions">{message.suggestions.map(text=><button type="button" key={text} disabled={busy} onClick={()=>void ask(text)}>{text}</button>)}</div>}
-              {message.link && <a className="help-destination help-link" href={message.link.url} target="_blank" rel="noreferrer">{message.link.label}<span aria-hidden="true">↗</span></a>}{message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
+              {message.link && <><a className="help-destination help-link" href={message.link.url} target="_blank" rel="noreferrer">{message.link.label}<span aria-hidden="true">↗</span></a><button className="help-destination help-link" type="button" onClick={()=>void navigator.clipboard.writeText(message.link!.url).then(()=>addMessage("assistant","Link copiado! Agora é só mandar para o cliente.")).catch(()=>addMessage("assistant","Não consegui copiar automaticamente. Segure o link acima para copiar."))}>Copiar link</button></>}{message.retry && <button className="help-destination" type="button" disabled={busy} onClick={()=>void ask(message.retry!)}>Tentar novamente</button>}
             </div>)}
             {answerPending && <div className="help-message assistant typing" aria-label="Consultando, aguarde"><i /><i /><i /></div>}
           </div>

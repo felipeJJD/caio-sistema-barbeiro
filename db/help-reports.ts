@@ -1,7 +1,8 @@
 import type { AccessContext } from "./access";
 import { normalizeHelp } from "../lib/help-guide";
 import { formatReport, formatReportReply, validReportRange, type ReportMember, type ReportRequest, type ReportStyle } from "../lib/help-reports";
-import { readClientReturnOpportunities, readDailyPaceInsight } from "./help-insights";
+import { readDailyPaceInsight } from "./help-insights";
+import { helpIntentContext } from "../lib/help-intent";
 
 type Result<T> = {success:boolean;results:T[]};
 type Statement = {bind(...args:Array<string|number|null>):Statement;all<T>():Promise<Result<T>>};
@@ -84,21 +85,13 @@ export async function readHelpReport(access: AccessContext, requested: ReportReq
 
   const reply = formatReportReply(resolvedReport, totals, access.teamMemberId, style);
   let insight: string | undefined;
-  let suggestions: string[] | undefined;
-  let offeredReturns = false;
   if (Number(style.initiativeScore ?? 70) >= 55) {
     try {
       insight = await readDailyPaceInsight(access, resolvedReport) ?? undefined;
-      const opportunities = resolvedReport.scope === "shop" || !access.isOwner ? await readClientReturnOpportunities(access) : [];
-      if (opportunities.length) {
-        suggestions = ["Ver clientes que podem estar na hora de voltar"];
-        offeredReturns = true;
-      }
     } catch (error) {
       console.warn("help_insight_unavailable", { type: error instanceof Error ? error.name : "Unknown" });
     }
   }
-  const person = resolvedReport.person ? `; profissional ${resolvedReport.person}` : "";
-  const contextMessage = `[contexto seguro] Última consulta de resultado: métrica ${resolvedReport.metric}, escopo ${resolvedReport.scope}, período ${resolvedReport.start} até ${resolvedReport.end}${person}. Oferta de clientes para retorno: ${offeredReturns ? "sim" : "não"}.`;
-  return { ...reply, insight, suggestions, contextMessage };
+  const contextMessage=helpIntentContext({tool:resolvedReport.person?"get_employee_results":"get_revenue",start:resolvedReport.start,end:resolvedReport.end,scope:resolvedReport.scope,metric:resolvedReport.metric,person:resolvedReport.person??"",afterTime:"",atTime:"",service:"",client:""});
+  return { ...reply, insight, contextMessage };
 }
