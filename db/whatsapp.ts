@@ -402,15 +402,18 @@ export async function queueAppointmentWhatsapp(kind: Exclude<WhatsappAutomationK
     settingsForOrganization(appointment.organizationId),
     connectionForOrganization(appointment.organizationId),
   ]);
-  if (!settings.enabled || !connection || connection.status !== "connected" || Number(settings.monthlyMessageLimit) <= 0) {
-    return { queued: false, reason: "automation_inactive" as const };
-  }
 
+  // Alterações do agendamento sempre invalidam mensagens antigas, mesmo se a automação
+  // estiver temporariamente desligada ou a conexão da Meta estiver indisponível.
   if (kind === "cancellation") {
     await cancelPendingAppointmentMessages(appointment.organizationId, appointment.id, ["confirmation", "reminder", "rescheduled"]);
   }
   if (kind === "rescheduled") {
     await cancelPendingAppointmentMessages(appointment.organizationId, appointment.id, ["reminder", "rescheduled"]);
+  }
+
+  if (!settings.enabled || !connection || connection.status !== "connected" || Number(settings.monthlyMessageLimit) <= 0) {
+    return { queued: false, reason: "automation_inactive" as const };
   }
 
   const now = new Date().toISOString();
