@@ -49,6 +49,6 @@ test("uso manual não pode roubar crédito já reservado", () => {
 test("interface exige confirmação explícita antes de entrar na agenda", () => {
   assert.match(bookingUi, /Mensalista encontrado/);
   assert.match(bookingUi, /Este agendamento vai reservar/);
-  assert.match(bookingUi, /Continuar e reservar 1 crédito/);
+  assert.match(bookingUi, /Entendi · continuar para a agenda/);
   assert.match(bookingUi, /Confirmar e reservar 1 crédito/);
 });
