@@ -9,11 +9,17 @@ const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 const ALLOWED_AUDIO_TYPES = new Set([
   "audio/mp4",
   "audio/m4a",
+  "audio/x-m4a",
+  "audio/aac",
   "audio/webm",
   "audio/wav",
   "audio/x-wav",
   "audio/mpeg",
 ]);
+
+function normalizeAudioType(value: string) {
+  return value.toLowerCase().split(";")[0]?.trim() || "";
+}
 
 export async function POST(request: Request) {
   const access = await getSessionAccess();
@@ -38,8 +44,10 @@ export async function POST(request: Request) {
     if (!audio.size) return json({ error: "O áudio está vazio. Grave novamente." }, 400);
     if (audio.size > MAX_AUDIO_BYTES) return json({ error: "Esse áudio ficou muito grande. Grave uma mensagem mais curta." }, 413);
 
-    const type = (audio.type || "").toLowerCase();
-    if (type && !ALLOWED_AUDIO_TYPES.has(type) && !type.startsWith("audio/webm;")) {
+    const rawType = (audio.type || "").toLowerCase();
+    const type = normalizeAudioType(rawType);
+    if (type && !ALLOWED_AUDIO_TYPES.has(type)) {
+      console.warn("help_audio_unsupported_type", { type: rawType.slice(0, 120) });
       return json({ error: "Formato de áudio não suportado neste navegador." }, 415);
     }
 
@@ -49,7 +57,7 @@ export async function POST(request: Request) {
     if (!key) return json({ error: "A transcrição por áudio ainda não está configurada." }, 503);
 
     const outbound = new FormData();
-    const extension = type.includes("mp4") || type.includes("m4a") ? "m4a"
+    const extension = type.includes("mp4") || type.includes("m4a") || type.includes("aac") ? "m4a"
       : type.includes("mpeg") ? "mp3"
       : type.includes("wav") ? "wav"
       : "webm";
