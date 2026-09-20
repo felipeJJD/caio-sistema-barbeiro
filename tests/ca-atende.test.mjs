@@ -72,7 +72,7 @@ test("saudação padrão manda uma única mensagem com nome e link da barbearia"
 });
 
 test("consulta de horário usa a agenda real do Cortou Anotou", () => {
-  assert.match(botDb, /getPublicBookingSlots/);
+  assert.match(botDb, /getPublicBookingSlotsExpanded/);
   assert.match(botDb, /selectedService\.id/);
   assert.match(botDb, /selectedBarber\?\.id/);
   assert.match(botDb, /Para garantir esse horário, confirme aqui/);
@@ -187,4 +187,35 @@ test("respostas curtas de continuação usam memória antes de gastar IA", () =>
 test("link público nunca expõe domínio técnico do Railway", () => {
   assert.match(botDb, /railway\\\.app/);
   assert.ok(botDb.includes("https://cortouanotou.com.br"));
+});
+
+
+test("regressão do vídeo: entende 'às10' e horário curto '10'", () => {
+  assert.equal(helper.extractCaAtendeTime("amanhã às10"), "10:00");
+  assert.equal(helper.extractCaAtendeTime("10"), "10:00");
+});
+
+test("regressão do vídeo: troca de profissional é continuação da reserva e não chama IA", () => {
+  assert.match(botDb, /wantsAnotherProfessional/);
+  assert.match(botDb, /changingProfessional/);
+  assert.match(botDb, /source:changingProfessional \? "rule" : interpreted\.source/);
+});
+
+test("regressão do vídeo: confirmação não repete disponibilidade nem deixa IA trocar o serviço", () => {
+  assert.match(botDb, /wantsBookingConfirmation/);
+  assert.match(botDb, /confirmationRequested:true/);
+  assert.match(botDb, /No modo teste eu não altero sua agenda/);
+  assert.match(botDb, /explicitService\?\.name \|\| oldMemory\.service \|\| aiService\?\.name/);
+});
+
+test("agenda expandida permite mostrar profissionais alternativos sem mudar o fluxo público existente", async () => {
+  const publicBookingDb = await readFile(new URL("../db/public-booking.ts", import.meta.url), "utf8");
+  assert.match(publicBookingDb, /export async function getPublicBookingSlotsExpanded/);
+  assert.match(publicBookingDb, /for \(const barber of context\.candidateBarbers\)/);
+  assert.match(publicBookingDb, /slots\.push\(\{ time: toTime\(start\), barberId: barber\.id, barberName: barber\.name \}\)/);
+});
+
+test("horários de vários profissionais são agrupados de forma legível", () => {
+  assert.match(botDb, /const groups = new Map<string, string\[\]>/);
+  assert.match(botDb, /barberName}: \$\{times\.join/);
 });
