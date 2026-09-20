@@ -21,7 +21,7 @@ test("plano mensalista prioriza vínculo real e usa inferência só em cadastro 
   assert.equal(membership.resolveMembershipService("Corte", "4 cortes", services, 1)?.id, 1);
   assert.equal(membership.resolveMembershipService("Corte + barba", "4 cortes barba", services, 3)?.id, 3);
   assert.equal(membership.resolveMembershipService("Barba", "Cabelo + sobrancelha", services, 2)?.id, 2);
-  assert.equal(membership.resolveMembershipService("Serviço antigo", "Cabelo + sobrancelha", services, null)?.id, 4);
+  assert.equal(membership.resolveMembershipService("Barba", "Cabelo + sobrancelha", services, null)?.id, 4);
 });
 
 test("plano sem pistas no nome respeita o serviço configurado", () => {
