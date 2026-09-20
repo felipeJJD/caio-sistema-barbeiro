@@ -367,13 +367,6 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
     const client = (await db.select().from(clients).where(and(eq(clients.id, input.membershipClientId ?? 0), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).limit(1))[0];
     if (!client) throw new Error("Escolha o mensalista.");
     if (client.status !== "Ativo") throw new Error("Este mensalista não está ativo.");
-    const reservedAppointments = await db.select({ id: appointments.id }).from(appointments).where(and(
-      eq(appointments.organizationId, access.organizationId),
-      eq(appointments.membershipClientId, client.id),
-      eq(appointments.membershipCreditState, "reserved"),
-    ));
-    const otherReservedUses = reservedAppointments.filter((item) => item.id !== input.appointmentId).length;
-    if (client.balance - otherReservedUses <= 0) throw new Error("Este mensalista não tem créditos disponíveis fora dos horários já reservados.");
     const paymentList = await db.select().from(paymentMethods).where(eq(paymentMethods.organizationId, access.organizationId)).orderBy(paymentMethods.id);
     const selectedPayment = paymentList.find((item) => item.id === input.paymentMethodId);
     const payment = input.productItems?.length
@@ -385,11 +378,49 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
     const service = resolveMembershipService(plan?.planKind ?? client.planKind, plan?.name ?? client.plan, serviceList, plan?.serviceId);
     if (!service) throw new Error("O plano deste mensalista precisa estar ligado a um serviço válido.");
     const payout = membershipPayoutCentsForAccessRole(barber.accessRole, plan?.barberPayoutCents, client.planKind);
-    const [, inserted] = await db.batch([
-      db.update(clients).set({ balance: client.balance - 1 }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId))),
-      db.insert(dailyRecords).values({ organizationId: access.organizationId, occurredAt: input.occurredAt, clientName: client.name, barberId: barber.id, serviceId: service.id, paymentMethodId: payment.id, quantity: 1, valueCents: 0, commissionRateBps: 0, commissionCents: payout, tipCents, feeCents: 0, origin: "Assinatura", recordType: "Mensalista", membershipClientId: client.id, appointmentId: input.appointmentId ?? null }).returning({ id: dailyRecords.id }),
-    ]);
-    const recordId = inserted[0]?.id;
+    const ownAppointmentId = input.appointmentId ?? 0;
+    const claimedCredit = await db.update(clients)
+      .set({ balance: sql`${clients.balance} - 1` })
+      .where(and(
+        eq(clients.id, client.id),
+        eq(clients.organizationId, access.organizationId),
+        sql`${clients.balance} > (
+          SELECT COUNT(*)
+          FROM appointments AS reserved_credit
+          WHERE reserved_credit.organization_id = ${access.organizationId}
+            AND reserved_credit.membership_client_id = ${client.id}
+            AND reserved_credit.membership_credit_state = 'reserved'
+            AND (${ownAppointmentId} = 0 OR reserved_credit.id <> ${ownAppointmentId})
+        )`,
+      ))
+      .returning({ id: clients.id });
+    if (!claimedCredit.length) throw new Error("Este mensalista não tem créditos disponíveis fora dos horários já reservados.");
+
+    let recordId: number | undefined;
+    try {
+      const inserted = await db.insert(dailyRecords).values({
+        organizationId: access.organizationId,
+        occurredAt: input.occurredAt,
+        clientName: client.name,
+        barberId: barber.id,
+        serviceId: service.id,
+        paymentMethodId: payment.id,
+        quantity: 1,
+        valueCents: 0,
+        commissionRateBps: 0,
+        commissionCents: payout,
+        tipCents,
+        feeCents: 0,
+        origin: "Assinatura",
+        recordType: "Mensalista",
+        membershipClientId: client.id,
+        appointmentId: input.appointmentId ?? null,
+      }).returning({ id: dailyRecords.id });
+      recordId = inserted[0]?.id;
+    } catch (error) {
+      await db.update(clients).set({ balance: sql`${clients.balance} + 1` }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId)));
+      throw error;
+    }
     if (input.productItems?.length) {
       if (!recordId) throw new Error("Não foi possível vincular os produtos ao atendimento.");
       try {
