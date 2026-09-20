@@ -43,3 +43,9 @@ test("link público é consulta e pode ser entregue sem ação de escrita", () =
   assert.ok(parsed && "action" in parsed);
   assert.equal(parsed.action.kind, "public-booking-link");
 });
+
+test("novo serviço é tratado como criação, não alteração", () => {
+  const parsed = parseHelpAction("Coloca pra mim fazendo favor um novo serviço", true);
+  assert.ok(parsed && "clarification" in parsed);
+  assert.match(parsed.clarification, /nome do serviço.*criar/i);
+});

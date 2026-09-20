@@ -6,6 +6,22 @@ type Result<T> = {success:boolean;results:T[]};
 type Statement = {bind(...args:Array<string|number|null>):Statement;all<T>():Promise<Result<T>>};
 type ReportDatabase = {prepare(sql:string):Statement;batch<T>(statements:Statement[]):Promise<Result<T>[]>};
 
+function oneEditApart(left: string, right: string) {
+  if (left === right) return true;
+  if (Math.abs(left.length - right.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i] === right[j]) { i++; j++; continue; }
+    edits++;
+    if (edits > 1) return false;
+    if (left.length > right.length) i++;
+    else if (right.length > left.length) j++;
+    else { i++; j++; }
+  }
+  if (i < left.length || j < right.length) edits++;
+  return edits <= 1;
+}
+
 // Pure prepared SELECTs: no dashboard seeding, write side effects, or zero fallback on failure.
 export async function readHelpReport(access: AccessContext, requested: ReportRequest) {
   requested = {...requested,scope:requested.person ? "self" : requested.scope};
@@ -20,7 +36,14 @@ export async function readHelpReport(access: AccessContext, requested: ReportReq
   if (requested.person && access.isOwner) {
     const candidates = await db.prepare("SELECT id, name FROM team WHERE organization_id = ?").bind(access.organizationId).all<{id:number;name:string}>();
     const name = normalizeHelp(requested.person);
-    const matches = candidates.results.filter(m=>normalizeHelp(m.name) === name || normalizeHelp(m.name).split(" ")[0] === name);
+    let matches = candidates.results.filter(m=>normalizeHelp(m.name) === name || normalizeHelp(m.name).split(" ")[0] === name);
+    if (!matches.length) {
+      matches = candidates.results.filter((member) => {
+        const registered = normalizeHelp(member.name).split(" ")[0];
+        const spoken = name.split(" ")[0];
+        return spoken.length >= 3 && registered.length >= 3 && oneEditApart(registered, spoken);
+      });
+    }
     if (matches.length !== 1) return { answer: matches.length ? "Há mais de um profissional com esse nome. Qual é o nome completo?" : "Não encontrei esse profissional nesta barbearia. Qual é o nome cadastrado?" };
     memberId = matches[0].id;
   }
