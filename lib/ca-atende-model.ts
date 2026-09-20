@@ -37,15 +37,17 @@ greeting = cumprimento sem outro pedido.
 booking = quer marcar e não pediu uma consulta específica de vagas.
 availability = quer saber horários/vagas/disponibilidade.
 prices = quer preço/valor.
-human = quer falar com dono, responsável, barbeiro ou pessoa.
+human = quer explicitamente falar/conversar/chamar uma pessoa, dono, responsável ou atendente. Dizer apenas "quero o Eduardo", "com o Eduardo", "Eduardo" ou escolher um profissional NÃO é human; nesses casos mantenha booking/availability conforme o contexto.
 cancel = quer cancelar/desmarcar.
 reschedule = quer mudar/remarcar.
 spam = oferta comercial clara enviada à barbearia (operadora, empréstimo, marketing, vendedor etc.).
 unknown = não há segurança suficiente.
 
 service e barber devem ser nomes do cadastro quando a mensagem apontar claramente para um deles; caso contrário vazio.
-date deve ser YYYY-MM-DD quando o cliente disser hoje, amanhã ou uma data clara; caso contrário vazio.
-Se houver dúvida entre spam e cliente real, use unknown. Não invente nomes, datas ou serviços.`,
+date deve ser YYYY-MM-DD quando o cliente disser hoje, amanhã, dia da semana ou uma data clara; caso contrário vazio.
+time deve ser HH:MM quando houver horário claro como "9h", "9 horas", "às 9" ou "14:30"; caso contrário vazio.
+Leve a memória em conta em respostas curtas. Se a conversa estava escolhendo agendamento/horário e a pessoa disser apenas "Corte", "Eduardo", "amanhã", "9h" ou "quero resolver por aqui", trate isso como continuação do agendamento, não como assunto novo.
+Se houver dúvida entre spam e cliente real, use unknown. Não invente nomes, datas, horários ou serviços.`,
         input: input.message.slice(0,1200),
         text: { format: { type: "json_schema", name: "ca_atende_intent", strict: true, schema: {
           type: "object",
@@ -53,10 +55,11 @@ Se houver dúvida entre spam e cliente real, use unknown. Não invente nomes, da
           properties: {
             intent: { type: "string", enum: INTENTS },
             date: { type: "string" },
+            time: { type: "string" },
             service: { type: "string" },
             barber: { type: "string" }
           },
-          required: ["intent","date","service","barber"]
+          required: ["intent","date","time","service","barber"]
         }}}
       })
     });
@@ -68,11 +71,12 @@ Se houver dúvida entre spam e cliente real, use unknown. Não invente nomes, da
     if (payload.status && payload.status !== "completed") return null;
     const raw = payload.output?.filter(item => item.type === "message").flatMap(item => item.content || []).filter(item => item.type === "output_text").map(item => item.text || "").join("") || "";
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { intent?: string; date?: string; service?: string; barber?: string };
+    const parsed = JSON.parse(raw) as { intent?: string; date?: string; time?: string; service?: string; barber?: string };
     if (!INTENTS.includes(parsed.intent as CaAtendeIntent)) return null;
     return {
       intent: parsed.intent as CaAtendeIntent,
       date: String(parsed.date || "").slice(0,10),
+      time: String(parsed.time || "").slice(0,5),
       service: String(parsed.service || "").slice(0,120),
       barber: String(parsed.barber || "").slice(0,120),
       source: "ai",
