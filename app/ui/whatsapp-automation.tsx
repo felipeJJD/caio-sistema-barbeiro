@@ -586,14 +586,14 @@ export function WhatsappAutomation() {
       <div className="whatsapp-assistant-badge">C.A.</div>
       <div className="whatsapp-assistant-copy">
         <span>C.A. ATENDE</span>
-        <h3>Atendimento econômico preparado</h3>
-        <p>Saudação em uma mensagem, link da agenda primeiro, horários e preços consultados no Cortou Anotou, ofertas comerciais sem resposta e IA somente quando as regras não entenderem o pedido.</p>
-        <div className="whatsapp-assistant-tags"><small>LINK PRIMEIRO</small><small>FILTRO DE OFERTAS</small><small>IA SOB DEMANDA</small><small>TRANSFERÊNCIA HUMANA</small></div>
+        <h3>Atendimento inteligente por IA</h3>
+        <p>O link da agenda continua primeiro. Se o cliente preferir conversar, a IA entende o pedido e usa serviços, profissionais e horários reais do Cortou Anotou. Se não conseguir resolver com segurança, chama uma pessoa da barbearia.</p>
+        <div className="whatsapp-assistant-tags"><small>LINK PRIMEIRO</small><small>FILTRO DE OFERTAS</small><small>IA PRINCIPAL</small><small>TRANSFERÊNCIA HUMANA</small></div>
         <button type="button" className="whatsapp-test-launch" onClick={() => setTestOpen((open) => !open)}>{testOpen ? "Fechar teste" : "Testar atendente"}</button>
       </div>
       <label className={canEnable && data.settings.enabled ? "whatsapp-bot-switch" : "whatsapp-bot-switch disabled"}>
-        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte a Meta primeiro" : !hasPackage ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "Responde somente quando necessário"}</small></span>
-        <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled:event.target.checked }, event.target.checked ? "C.A. Atende ligado no modo econômico." : "C.A. Atende desligado.")} />
+        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte a Meta primeiro" : !hasPackage ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "IA conversa; o sistema valida e executa"}</small></span>
+        <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled:event.target.checked }, event.target.checked ? "C.A. Atende com IA ligado." : "C.A. Atende desligado.")} />
         <i />
       </label>
     </section>
