@@ -71,6 +71,7 @@ type CaAtendeTestState = {
   botState: string;
   memory: { intent?: string; date?: string; time?: string; service?: string; barber?: string; afterTime?: string };
   paused: boolean;
+  unresolvedTurns: number;
 };
 
 type CaAtendeTestResult = {
@@ -151,7 +152,7 @@ export function WhatsappAutomation() {
   const [testOpen, setTestOpen] = useState(false);
   const [testInput, setTestInput] = useState("");
   const [testSending, setTestSending] = useState(false);
-  const [testState, setTestState] = useState<CaAtendeTestState>({ botState:"", memory:{}, paused:false });
+  const [testState, setTestState] = useState<CaAtendeTestState>({ botState:"", memory:{}, paused:false, unresolvedTurns:0 });
   const [testMessages, setTestMessages] = useState<CaAtendeTestMessage[]>([
     { id:1, role:"system", text:"Modo teste interno. Nenhuma mensagem é enviada para a Meta ou para clientes reais." },
   ]);
@@ -404,7 +405,7 @@ export function WhatsappAutomation() {
 
   function resetCaAtendeTest() {
     setTestInput("");
-    setTestState({ botState:"", memory:{}, paused:false });
+    setTestState({ botState:"", memory:{}, paused:false, unresolvedTurns:0 });
     setTestMessages([
       { id:Date.now(), role:"system", text:"Conversa reiniciada. O próximo texto será tratado como um cliente novo." },
     ]);
