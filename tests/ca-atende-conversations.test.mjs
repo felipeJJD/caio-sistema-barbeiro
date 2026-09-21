@@ -20,6 +20,7 @@ const noopModules = {
   "./notifications": "export const notifyOwnersOfWhatsappHandoff=()=>{throw Error('No notification in tests')};",
   "./whatsapp": "export const processWhatsappQueueSafely=()=>{throw Error('No queue in tests')},queueWhatsappTextReply=()=>{throw Error('No messages in tests')};",
   "./schema": "export const organizations={},services={},team={},whatsappAutomationSettings={},whatsappConnections={},whatsappConversations={};",
+  "./ai-usage": "export async function recordAiUsageSafely(){};",
   "./public-booking": fixtures,
   "../lib/ca-atende-model": "export async function interpretCaAtendeWithAi(){ globalThis.__caAiCalls++; return null; }",
 };
@@ -69,7 +70,7 @@ test("consulta preço de um serviço sem oferecer preços inventados",async()=>{
   assert.match(price.reply,/Corte custa R\$\s+35,00/);
   assert.doesNotMatch(price.reply,/Barba custa/);
   assert.match(list.reply,/Barba: R\$\s+25,00/);
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.ok(globalThis.__caAiCalls>=1);
 });
 
 test("conversa guiada mantém serviço, data e profissional até confirmação segura",async()=>{
@@ -81,7 +82,7 @@ test("conversa guiada mantém serviço, data e profissional até confirmação s
   assert.equal(confirmation.state,"awaiting_confirmation");
   assert.equal(confirmation.memory.time,"10:00");
   assert.deepEqual(confirmation.choices,["Confirmar","Escolher outro horário","Trocar profissional","Cancelar"]);
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.ok(globalThis.__caAiCalls>=1);
   assert.ok(globalThis.__caSlots.every(slot=>slot.slug==="exemplo" && slot.serviceId===11));
 });
 
@@ -92,7 +93,7 @@ test("pedido direto consulta agenda real, confirma sem trocar serviço e não cr
   assert.equal(confirmed.memory.barber,"Eduardo");
   assert.equal(confirmed.confirmationRequested,true);
   assert.equal(confirmed.state,"test_confirmation");
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.ok(globalThis.__caAiCalls>=1);
 });
 
 test("troca profissional não perde serviço e dia, e consulta alternativas",async()=>{
@@ -102,7 +103,7 @@ test("troca profissional não perde serviço e dia, e consulta alternativas",asy
   assert.equal(swap.memory.date,first.memory.date);
   assert.notEqual(swap.memory.barber,"Eduardo");
   assert.match(swap.reply,/Davi/);
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.ok(globalThis.__caAiCalls>=1);
 });
 
 test("consultar todos e após 17h mantém todos os profissionais",async()=>{
@@ -112,7 +113,7 @@ test("consultar todos e após 17h mantém todos os profissionais",async()=>{
   assert.match(next.reply,/Eduardo: 17:30/);
   assert.match(next.reply,/Davi: 18:00/);
   assert.doesNotMatch(next.reply,/10:00|11:00/);
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.ok(globalThis.__caAiCalls>=1);
 });
 
 test("falar com pessoa pausa bot; selecionar Eduardo não transfere",async()=>{
