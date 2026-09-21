@@ -172,10 +172,10 @@ export function classifyCaAtendeByRule(value: string): CaAtendeInterpretation {
   }
   if (/\b(cancelar|cancela|cancelamento|desmarcar|desmarca)\b/.test(text)) return { intent:"cancel", date, time, service:"", barber:"", source:"rule" };
   if (/\b(remarcar|remarca|mudar meu horario|trocar meu horario|mudar o horario|trocar o horario)\b/.test(text)) return { intent:"reschedule", date, time, service:"", barber:"", source:"rule" };
-  if (/\b(preco|precos|valor|valores|quanto custa|quanto e|tabela)\b/.test(text)) return { intent:"prices", date, time, service:"", barber:"", source:"rule" };
-  if (/\b(horario|horarios|vaga|vagas|disponivel|disponibilidade|tem hora|tem horario)\b/.test(text) || /^tem\s+(?:corte|barba|cabelo)\b/.test(text)) return { intent:"availability", date, time, service:"", barber:"", source:"rule" };
+  if (/\b(preco|precos|valor|valores|vlr|quanto custa|quanto e|quanto ta|qual valor|tabela)\b/.test(text) || /\bqto custa\b/.test(text)) return { intent:"prices", date, time, service:"", barber:"", source:"rule" };
+  if (/\b(horario|horarios|hr|hrs|vaga|vagas|encaixe|disponivel|disponibilidade|tem hora|tem horario|tem hr)\b/.test(text) || /^tem\s+(?:corte|barba|cabelo)\b/.test(text)) return { intent:"availability", date, time, service:"", barber:"", source:"rule" };
   if (/\b(agendar|agenda|marcar|marca um horario|marcar horario|quero cortar|quero fazer a barba)\b/.test(text)) return { intent:"booking", date, time, service:"", barber:"", source:"rule" };
-  if (text.length <= 70 && /^(oi|ola|opa|e ai|bom dia|boa tarde|boa noite|tudo bem|oi tudo bem|ola tudo bem|salve|fala)(\b|$)/.test(text)) {
+  if (text.length <= 70 && /^(oi+|ola+|opa+|e ai|eai|eae|bom dia|bomdia|bo dia|boa tarde|boatarde|boua tarde|boa noite|boanoite|tudo bem|oi tudo bem|ola tudo bem|salve|fala)/.test(text)) {
     return { intent:"greeting", date, time, service:"", barber:"", source:"rule" };
   }
   return { intent:"unknown", date, time, service:"", barber:"", source:"rule" };
