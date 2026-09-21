@@ -72,17 +72,17 @@ export function extractCaAtendeTimeWindow(value: string): { afterTime: string; b
     return { afterTime: "17:59", beforeTime: "" };
   }
 
-  const between = /\bentre\s*(2[0-3]|[01]?\d)\b(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\s*(?:e|ate)\s*(2[0-3]|[01]?\d)\b(?::([0-5]\d))?/.exec(text);
+  const between = /\bentre\s*(2[0-3]|[01]?\d)(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\b\s*(?:e|ate)\s*(2[0-3]|[01]?\d)(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\b/.exec(text);
   if (between) {
     const start = `${String(Number(between[1])).padStart(2,"0")}:${between[2] ?? "00"}`;
     const end = `${String(Number(between[3])).padStart(2,"0")}:${between[4] ?? "00"}`;
     return { afterTime: start === "00:00" ? "" : minutesBefore(start), beforeTime: end };
   }
 
-  const before = /\b(?:antes d[aeo]s?|antes de)\s*(2[0-3]|[01]?\d)\b(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?/.exec(text);
+  const before = /\b(?:antes d[aeo]s?|antes de)\s*(2[0-3]|[01]?\d)(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\b/.exec(text);
   if (before) return { afterTime: "", beforeTime: `${String(Number(before[1])).padStart(2,"0")}:${before[2] ?? "00"}` };
 
-  const after = /\b(depois d[aeo]s?|depois de|apos|a partir d[aeo]s?|a partir de)\s*(2[0-3]|[01]?\d)\b(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?/.exec(text);
+  const after = /\b(depois d[aeo]s?|depois de|apos|a partir d[aeo]s?|a partir de)\s*(2[0-3]|[01]?\d)(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\b/.exec(text);
   if (after) {
     const time = `${String(Number(after[2])).padStart(2,"0")}:${after[3] ?? "00"}`;
     return { afterTime: /a partir/.test(after[1]) ? minutesBefore(time) : time, beforeTime: "" };
