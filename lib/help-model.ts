@@ -1,4 +1,5 @@
 import { appDate } from "./app-date";
+import { parseAiUsage, type AiUsageSnapshot } from "./ai-usage";
 import { normalizeModelAction, type HelpActionProposal } from "./help-actions";
 import { helpTopics, type HelpMessage } from "./help-guide";
 import { SAFE_ASSISTANT_CONTEXT_PREFIX } from "./help-conversation";
@@ -6,12 +7,13 @@ import { assistantStyleInstruction, type AssistantProfile } from "../db/assistan
 import { helpToolIds, HELP_TOOLS, lastHelpIntent, normalizeHelpIntent, type HelpIntent } from "./help-intent";
 import { productKnowledge } from "./help-knowledge";
 
-type Interpretation =
+type Interpretation = (
   | {kind:"guide";topic:string;answer:string}
   | {kind:"clarify";answer:string}
   | {kind:"chat";answer:string}
   | {kind:"action";answer:string;action:HelpActionProposal}
-  | {kind:"tool";intent:HelpIntent};
+  | {kind:"tool";intent:HelpIntent}
+) & {aiUsage?:AiUsageSnapshot};
 
 // The model only interprets language and proposes allowlisted actions. It never
 // writes to the database. The authenticated application validates permissions,
@@ -21,6 +23,7 @@ export async function interpretHelp(messages: HelpMessage[], owner: boolean, pro
   const settings = env as unknown as {OPENAI_API_KEY?:string;OPENAI_HELP_MODEL?:string};
   const key = settings.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
   if (!key) return null;
+  const model = settings.OPENAI_HELP_MODEL || process.env.OPENAI_HELP_MODEL || "gpt-4.1-mini-2025-04-14";
   const topics = helpTopics.filter(t=>owner || !("owner" in t && t.owner));
   const firstName = userName.trim().split(/\s+/)[0]?.slice(0,40) || "";
   const previous = lastHelpIntent(messages);
@@ -30,7 +33,7 @@ export async function interpretHelp(messages: HelpMessage[], owner: boolean, pro
       headers:{"content-type":"application/json",authorization:`Bearer ${key}`},
       signal:AbortSignal.timeout(12000),
       body:JSON.stringify({
-        model:settings.OPENAI_HELP_MODEL || process.env.OPENAI_HELP_MODEL || "gpt-4.1-mini-2025-04-14",
+        model,
         store:false,
         max_output_tokens:1000,
         instructions:`Você é o Assistente Cortou Anotou. Português brasileiro simples e natural. Fale como um amigão profissional: útil, gentil e sem enrolação. Interprete erros de ditado, frases incompletas e fala informal usando o contexto das mensagens anteriores. Hoje é ${appDate()} (São Paulo). Perfil de acesso: ${owner ? "proprietário" : "funcionário, somente dados próprios"}. Usuário autenticado: ${firstName || "nome não disponível"}. Estilo aprendido deste usuário: ${assistantStyleInstruction(profile ?? {interactionCount:0,detailScore:55,warmthScore:75,humorScore:25,emojiScore:10,initiativeScore:70})}.
@@ -131,26 +134,31 @@ ${productKnowledge.map(k=>`${k.module} | ${k.where} | ${k.who} | ${k.how} | ${k.
       console.warn("help_model_unavailable", {status:response.status, detail});
       return null;
     }
-    const payload = await response.json() as {status?:string;output?:Array<{type:string;content?:Array<{type:string;text?:string}>}>};
+    const payload = await response.json() as {
+      status?:string;
+      output?:Array<{type:string;content?:Array<{type:string;text?:string}>}>;
+      usage?:{input_tokens?:number;output_tokens?:number;total_tokens?:number;input_tokens_details?:{cached_tokens?:number}};
+    };
     if (payload.status && payload.status !== "completed") return null;
+    const aiUsage = parseAiUsage(payload, model);
     const outputText = payload.output?.filter(o=>o.type === "message").flatMap(o=>o.content || []).filter(c=>c.type === "output_text").map(c=>c.text || "").join("");
     if (!outputText) return null;
     const result = JSON.parse(outputText);
     if (result.kind === "tool") {
       const intent = normalizeHelpIntent({tool:result.tool_id,start:result.start,end:result.end,scope:result.scope,metric:result.metric,person:result.person,afterTime:result.after_time,atTime:result.at_time,service:result.service,client:result.client});
-      return intent ? {kind:"tool",intent} : null;
+      return intent ? {kind:"tool",intent,aiUsage} : null;
     }
     if (typeof result.answer !== "string") return null;
     if (result.kind === "action") {
       const action = normalizeModelAction(result.action);
       if (!action) return null;
-      if (!owner && action.kind !== "public-booking-link") return {kind:"clarify",answer:"Essa configuração só pode ser alterada pelo proprietário da barbearia."};
-      return {kind:"action",answer:(result.answer || "Entendi. Confira a alteração antes de confirmar.").slice(0,800),action};
+      if (!owner && action.kind !== "public-booking-link") return {kind:"clarify",answer:"Essa configuração só pode ser alterada pelo proprietário da barbearia.",aiUsage};
+      return {kind:"action",answer:(result.answer || "Entendi. Confira a alteração antes de confirmar.").slice(0,800),action,aiUsage};
     }
     if (!result.answer.trim()) return null;
-    if (result.kind === "chat") return {kind:"chat",answer:result.answer.slice(0,800)};
-    if (result.kind === "guide" && topics.some(t=>t.id===result.topic)) return {kind:"guide",topic:result.topic,answer:result.answer.slice(0,1000)};
-    if (result.kind === "clarify") return {kind:"clarify",answer:result.answer.slice(0,600)};
+    if (result.kind === "chat") return {kind:"chat",answer:result.answer.slice(0,800),aiUsage};
+    if (result.kind === "guide" && topics.some(t=>t.id===result.topic)) return {kind:"guide",topic:result.topic,answer:result.answer.slice(0,1000),aiUsage};
+    if (result.kind === "clarify") return {kind:"clarify",answer:result.answer.slice(0,600),aiUsage};
     return null;
   } catch {
     console.warn("help_model_unavailable", {reason:"request_or_format"});
