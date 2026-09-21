@@ -10,6 +10,7 @@ import { interpretHelp } from "../../../lib/help-model";
 import { fallbackHelpIntent, isShortHelpContinuation, lastHelpIntent, reconcileHelpIntent } from "../../../lib/help-intent";
 import { SAFE_ASSISTANT_CONTEXT_PREFIX } from "../../../lib/help-conversation";
 import { learnAssistantProfile, readAssistantProfile } from "../../../db/assistant-profile";
+import { recordAiUsageSafely } from "../../../db/ai-usage";
 
 const json=(body:HelpReply|{error:string},status=200)=>Response.json(body,{status,headers:{"Cache-Control":"no-store, private"}});
 
@@ -44,6 +45,7 @@ export async function POST(request:Request) {
     // Only one interpretation call. The deterministic fallback runs only when
     // the model is unavailable or returned a malformed/unlisted intent.
     const interpreted=await interpretHelp(messages,access.isOwner,profile,pending,access.name);
+    if(interpreted?.aiUsage) await recordAiUsageSafely({ organizationId:access.organizationId, surface:"help", usage:interpreted.aiUsage });
     if(interpreted?.kind==="tool")return json(await executeHelpTool(access,reconcileHelpIntent(question,interpreted.intent,access.isOwner),profile));
     if(interpreted?.kind==="action"){
       if(interpreted.action.kind==="public-booking-link"){
