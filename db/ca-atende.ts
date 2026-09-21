@@ -14,6 +14,7 @@ import {
 } from "../lib/ca-atende";
 import { interpretCaAtendeWithAi } from "../lib/ca-atende-model";
 import { getPublicBookingSlotsExpanded } from "./public-booking";
+import { recordAiUsageSafely } from "./ai-usage";
 import { getDb } from "./index";
 import { notifyOwnersOfWhatsappHandoff } from "./notifications";
 import {
@@ -199,6 +200,7 @@ async function updateConversation(input: {
   suspectedOfferAt?: string | null;
   humanRequestedAt?: string | null;
   indefiniteHandoff?: boolean;
+  unresolvedTurns?: number;
 }) {
   const db = await getDb();
   const now = new Date().toISOString();
@@ -211,6 +213,7 @@ async function updateConversation(input: {
     lastBotReplyAt: input.replyAt ?? null,
     suspectedOfferAt: input.suspectedOfferAt ?? null,
     humanRequestedAt: input.humanRequestedAt ?? null,
+    unresolvedTurns: Math.max(0, Math.min(20, Math.round(Number(input.unresolvedTurns ?? 0)))),
     automationPausedUntil: input.indefiniteHandoff ? null : undefined,
     pauseReason: input.indefiniteHandoff ? "human_takeover" : undefined,
     updatedAt: now,
@@ -224,6 +227,7 @@ async function updateConversation(input: {
     lastBotReplyAt: values.lastBotReplyAt,
     suspectedOfferAt: values.suspectedOfferAt,
     humanRequestedAt: values.humanRequestedAt,
+    unresolvedTurns: values.unresolvedTurns,
     automationPausedUntil: input.indefiniteHandoff ? null : null,
     pauseReason: input.indefiniteHandoff ? "human_takeover" : "",
     updatedAt: now,
@@ -236,6 +240,7 @@ async function updateConversation(input: {
       ...(input.replyAt !== undefined ? { lastBotReplyAt: values.lastBotReplyAt } : {}),
       ...(input.suspectedOfferAt !== undefined ? { suspectedOfferAt: values.suspectedOfferAt } : {}),
       ...(input.humanRequestedAt !== undefined ? { humanRequestedAt: values.humanRequestedAt } : {}),
+      ...(input.unresolvedTurns !== undefined ? { unresolvedTurns: values.unresolvedTurns } : {}),
       ...(input.indefiniteHandoff ? { automationPausedUntil: null, pauseReason: "human_takeover" } : {}),
       updatedAt: now,
     },
@@ -243,21 +248,19 @@ async function updateConversation(input: {
 }
 
 async function interpretationFor(message: string, context: CaAtendeRuntimeContext, memory: CaAtendeContextMemory) {
-  let interpretation = classifyCaAtendeByRule(message);
-  if (context.settings.spamFilterEnabled && highConfidenceCommercialOffer(message)) return { ...interpretation, intent:"spam" as const };
+  const rule = classifyCaAtendeByRule(message);
+  if (context.settings.spamFilterEnabled && highConfidenceCommercialOffer(message)) return { ...rule, intent:"spam" as const };
+
+  // Greeting + link is intentionally local and free. For the rest of natural
+  // conversation, AI is the primary interpreter; rules remain a safe fallback.
+  if (rule.intent === "greeting") return rule;
 
   const normalized = normalizeCaAtendeText(message);
-  if (normalized === "qualquer profissional") return { ...interpretation, intent:memory.intent === "availability" ? "availability" as const : "booking" as const };
-  if (normalized === "precos e servicos") return { ...interpretation, intent:"prices" as const };
-  const knownService = context.services.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
-  const knownBarber = context.barbers.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
-  const bookingContinuation = (memory.intent === "booking" || memory.intent === "availability")
-    && (knownService || knownBarber || Boolean(extractCaAtendeDate(message)) || Boolean(extractCaAtendeTime(message)) || Boolean(extractCaAtendeTimeWindow(message).afterTime) || Boolean(extractCaAtendeTimeWindow(message).beforeTime) || wantsAssistedBooking(message) || wantsAnotherProfessional(message) || wantsBookingConfirmation(message));
-  if (interpretation.intent === "unknown" && bookingContinuation) {
-    return { ...interpretation, intent: memory.intent as "booking" | "availability" };
-  }
+  if (normalized === "qualquer profissional") return { ...rule, intent:memory.intent === "availability" ? "availability" as const : "booking" as const };
+  if (normalized === "precos e servicos") return { ...rule, intent:"prices" as const };
 
-  if (interpretation.intent === "unknown" && context.settings.aiFallbackEnabled) {
+  let interpretation: CaAtendeInterpretation = rule;
+  if (context.settings.aiFallbackEnabled) {
     const ai = await interpretCaAtendeWithAi({
       message,
       organizationName: context.organization.name,
@@ -265,14 +268,27 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
       barbers: context.barbers.map(item => item.name),
       memory,
     });
-    if (ai) interpretation = ai;
+    if (ai) {
+      await recordAiUsageSafely({ organizationId:context.organization.id, surface:"ca_atende", usage:ai.aiUsage });
+      interpretation = ai;
+      if (ai.intent !== "unknown") return ai;
+    }
   }
-  return interpretation;
+
+  const knownService = context.services.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
+  const knownBarber = context.barbers.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
+  const bookingContinuation = (memory.intent === "booking" || memory.intent === "availability")
+    && (knownService || knownBarber || Boolean(extractCaAtendeDate(message)) || Boolean(extractCaAtendeTime(message)) || Boolean(extractCaAtendeTimeWindow(message).afterTime) || Boolean(extractCaAtendeTimeWindow(message).beforeTime) || wantsAssistedBooking(message) || wantsAnotherProfessional(message) || wantsBookingConfirmation(message));
+  if (interpretation.intent === "unknown" && bookingContinuation) {
+    return { ...interpretation, intent: memory.intent as "booking" | "availability" };
+  }
+  return interpretation.intent === "unknown" && rule.intent !== "unknown" ? rule : interpretation;
 }
 
 type CaAtendeConversationSnapshot = {
   botState?: string | null;
   botContextJson?: string | null;
+  unresolvedTurns?: number | null;
 };
 
 type CaAtendeDecision = {
@@ -287,6 +303,36 @@ type CaAtendeDecision = {
   confirmationRequested?: boolean;
   choices?: string[];
 };
+
+function guardedDecision(
+  decision: CaAtendeDecision,
+  conversation: CaAtendeConversationSnapshot | null,
+  context: CaAtendeRuntimeContext,
+) {
+  if (decision.handoff || decision.spam) return { decision, unresolvedTurns:0 };
+  const previousMemory = safeMemory(conversation?.botContextJson ?? "{}");
+  const previousState = String(conversation?.botState ?? "");
+  const waitingState = decision.state === "booking_method"
+    || decision.state === "cancel_choice"
+    || decision.state.startsWith("awaiting_")
+    || decision.intent === "unknown";
+  const noProgress = waitingState
+    && decision.state === previousState
+    && JSON.stringify(decision.memory) === JSON.stringify(previousMemory);
+  const unresolvedTurns = noProgress ? Math.min(20, Number(conversation?.unresolvedTurns ?? 0) + 1) : 0;
+  if (unresolvedTurns < 3) return { decision, unresolvedTurns };
+  return {
+    unresolvedTurns,
+    decision: {
+      reply:`Não consegui resolver isso com segurança por aqui. Vou chamar alguém da ${context.organization.name} para continuar com você.`,
+      intent:"human",
+      state:"human_takeover",
+      memory:decision.memory,
+      source:decision.source,
+      handoff:true,
+    } satisfies CaAtendeDecision,
+  };
+}
 
 function explicitHumanRequest(value: string) {
   const text = normalizeCaAtendeText(value);
@@ -616,6 +662,7 @@ export type CaAtendeTestState = {
   botState: string;
   memory: CaAtendeContextMemory;
   paused: boolean;
+  unresolvedTurns: number;
 };
 
 export type CaAtendeTestResult = {
@@ -645,6 +692,7 @@ export async function simulateCaAtende(input: {
     botState: String(input.state?.botState ?? "").slice(0,80),
     memory: input.state?.memory ?? {},
     paused: Boolean(input.state?.paused),
+    unresolvedTurns: Math.max(0, Number(input.state?.unresolvedTurns ?? 0)),
   };
 
   if (previousState.paused) {
@@ -661,7 +709,7 @@ export async function simulateCaAtende(input: {
     };
   }
 
-  const decision = await composeReply({
+  const rawDecision = await composeReply({
     organizationId: input.organizationId,
     messageRowId: 0,
     providerMessageId: "test",
@@ -671,7 +719,14 @@ export async function simulateCaAtende(input: {
   }, context, {
     botState: previousState.botState,
     botContextJson: JSON.stringify(previousState.memory ?? {}),
+    unresolvedTurns: previousState.unresolvedTurns,
   });
+  const guarded = guardedDecision(rawDecision, {
+    botState: previousState.botState,
+    botContextJson: JSON.stringify(previousState.memory ?? {}),
+    unresolvedTurns: previousState.unresolvedTurns,
+  }, context);
+  const decision = guarded.decision;
 
   const testReply = decision.confirmationRequested
     ? `Perfeito. Eu entendi sua confirmação: ${decision.memory.service || "serviço"}${decision.memory.barber ? ` com ${decision.memory.barber}` : ""}, ${decision.memory.date ? humanDate(decision.memory.date) : "no dia escolhido"}${decision.memory.time ? ` às ${decision.memory.time}` : ""}. No modo teste eu não altero sua agenda, então nenhum horário real foi criado.`
@@ -691,6 +746,7 @@ export async function simulateCaAtende(input: {
       botState: decision.state,
       memory: decision.memory,
       paused: Boolean(decision.handoff),
+      unresolvedTurns: guarded.unresolvedTurns,
     },
   };
 }
@@ -705,7 +761,9 @@ export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
   const conversation = await conversationState(event.organizationId, event.phone);
   if (isPaused(conversation)) return { handled:false, reason:"human_takeover" as const };
 
-  const decision = await composeReply(event, context, conversation);
+  const rawDecision = await composeReply(event, context, conversation);
+  const guarded = guardedDecision(rawDecision, conversation, context);
+  const decision = guarded.decision;
   const now = new Date().toISOString();
 
   if (decision.spam) {
@@ -716,6 +774,7 @@ export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
       state:decision.state,
       memory:decision.memory,
       suspectedOfferAt:now,
+      unresolvedTurns:guarded.unresolvedTurns,
     });
     return { handled:true, replied:false, reason:"suspected_offer" as const };
   }
@@ -738,6 +797,7 @@ export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
     replyAt:now,
     humanRequestedAt:decision.handoff ? now : undefined,
     indefiniteHandoff:Boolean(decision.handoff),
+    unresolvedTurns:guarded.unresolvedTurns,
   });
 
   if (decision.handoff) {
