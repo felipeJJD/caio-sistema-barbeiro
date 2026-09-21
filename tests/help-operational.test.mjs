@@ -185,7 +185,9 @@ test("diagnóstico usa a configuração do tenant da sessão, sem revelar outra 
   const result=await tools.executeHelpTool(owner,{...intent,tool:"get_public_booking_status"});
   assert.match(result.answer,/\/agendar\/kaio/);assert.doesNotMatch(result.answer,/outra/);
   assert.equal(result.action.kind,"public-booking-link");
-  const missingService=await tools.executeHelpTool(owner,{...intent,tool:"get_available_slots"});
+  const todayParts=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+  const runtimeToday=`${todayParts.find(part=>part.type==="year")?.value}-${todayParts.find(part=>part.type==="month")?.value}-${todayParts.find(part=>part.type==="day")?.value}`;
+  const missingService=await tools.executeHelpTool(owner,{...intent,tool:"get_available_slots",start:runtimeToday,end:runtimeToday});
   assert.match(missingService.answer,/Qual serviço/);
   sqlite.exec("UPDATE organizations SET public_booking_enabled = 0 WHERE id = 10");
   try {
