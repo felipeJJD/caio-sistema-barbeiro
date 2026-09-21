@@ -6,7 +6,7 @@ import { PasswordInput } from "./password-input";
 import { ResendVerificationButton, SupportContactLinks } from "./email-security";
 
 type AccountType = "barbershop" | "individual";
-type Screen = "choose" | "barber-kind" | "shop-system" | "invite" | "form";
+type Screen = "choose" | "shop-profile" | "barber-kind" | "shop-system" | "invite" | "form";
 type SignupResult = { ok?: boolean; error?: string; verificationRequired?: boolean; email?: string };
 
 export function PublicSignupForm({ signupSource, referralCode = "" }: { signupSource: string; referralCode?: string }) {
@@ -19,10 +19,17 @@ export function PublicSignupForm({ signupSource, referralCode = "" }: { signupSo
   const [confirmation, setConfirmation] = useState("");
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
+  const [shopProfile, setShopProfile] = useState({
+    estimatedMonthlyClients: "",
+    estimatedMonthlyWhatsappContacts: "",
+    estimatedProfessionals: "",
+    serviceMode: "both",
+    automationGoal: "full",
+  });
 
   function chooseOwner() {
     setAccountType("barbershop");
-    setScreen("form");
+    setScreen("shop-profile");
   }
   function chooseBarber() {
     setAccountType("individual");
@@ -49,6 +56,11 @@ export function PublicSignupForm({ signupSource, referralCode = "" }: { signupSo
           organizationName: String(form.get("organizationName") ?? ""),
           workplaceName: String(form.get("workplaceName") ?? ""),
           commissionRateBps: Math.round(Number(form.get("commissionPercent") ?? 0) * 100),
+          estimatedMonthlyClients: accountType === "barbershop" ? Number(shopProfile.estimatedMonthlyClients) : 0,
+          estimatedMonthlyWhatsappContacts: accountType === "barbershop" ? Number(shopProfile.estimatedMonthlyWhatsappContacts) : 0,
+          estimatedProfessionals: accountType === "barbershop" ? Number(shopProfile.estimatedProfessionals) : 0,
+          serviceMode: accountType === "barbershop" ? shopProfile.serviceMode : "",
+          automationGoal: accountType === "barbershop" ? shopProfile.automationGoal : "",
           whatsapp: String(form.get("whatsapp") ?? ""),
           ownerDocument: String(form.get("ownerDocument") ?? ""),
           email: submittedEmail,
@@ -101,6 +113,33 @@ export function PublicSignupForm({ signupSource, referralCode = "" }: { signupSo
     </section>
   );
 
+  if (screen === "shop-profile") return (
+    <form className="public-signup-form guided-signup" onSubmit={(event) => {
+      event.preventDefault();
+      setError(null);
+      const clients = Math.round(Number(shopProfile.estimatedMonthlyClients));
+      const contacts = Math.round(Number(shopProfile.estimatedMonthlyWhatsappContacts));
+      const professionals = Math.round(Number(shopProfile.estimatedProfessionals));
+      if (!Number.isInteger(clients) || clients < 1) return setError("Informe aproximadamente quantos clientes a barbearia atende por mês.");
+      if (!Number.isInteger(contacts) || contacts < 0) return setError("Informe aproximadamente quantos clientes chamam no WhatsApp por mês.");
+      if (!Number.isInteger(professionals) || professionals < 1) return setError("Informe quantos profissionais trabalham na barbearia.");
+      setScreen("form");
+    }}>
+      <button type="button" className="guided-back" onClick={() => setScreen("choose")}>← Voltar</button>
+      <div className="public-form-heading"><span>PERFIL DA BARBEARIA</span><h2>Vamos indicar o plano certo para o seu movimento.</h2><p>Responda com a sua média real. Nada fica preso em um número padrão e você poderá atualizar depois.</p></div>
+      {error && <div className="public-signup-error" role="alert"><span>{error}</span></div>}
+      <div className="public-form-grid">
+        <label><span>Quantos clientes vocês atendem por mês?</span><input type="number" inputMode="numeric" min="1" max="100000" value={shopProfile.estimatedMonthlyClients} onChange={(event) => setShopProfile((current) => ({ ...current, estimatedMonthlyClients:event.target.value }))} placeholder="Digite uma média mensal" required /></label>
+        <label><span>Quantos profissionais trabalham aí?</span><input type="number" inputMode="numeric" min="1" max="1000" value={shopProfile.estimatedProfessionals} onChange={(event) => setShopProfile((current) => ({ ...current, estimatedProfessionals:event.target.value }))} placeholder="Digite a quantidade" required /></label>
+      </div>
+      <label><span>Em média, quantos clientes chamam no WhatsApp por mês?</span><input type="number" inputMode="numeric" min="0" max="100000" value={shopProfile.estimatedMonthlyWhatsappContacts} onChange={(event) => setShopProfile((current) => ({ ...current, estimatedMonthlyWhatsappContacts:event.target.value }))} placeholder="Digite uma estimativa" required /><small>É uma estimativa. Nem todo cliente precisa mandar mensagem.</small></label>
+      <label><span>Como vocês atendem hoje?</span><select value={shopProfile.serviceMode} onChange={(event) => setShopProfile((current) => ({ ...current, serviceMode:event.target.value }))}><option value="walk_in">Principalmente por ordem de chegada</option><option value="appointments">Principalmente com horário marcado</option><option value="both">Os dois: ordem de chegada e agendamento</option></select></label>
+      <label><span>O que você mais quer do Cortou Anotou?</span><select value={shopProfile.automationGoal} onChange={(event) => setShopProfile((current) => ({ ...current, automationGoal:event.target.value }))}><option value="management">Quero principalmente organizar e controlar a gestão</option><option value="whatsapp">Quero também que o WhatsApp responda meus clientes</option><option value="full">Quero gestão + atendimento inteligente e mais autonomia</option></select></label>
+      <button className="public-submit" type="submit"><span>Continuar meu cadastro</span><b aria-hidden="true">→</b></button>
+      <small>Essas respostas servem para recomendar o plano adequado. Elas não alteram seu teste gratuito.</small>
+    </form>
+  );
+
   if (screen === "barber-kind") return (
     <section className="public-signup-form guided-signup">
       <button type="button" className="guided-back" onClick={() => setScreen("choose")}>← Voltar</button>
@@ -134,7 +173,7 @@ export function PublicSignupForm({ signupSource, referralCode = "" }: { signupSo
 
   return (
     <form className="public-signup-form" onSubmit={submit}>
-      <button type="button" className="guided-back" onClick={() => setScreen(accountType === "individual" ? "barber-kind" : "choose")}>← Voltar</button>
+      <button type="button" className="guided-back" onClick={() => setScreen(accountType === "individual" ? "barber-kind" : "shop-profile")}>← Voltar</button>
       <div className="public-form-heading">
         <span>TESTE GRÁTIS · 14 DIAS</span>
         <h2>{accountType === "individual" ? "Crie seu controle de barbeiro." : "Crie sua barbearia agora."}</h2>
