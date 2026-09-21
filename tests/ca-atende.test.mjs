@@ -64,10 +64,9 @@ test("IA é fallback e nunca a primeira etapa para mensagens simples", () => {
   assert.match(botDb, /interpretCaAtendeWithAi/);
 });
 
-test("saudação padrão manda uma única mensagem com nome e link da barbearia", () => {
+test("saudação padrão manda uma única mensagem com nome e opções", () => {
   assert.match(botDb, /Seja bem-vindo à/);
-  assert.match(botDb, /Para marcar seu horário é bem rapidinho/);
-  assert.match(botDb, /Se preferir atendimento por aqui/);
+  assert.match(botDb, /Como posso te ajudar\? Responda “Ver opções”/);
   assert.match(botDb, /bookingLink\(context\.organization\.slug\)/);
 });
 
@@ -75,7 +74,7 @@ test("consulta de horário usa a agenda real do Cortou Anotou", () => {
   assert.match(botDb, /getPublicBookingSlotsExpanded/);
   assert.match(botDb, /selectedService\.id/);
   assert.match(botDb, /selectedBarber\?\.id/);
-  assert.match(botDb, /Para garantir esse horário, confirme aqui/);
+  assert.match(botDb, /Deseja confirmar\?/);
 });
 
 test("preços vêm dos serviços reais e podem responder um serviço específico ou a tabela", () => {
@@ -185,8 +184,8 @@ test("respostas curtas de continuação usam memória antes de gastar IA", () =>
 });
 
 test("link público nunca expõe domínio técnico do Railway", () => {
-  assert.match(botDb, /railway\\\.app/);
   assert.ok(botDb.includes("https://cortouanotou.com.br"));
+  assert.doesNotMatch(botDb, /PUBLIC_BOOKING_BASE_URL/);
 });
 
 

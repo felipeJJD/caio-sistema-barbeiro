@@ -69,7 +69,7 @@ type WhatsappConnectPayload = WhatsappApiPayload & {
 
 type CaAtendeTestState = {
   botState: string;
-  memory: { intent?: string; date?: string; time?: string; service?: string; barber?: string };
+  memory: { intent?: string; date?: string; time?: string; service?: string; barber?: string; afterTime?: string };
   paused: boolean;
 };
 
@@ -81,6 +81,8 @@ type CaAtendeTestResult = {
   handoff: boolean;
   silent: boolean;
   silentReason: "commercial_offer" | "human_takeover" | null;
+  choices: string[];
+  guided: boolean;
   state: CaAtendeTestState;
 };
 
@@ -89,6 +91,7 @@ type CaAtendeTestMessage = {
   role: "user" | "bot" | "system";
   text: string;
   badges?: string[];
+  choices?: string[];
 };
 
 type EmbeddedSignupMode = "cloud" | "coexistence";
@@ -156,6 +159,11 @@ export function WhatsappAutomation() {
   const signupSessionRef = useRef<{ wabaId: string; phoneNumberId: string } | null>(null);
   const signupModeRef = useRef<EmbeddedSignupMode>("coexistence");
   const completingSignupRef = useRef(false);
+  const testChatRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (testOpen) testChatRef.current?.scrollTo({ top:testChatRef.current.scrollHeight, behavior:"smooth" });
+  }, [testMessages, testOpen]);
 
   async function load(signal?: AbortSignal) {
     setLoading(true);
@@ -402,9 +410,8 @@ export function WhatsappAutomation() {
     ]);
   }
 
-  async function submitCaAtendeTest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const message = testInput.trim();
+  async function sendCaAtendeTest(value: string) {
+    const message = value.trim();
     if (!message || testSending) return;
     const userId = Date.now();
     setTestMessages((current) => [...current, { id:userId, role:"user", text:message }]);
@@ -425,6 +432,7 @@ export function WhatsappAutomation() {
         result.dataSource === "agenda" ? "AGENDA REAL" : result.dataSource === "services" ? "SERVIÇOS REAIS" : "",
         result.handoff ? "HUMANO" : "",
         result.silent ? "SILÊNCIO" : "",
+        result.guided ? "FLUXO GUIADO" : "",
       ].filter(Boolean);
       const text = result.silent
         ? result.silentReason === "commercial_offer"
@@ -436,6 +444,7 @@ export function WhatsappAutomation() {
         role:result.silent ? "system" : "bot",
         text,
         badges,
+        choices:result.choices,
       }]);
     } catch (error) {
       setTestMessages((current) => [...current, {
@@ -446,6 +455,11 @@ export function WhatsappAutomation() {
     } finally {
       setTestSending(false);
     }
+  }
+
+  function submitCaAtendeTest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void sendCaAtendeTest(testInput);
   }
 
     async function submitReminder(event: FormEvent<HTMLFormElement>) {
@@ -589,9 +603,10 @@ export function WhatsappAutomation() {
         <div><span>LABORATÓRIO DO C.A. ATENDE</span><h3>Converse como se fosse um cliente</h3><p>Usa o mesmo motor que vai atender no WhatsApp. O teste pode consultar preços e agenda reais, mas não envia nada para a Meta e não altera agendamentos.</p></div>
         <button type="button" onClick={resetCaAtendeTest} disabled={testSending}>Reiniciar conversa</button>
       </div>
-      <div className="whatsapp-test-chat" aria-live="polite">
-        {testMessages.map((message) => <div className={`whatsapp-test-message ${message.role}`} key={message.id}>
+      <div className="whatsapp-test-chat" aria-live="polite" ref={testChatRef}>
+        {testMessages.map((message, index) => <div className={`whatsapp-test-message ${message.role}`} key={message.id}>
           <div className="whatsapp-test-bubble">{message.text}</div>
+          {index === testMessages.length - 1 && !testSending && !testState.paused && Boolean(message.choices?.length) && <div className="whatsapp-test-choices">{message.choices?.map((choice) => <button type="button" key={choice} onClick={() => void sendCaAtendeTest(choice)}>{choice}</button>)}</div>}
           {message.badges && message.badges.length > 0 && <div className="whatsapp-test-badges">{message.badges.map((badge) => <small key={badge}>{badge}</small>)}</div>}
         </div>)}
         {testSending && <div className="whatsapp-test-message bot"><div className="whatsapp-test-bubble thinking">C.A. Atende está analisando...</div></div>}

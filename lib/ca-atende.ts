@@ -26,6 +26,8 @@ export type CaAtendeContextMemory = {
   time?: string;
   service?: string;
   barber?: string;
+  // The customer's explicit selection is kept separate from the last displayed options.
+  afterTime?: string;
 };
 
 export function normalizeCaAtendeText(value: string) {
@@ -50,7 +52,7 @@ export function extractCaAtendeTime(value: string) {
   if (colon) return `${String(Number(colon[1])).padStart(2,"0")}:${colon[2]}`;
   const hours = /\b(?:as|a|pelas)?\s*([01]?\d|2[0-3])\s*(?:h|hs|hora|horas)\b/.exec(text);
   if (hours) return `${String(Number(hours[1])).padStart(2,"0")}:00`;
-  const afterAt = /\b(?:as|a|pelas)\s*([01]?\d|2[0-3])\b/.exec(text);
+  const afterAt = /\b(?:as|a|pelas|umas|das)\s*([01]?\d|2[0-3])\b/.exec(text);
   if (afterAt) return `${String(Number(afterAt[1])).padStart(2,"0")}:00`;
   if (/^([01]?\d|2[0-3])$/.test(text)) return `${String(Number(text)).padStart(2,"0")}:00`;
   return "";
@@ -76,6 +78,17 @@ export function extractCaAtendeDate(value: string, today = appDate(), currentMin
     const result = `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
     const parsed = new Date(`${result}T12:00:00-03:00`);
     if (Number.isFinite(parsed.getTime()) && parsed.getFullYear() === year && parsed.getMonth() + 1 === month && parsed.getDate() === day) return result;
+  }
+  const dayOnly = /\bdia\s+(\d{1,2})\b/.exec(text);
+  if (dayOnly) {
+    const day = Number(dayOnly[1]);
+    const [year, month] = today.split("-").map(Number);
+    for (let offset = 0; offset < 12; offset++) {
+      const candidate = new Date(year, month - 1 + offset, day, 12);
+      if (candidate.getDate() !== day) continue;
+      const result = `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      if (result >= today) return result;
+    }
   }
 
   const weekdayNames = [
@@ -121,7 +134,7 @@ export function classifyCaAtendeByRule(value: string): CaAtendeInterpretation {
   if (/\b(cancelar|cancela|cancelamento|desmarcar|desmarca)\b/.test(text)) return { intent:"cancel", date, time, service:"", barber:"", source:"rule" };
   if (/\b(remarcar|remarca|mudar meu horario|trocar meu horario|mudar o horario|trocar o horario)\b/.test(text)) return { intent:"reschedule", date, time, service:"", barber:"", source:"rule" };
   if (/\b(preco|precos|valor|valores|quanto custa|quanto e|tabela)\b/.test(text)) return { intent:"prices", date, time, service:"", barber:"", source:"rule" };
-  if (/\b(horario|horarios|vaga|vagas|disponivel|disponibilidade|tem hora|tem horario)\b/.test(text)) return { intent:"availability", date, time, service:"", barber:"", source:"rule" };
+  if (/\b(horario|horarios|vaga|vagas|disponivel|disponibilidade|tem hora|tem horario)\b/.test(text) || /^tem\s+(?:corte|barba|cabelo)\b/.test(text)) return { intent:"availability", date, time, service:"", barber:"", source:"rule" };
   if (/\b(agendar|agenda|marcar|marca um horario|marcar horario|quero cortar|quero fazer a barba)\b/.test(text)) return { intent:"booking", date, time, service:"", barber:"", source:"rule" };
   if (text.length <= 70 && /^(oi|ola|opa|e ai|bom dia|boa tarde|boa noite|tudo bem|oi tudo bem|ola tudo bem|salve|fala)(\b|$)/.test(text)) {
     return { intent:"greeting", date, time, service:"", barber:"", source:"rule" };
@@ -140,5 +153,6 @@ export function mergeCaAtendeMemory(memory: CaAtendeContextMemory, next: Partial
     time: next.time || memory.time || "",
     service: next.service || memory.service || "",
     barber: next.barber || memory.barber || "",
+    afterTime: next.afterTime || memory.afterTime || "",
   };
 }
