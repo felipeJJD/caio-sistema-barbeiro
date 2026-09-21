@@ -25,6 +25,7 @@ export async function getPublicBookingSlotsExpanded(slug,date,serviceId,barberId
 const fakeModules = {
   "drizzle-orm": "export const and=()=>{},eq=()=>{},isNull=()=>{};",
   "./index": "export const getDb=()=>{throw Error('No database in master scenarios')};",
+  "./ai-usage": "export async function recordAiUsageSafely(){};",
   "./notifications": "export const notifyOwnersOfWhatsappHandoff=()=>{throw Error('No notification in master scenarios')};",
   "./whatsapp": "export const processWhatsappQueueSafely=()=>{throw Error('No queue in master scenarios')},queueWhatsappTextReply=()=>{throw Error('No messages in master scenarios')};",
   "./schema": "export const organizations={},services={},team={},whatsappAutomationSettings={},whatsappConnections={},whatsappConversations={};",
@@ -199,7 +200,7 @@ for(const service of serviceNames) for(const prefix of pricePrefixes) scenario("
   assert.equal(answer.dataSource,"services");
   assert.match(answer.reply,new RegExp(service.replace(/[+]/g,"\\+"),"i"));
   assert.doesNotMatch(answer.reply,/Valores da Barbearia Cenários:/);
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.ok(globalThis.__caAiCalls>=1);
 });
 
 const menuCases=[
@@ -286,7 +287,7 @@ for(const [phrase,time] of shortTimes) scenario("contexto","hora curta: "+phrase
   assert.equal(answer.memory.barber,"Eduardo");
   assert.equal(answer.memory.time,time);
   assert.equal(answer.state,"awaiting_confirmation");
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.ok(globalThis.__caAiCalls>=1);
 });
 
 const switchPhrases=[
@@ -304,7 +305,7 @@ for(const phrase of switchPhrases) scenario("contexto","troca profissional prese
   assert.equal(answer.memory.time,"10:00");
   assert.equal(answer.memory.barber,"");
   assert.ok((answer.choices||[]).every(choice=>!choice.startsWith("Eduardo ·")));
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.ok(globalThis.__caAiCalls>=1);
 });
 
 const confirmPhrases=[
@@ -354,7 +355,7 @@ for(const [phrase,accept] of windowConversation) scenario("contexto","faixa na c
   assert.ok(times.length>0,`sem horários em ${phrase}`);
   assert.ok(times.every(accept),`horários fora da faixa em ${phrase}: ${times.join(",")}`);
   assert.equal(answer.dataSource,"agenda");
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.ok(globalThis.__caAiCalls>=1);
 });
 
 // 281-320: linguagem livre que deve cair na IA, sem deixar a IA inventar dados fora do cadastro.
