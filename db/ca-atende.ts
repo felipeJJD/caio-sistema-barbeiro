@@ -294,7 +294,7 @@ function wantsAssistedBooking(value: string) {
 
 function wantsAnotherProfessional(value: string) {
   const text = normalizeCaAtendeText(value);
-  return /\b(outro profissional|outra pessoa|outro barbeiro|outra barbeira|tem outro|com outro)\b/.test(text);
+  return /\b(outro profissional|outra pessoa|outro barbeiro|outra barbeira|tem outro|com outro|trocar profissional|troca profissional|mudar profissional|trocar barbeiro)\b/.test(text);
 }
 
 function wantsBookingConfirmation(value: string) {
