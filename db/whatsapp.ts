@@ -891,6 +891,7 @@ export async function resumeWhatsappConversation(access: AccessContext, phoneVal
     botState: "",
     botContextJson: "{}",
     humanRequestedAt: null,
+    unresolvedTurns: 0,
     updatedAt: new Date().toISOString(),
   }).where(and(eq(whatsappConversations.organizationId, access.organizationId), eq(whatsappConversations.phone, phone)));
 }

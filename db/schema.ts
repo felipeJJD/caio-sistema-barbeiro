@@ -708,10 +708,26 @@ export const whatsappConversations = sqliteTable("whatsapp_conversations", {
   lastBotReplyAt: text("last_bot_reply_at"),
   suspectedOfferAt: text("suspected_offer_at"),
   humanRequestedAt: text("human_requested_at"),
+  unresolvedTurns: integer("unresolved_turns").notNull().default(0),
   lastInboundAt: text("last_inbound_at"),
   lastOutboundAt: text("last_outbound_at"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("whatsapp_conversations_org_phone_unique").on(table.organizationId, table.phone),
   index("whatsapp_conversations_org_pause_idx").on(table.organizationId, table.automationPausedUntil),
+]);
+
+export const aiUsageEvents = sqliteTable("ai_usage_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  organizationId: integer("organization_id").notNull(),
+  surface: text("surface").notNull(),
+  model: text("model").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  totalTokens: integer("total_tokens").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("ai_usage_events_org_created_idx").on(table.organizationId, table.createdAt),
+  index("ai_usage_events_org_surface_created_idx").on(table.organizationId, table.surface, table.createdAt),
 ]);

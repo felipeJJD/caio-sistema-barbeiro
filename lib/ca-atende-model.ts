@@ -1,4 +1,5 @@
 import { appDate } from "./app-date";
+import { parseAiUsage } from "./ai-usage";
 import type { CaAtendeInterpretation, CaAtendeIntent, CaAtendeContextMemory } from "./ca-atende";
 
 const INTENTS: CaAtendeIntent[] = ["greeting","booking","availability","prices","human","cancel","reschedule","spam","unknown"];
@@ -14,6 +15,7 @@ export async function interpretCaAtendeWithAi(input: {
   const settings = env as unknown as { OPENAI_API_KEY?: string; OPENAI_WHATSAPP_MODEL?: string; OPENAI_HELP_MODEL?: string };
   const key = settings.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
   if (!key) return null;
+  const model = settings.OPENAI_WHATSAPP_MODEL || process.env.OPENAI_WHATSAPP_MODEL || settings.OPENAI_HELP_MODEL || process.env.OPENAI_HELP_MODEL || "gpt-4.1-mini-2025-04-14";
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -21,7 +23,7 @@ export async function interpretCaAtendeWithAi(input: {
       headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(9000),
       body: JSON.stringify({
-        model: settings.OPENAI_WHATSAPP_MODEL || process.env.OPENAI_WHATSAPP_MODEL || settings.OPENAI_HELP_MODEL || process.env.OPENAI_HELP_MODEL || "gpt-4.1-mini-2025-04-14",
+        model,
         store: false,
         max_output_tokens: 180,
         instructions: `Você classifica UMA mensagem recebida por WhatsApp para o C.A. Atende, atendente econômico de uma barbearia. Não escreva resposta ao cliente. Apenas classifique a intenção e extraia dados mencionados.
@@ -67,7 +69,11 @@ Se houver dúvida entre spam e cliente real, use unknown. Não invente nomes, da
       console.warn("ca_atende_model_unavailable", { status: response.status });
       return null;
     }
-    const payload = await response.json() as { status?: string; output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }> };
+    const payload = await response.json() as {
+      status?: string;
+      output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
+      usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
+    };
     if (payload.status && payload.status !== "completed") return null;
     const raw = payload.output?.filter(item => item.type === "message").flatMap(item => item.content || []).filter(item => item.type === "output_text").map(item => item.text || "").join("") || "";
     if (!raw) return null;
@@ -80,6 +86,7 @@ Se houver dúvida entre spam e cliente real, use unknown. Não invente nomes, da
       service: String(parsed.service || "").slice(0,120),
       barber: String(parsed.barber || "").slice(0,120),
       source: "ai",
+      aiUsage: parseAiUsage(payload, model),
     };
   } catch {
     console.warn("ca_atende_model_unavailable", { reason: "request_or_format" });

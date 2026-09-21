@@ -1,4 +1,5 @@
 import { appDate, appTimeMinutes } from "./app-date";
+import type { AiUsageSnapshot } from "./ai-usage";
 
 export type CaAtendeIntent =
   | "greeting"
@@ -18,6 +19,7 @@ export type CaAtendeInterpretation = {
   service: string;
   barber: string;
   source: "rule" | "ai";
+  aiUsage?: AiUsageSnapshot;
 };
 
 export type CaAtendeContextMemory = {
