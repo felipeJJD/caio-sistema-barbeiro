@@ -4,6 +4,7 @@ import {
   classifyCaAtendeByRule,
   extractCaAtendeDate,
   extractCaAtendeTime,
+  extractCaAtendeTimeWindow,
   formatCaAtendeMoney,
   highConfidenceCommercialOffer,
   mergeCaAtendeMemory,
@@ -62,6 +63,7 @@ function safeMemory(value: string): CaAtendeContextMemory {
       service: String(parsed.service || "").slice(0,120),
       barber: String(parsed.barber || "").slice(0,120),
       afterTime: String(parsed.afterTime || "").slice(0,5),
+      beforeTime: String(parsed.beforeTime || "").slice(0,5),
     };
   } catch {
     return {};
@@ -244,7 +246,7 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
   const knownService = context.services.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
   const knownBarber = context.barbers.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
   const bookingContinuation = (memory.intent === "booking" || memory.intent === "availability")
-    && (knownService || knownBarber || Boolean(extractCaAtendeDate(message)) || Boolean(extractCaAtendeTime(message)) || wantsAssistedBooking(message) || wantsAnotherProfessional(message) || wantsBookingConfirmation(message));
+    && (knownService || knownBarber || Boolean(extractCaAtendeDate(message)) || Boolean(extractCaAtendeTime(message)) || Boolean(extractCaAtendeTimeWindow(message).afterTime) || Boolean(extractCaAtendeTimeWindow(message).beforeTime) || wantsAssistedBooking(message) || wantsAnotherProfessional(message) || wantsBookingConfirmation(message));
   if (interpretation.intent === "unknown" && bookingContinuation) {
     return { ...interpretation, intent: memory.intent as "booking" | "availability" };
   }
@@ -292,7 +294,7 @@ function wantsAssistedBooking(value: string) {
 
 function wantsAnotherProfessional(value: string) {
   const text = normalizeCaAtendeText(value);
-  return /\b(outro profissional|outra pessoa|outro barbeiro|outra barbeira|tem outro|com outro)\b/.test(text);
+  return /\b(outro profissional|outra pessoa|outro barbeiro|outra barbeira|tem outro|com outro|trocar profissional|troca profissional|mudar profissional|trocar barbeiro)\b/.test(text);
 }
 
 function wantsBookingConfirmation(value: string) {
@@ -318,7 +320,7 @@ function menuDecision(context: CaAtendeRuntimeContext): CaAtendeDecision {
 }
 
 function wantsAfterTime(value: string) {
-  return /\b(depois (?:d[aeo]s?|de)|apos|a partir (?:d[aeo]s?|de))\s*\d/.test(normalizeCaAtendeText(value));
+  return Boolean(extractCaAtendeTimeWindow(value).afterTime);
 }
 
 function humanDate(value: string) {
@@ -384,6 +386,7 @@ export async function composeReply(
   const interpreted = await interpretationFor(event.text, context, oldMemory);
   const continuationDate = extractCaAtendeDate(event.text);
   const continuationTime = extractCaAtendeTime(event.text);
+  const timeWindow = extractCaAtendeTimeWindow(event.text);
   const explicitService = findServiceByMessage(event.text, context.services);
   const explicitBarber = normalized === "qualquer profissional" ? null : findNamedItem(event.text, "", context.barbers);
   const rememberedService = oldMemory.service ? findNamedItem(oldMemory.service, oldMemory.service, context.services) : null;
@@ -400,7 +403,7 @@ export async function composeReply(
   if (barber && !explicitHumanRequest(event.text) && (intent === "human" || intent === "unknown")) {
     intent = oldMemory.intent === "availability" ? "availability" : "booking";
   }
-  if ((intent === "unknown" || intent === "greeting") && bookingState && (service || barber || continuationDate || continuationTime || wantsAssistedBooking(event.text) || changingProfessional || confirmingBooking)) {
+  if ((intent === "unknown" || intent === "greeting") && bookingState && (service || barber || continuationDate || continuationTime || timeWindow.afterTime || timeWindow.beforeTime || wantsAssistedBooking(event.text) || changingProfessional || confirmingBooking)) {
     intent = oldMemory.intent === "availability" ? "availability" : "booking";
   }
   if (wantsAssistedBooking(event.text) && intent === "unknown") intent = "booking";
@@ -464,7 +467,7 @@ export async function composeReply(
     const previousBarber = rememberedBarber;
     const selectedBarber = changingProfessional ? null : (explicitBarber || rememberedBarber || aiBarber || findNamedItem(memory.barber || "", memory.barber || "", context.barbers));
     const date = interpreted.date || continuationDate || memory.date || "";
-    const desiredTime = wantsAfterTime(event.text) ? "" : changingProfessional ? "" : interpreted.time || continuationTime || memory.time || "";
+    const desiredTime = timeWindow.afterTime || timeWindow.beforeTime ? "" : interpreted.time || continuationTime || memory.time || "";
     const preservedIntent = intent === "availability" ? "availability" : "booking";
     const nextMemory = mergeCaAtendeMemory(memory, {
       intent: preservedIntent,
@@ -472,10 +475,11 @@ export async function composeReply(
       barber: changingProfessional ? "" : (selectedBarber?.name || ""),
       date,
       time: desiredTime,
+      afterTime: timeWindow.afterTime || oldMemory.afterTime || "",
+      beforeTime: timeWindow.beforeTime || oldMemory.beforeTime || "",
     });
-    if (wantsAfterTime(event.text)) nextMemory.time = "";
+    if (timeWindow.afterTime || timeWindow.beforeTime) nextMemory.time = "";
     if (changingProfessional || normalized === "qualquer profissional") nextMemory.barber = "";
-    if (changingProfessional) nextMemory.time = "";
 
     if (!selectedService) {
       return { reply:"Qual serviço você quer?", intent:preservedIntent, state:"awaiting_service", memory:nextMemory, source:"rule", choices:serviceChoices(context) };
@@ -519,15 +523,17 @@ export async function composeReply(
     try {
       let slots = await getPublicBookingSlotsExpanded(context.organization.slug, date, selectedService.id, selectedBarber?.id ?? 0);
       if (changingProfessional && previousBarber) slots = slots.filter(slot => normalizeCaAtendeText(slot.barberName) !== normalizeCaAtendeText(previousBarber.name));
-      const afterTime = wantsAfterTime(event.text) ? continuationTime : oldMemory.afterTime || "";
+      const afterTime = timeWindow.afterTime || oldMemory.afterTime || "";
+      const beforeTime = timeWindow.beforeTime || oldMemory.beforeTime || "";
       if (afterTime) slots = slots.filter(slot => slot.time > afterTime);
+      if (beforeTime) slots = slots.filter(slot => slot.time < beforeTime);
       if (!slots.length) {
         const barberText = selectedBarber ? ` com ${selectedBarber.name}` : "";
         return {
           reply:`${changingProfessional ? "Não encontrei outro profissional livre" : `Para ${selectedService.name}${barberText}, não encontrei horário livre`} ${humanDate(date)}. Me diga outro dia que eu consulto pra você.`,
           intent:preservedIntent,
           state:"awaiting_booking_details",
-          memory:{ ...nextMemory, afterTime },
+          memory:{ ...nextMemory, afterTime, beforeTime },
           source:interpreted.source,
           dataSource:"agenda",
         };
@@ -574,7 +580,7 @@ export async function composeReply(
         reply:`${changingProfessional ? "Claro. " : ""}Para ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""} em ${humanDate(date)}, tenho ${changingProfessional && !selectedBarber && slots.length && slots.every(slot => slot.barberId === slots[0].barberId) ? `${slots[0].barberName}: ` : ""}${slotSummary(slots)}. Qual horário você prefere?`,
         intent:preservedIntent,
         state:"awaiting_booking_choice",
-        memory:changingProfessional ? { ...nextMemory, barber:"", time:"" } : { ...nextMemory, afterTime },
+        memory:changingProfessional ? { ...nextMemory, barber:"", time:desiredTime, afterTime, beforeTime } : { ...nextMemory, afterTime, beforeTime },
         source:changingProfessional ? "rule" : interpreted.source,
         dataSource:"agenda",
         choices:slots.slice(0,10).map(slot => `${slot.barberName} · ${slot.time}`),

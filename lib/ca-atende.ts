@@ -28,6 +28,7 @@ export type CaAtendeContextMemory = {
   barber?: string;
   // The customer's explicit selection is kept separate from the last displayed options.
   afterTime?: string;
+  beforeTime?: string;
 };
 
 export function normalizeCaAtendeText(value: string) {
@@ -56,6 +57,44 @@ export function extractCaAtendeTime(value: string) {
   if (afterAt) return `${String(Number(afterAt[1])).padStart(2,"0")}:00`;
   if (/^([01]?\d|2[0-3])$/.test(text)) return `${String(Number(text)).padStart(2,"0")}:00`;
   return "";
+}
+
+export function extractCaAtendeTimeWindow(value: string): { afterTime: string; beforeTime: string } {
+  const text = normalizeCaAtendeText(value);
+
+  if (/\b(de manha|pela manha|na parte da manha|manha cedo)\b/.test(text)) {
+    return { afterTime: "06:59", beforeTime: "12:00" };
+  }
+  if (/\b(a tarde|de tarde|pela tarde|na parte da tarde|depois do almoco)\b/.test(text)) {
+    return { afterTime: "11:59", beforeTime: "18:00" };
+  }
+  if (/\b(a noite|de noite|pela noite|na parte da noite)\b/.test(text)) {
+    return { afterTime: "17:59", beforeTime: "" };
+  }
+
+  const between = /\bentre\s*(2[0-3]|[01]?\d)(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\b\s*(?:e|ate)\s*(2[0-3]|[01]?\d)(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\b/.exec(text);
+  if (between) {
+    const start = `${String(Number(between[1])).padStart(2,"0")}:${between[2] ?? "00"}`;
+    const end = `${String(Number(between[3])).padStart(2,"0")}:${between[4] ?? "00"}`;
+    return { afterTime: start === "00:00" ? "" : minutesBefore(start), beforeTime: end };
+  }
+
+  const before = /\b(?:antes d[aeo]s?|antes de)\s*(2[0-3]|[01]?\d)(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\b/.exec(text);
+  if (before) return { afterTime: "", beforeTime: `${String(Number(before[1])).padStart(2,"0")}:${before[2] ?? "00"}` };
+
+  const after = /\b(depois d[aeo]s?|depois de|apos|a partir d[aeo]s?|a partir de)\s*(2[0-3]|[01]?\d)(?::([0-5]\d))?\s*(?:h|hs|hora|horas)?\b/.exec(text);
+  if (after) {
+    const time = `${String(Number(after[2])).padStart(2,"0")}:${after[3] ?? "00"}`;
+    return { afterTime: /a partir/.test(after[1]) ? minutesBefore(time) : time, beforeTime: "" };
+  }
+
+  return { afterTime: "", beforeTime: "" };
+}
+
+function minutesBefore(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+  const total = Math.max(0, hour * 60 + minute - 1);
+  return `${String(Math.floor(total / 60)).padStart(2,"0")}:${String(total % 60).padStart(2,"0")}`;
 }
 
 function addDays(dateValue: string, days: number) {
@@ -133,10 +172,10 @@ export function classifyCaAtendeByRule(value: string): CaAtendeInterpretation {
   }
   if (/\b(cancelar|cancela|cancelamento|desmarcar|desmarca)\b/.test(text)) return { intent:"cancel", date, time, service:"", barber:"", source:"rule" };
   if (/\b(remarcar|remarca|mudar meu horario|trocar meu horario|mudar o horario|trocar o horario)\b/.test(text)) return { intent:"reschedule", date, time, service:"", barber:"", source:"rule" };
-  if (/\b(preco|precos|valor|valores|quanto custa|quanto e|tabela)\b/.test(text)) return { intent:"prices", date, time, service:"", barber:"", source:"rule" };
-  if (/\b(horario|horarios|vaga|vagas|disponivel|disponibilidade|tem hora|tem horario)\b/.test(text) || /^tem\s+(?:corte|barba|cabelo)\b/.test(text)) return { intent:"availability", date, time, service:"", barber:"", source:"rule" };
-  if (/\b(agendar|agenda|marcar|marca um horario|marcar horario|quero cortar|quero fazer a barba)\b/.test(text)) return { intent:"booking", date, time, service:"", barber:"", source:"rule" };
-  if (text.length <= 70 && /^(oi|ola|opa|e ai|bom dia|boa tarde|boa noite|tudo bem|oi tudo bem|ola tudo bem|salve|fala)(\b|$)/.test(text)) {
+  if (/\b(preco|precos|valor|valores|vlr|quanto custa|quanto e|quanto ta|qual valor|tabela)\b/.test(text) || /\bqto custa\b/.test(text)) return { intent:"prices", date, time, service:"", barber:"", source:"rule" };
+  if (/\b(agendar|agenda|marcar|marca um horario|marcar horario|quero cortar|quero fazer a barba|quero corte|quero barba|quero cabelo|preciso de corte|preciso de barba)\b/.test(text)) return { intent:"booking", date, time, service:"", barber:"", source:"rule" };
+  if (/\b(horario|horarios|hr|hrs|vaga|vagas|encaixe|disponivel|disponibilidade|tem hora|tem horario|tem hr)\b/.test(text) || /^tem\s+(?:corte|barba|cabelo)\b/.test(text)) return { intent:"availability", date, time, service:"", barber:"", source:"rule" };
+  if (text.length <= 70 && /^(oi+|ola+|opa+|e ai|eai|eae|bom dia|bomdia|bo dia|boa tarde|boatarde|boua tarde|boa noite|boanoite|tudo bem|oi tudo bem|ola tudo bem|salve|fala)/.test(text)) {
     return { intent:"greeting", date, time, service:"", barber:"", source:"rule" };
   }
   return { intent:"unknown", date, time, service:"", barber:"", source:"rule" };
@@ -154,5 +193,6 @@ export function mergeCaAtendeMemory(memory: CaAtendeContextMemory, next: Partial
     service: next.service || memory.service || "",
     barber: next.barber || memory.barber || "",
     afterTime: next.afterTime || memory.afterTime || "",
+    beforeTime: next.beforeTime || memory.beforeTime || "",
   };
 }
