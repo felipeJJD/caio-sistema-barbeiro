@@ -392,6 +392,21 @@ for(const template of slangTemplates) for(const person of aiPeople) {
   });
 }
 
+test("saudação real inclui link público e botão Ver opções sem usar IA",async()=>{
+  const [answer]=await chat(["bom dia"]);
+  assert.match(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
+  assert.match(answer.reply,/Ver opções/);
+  assert.deepEqual(answer.choices,["Ver opções"]);
+  assert.equal(globalThis.__caAiCalls,0);
+});
+
+test("saudação personalizada também recebe o link se o texto customizado esquecer dele",async()=>{
+  const custom={...context,settings:{...context.settings,greetingText:"Olá! Bem-vindo à {barbearia}."}};
+  const [answer]=await chat(["bom dia"],custom);
+  assert.match(answer.reply,/Olá! Bem-vindo à Barbearia Cenários\./);
+  assert.match(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
+});
+
 test("Caderno Mestre contém exatamente 320 cenários automáticos",()=>{
   assert.equal(scenarioCount,320);
 });
