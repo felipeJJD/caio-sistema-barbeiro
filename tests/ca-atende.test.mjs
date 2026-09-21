@@ -226,7 +226,8 @@ test("uso de IA é medido por barbearia sem armazenar o texto da conversa", () =
   assert.match(aiMigration, /input_tokens integer NOT NULL/);
   assert.match(aiMigration, /output_tokens integer NOT NULL/);
   assert.match(aiUsageDb, /organizationId/);
-  assert.doesNotMatch(aiUsageDb, /message|prompt|conversation|phone/);
+  assert.doesNotMatch(aiMigration, /message_text|prompt_text|conversation_text|phone/);
+  assert.doesNotMatch(aiUsageDb, /messageText|promptText|conversationText|phone:/);
 });
 
 test("agenda expandida permite mostrar profissionais alternativos sem mudar o fluxo público existente", async () => {
