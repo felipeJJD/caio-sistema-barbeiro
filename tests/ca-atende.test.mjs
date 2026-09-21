@@ -16,13 +16,15 @@ async function load(entry) {
 }
 
 const helper = await load("../lib/ca-atende.ts");
-const [botDb, whatsappDb, webhookRoute, testRoute, ui, migration] = await Promise.all([
+const [botDb, whatsappDb, webhookRoute, testRoute, ui, migration, aiMigration, aiUsageDb] = await Promise.all([
   readFile(new URL("../db/ca-atende.ts", import.meta.url), "utf8"),
   readFile(new URL("../db/whatsapp.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/webhook/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/test/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/ui/whatsapp-automation.tsx", import.meta.url), "utf8"),
   readFile(new URL("../drizzle/0045_ca_atende_economy.sql", import.meta.url), "utf8"),
+  readFile(new URL("../drizzle/0046_ai_first_usage.sql", import.meta.url), "utf8"),
+  readFile(new URL("../db/ai-usage.ts", import.meta.url), "utf8"),
 ]);
 
 test("cumprimentos simples usam regra barata antes de qualquer IA", () => {
@@ -58,10 +60,11 @@ test("datas, horários e dias da semana são entendidos sem IA", () => {
   assert.equal(helper.extractCaAtendeDate("segunda às 9h", "2026-09-20", 1200), "2026-09-21");
 });
 
-test("IA é fallback e nunca a primeira etapa para mensagens simples", () => {
-  assert.match(botDb, /classifyCaAtendeByRule\(message\)/);
-  assert.match(botDb, /interpretation\.intent === "unknown" && context\.settings\.aiFallbackEnabled/);
+test("IA é a interpretação principal da conversa natural, com saudação local e regra como fallback", () => {
+  assert.match(botDb, /if \(rule\.intent === "greeting"\) return rule/);
+  assert.match(botDb, /if \(context\.settings\.aiFallbackEnabled\)/);
   assert.match(botDb, /interpretCaAtendeWithAi/);
+  assert.match(botDb, /rule\.intent !== "unknown" \? rule : interpretation/);
 });
 
 test("saudação padrão manda uma única mensagem com link e mantém Ver opções", () => {
@@ -134,7 +137,7 @@ test("estado curto da conversa é persistido sem depender de histórico inteiro 
 
 test("laboratório reutiliza o mesmo composeReply sem enviar nada para a Meta", () => {
   assert.match(botDb, /export async function simulateCaAtende/);
-  assert.match(botDb, /const decision = await composeReply/);
+  assert.match(botDb, /const rawDecision = await composeReply/);
   const simulation = botDb.slice(botDb.indexOf("export async function simulateCaAtende"), botDb.indexOf("export async function processCaAtendeInbound"));
   assert.doesNotMatch(simulation, /queueWhatsappTextReply/);
   assert.doesNotMatch(simulation, /processWhatsappQueueSafely/);
@@ -178,10 +181,11 @@ test("escolher Eduardo não é confundido com pedido para falar com humano", () 
   assert.match(botDb, /intent = oldMemory\.intent === "availability" \? "availability" : "booking"/);
 });
 
-test("respostas curtas de continuação usam memória antes de gastar IA", () => {
+test("continuações usam memória e regras como proteção mesmo com IA principal", () => {
   assert.match(botDb, /bookingContinuation/);
   assert.match(botDb, /memory\.intent === "booking"/);
   assert.match(botDb, /knownService \|\| knownBarber/);
+  assert.match(botDb, /recordAiUsageSafely/);
 });
 
 test("link público nunca expõe domínio técnico do Railway", () => {
@@ -195,7 +199,7 @@ test("regressão do vídeo: entende 'às10' e horário curto '10'", () => {
   assert.equal(helper.extractCaAtendeTime("10"), "10:00");
 });
 
-test("regressão do vídeo: troca de profissional é continuação da reserva e não chama IA", () => {
+test("regressão do vídeo: troca de profissional preserva dados e aceita fallback seguro", () => {
   assert.match(botDb, /wantsAnotherProfessional/);
   assert.match(botDb, /changingProfessional/);
   assert.match(botDb, /source:changingProfessional \? "rule" : interpreted\.source/);
@@ -206,6 +210,23 @@ test("regressão do vídeo: confirmação não repete disponibilidade nem deixa 
   assert.match(botDb, /confirmationRequested:true/);
   assert.match(botDb, /No modo teste eu não altero sua agenda/);
   assert.match(botDb, /explicitService\?\.name \|\| oldMemory\.service \|\| aiService\?\.name/);
+});
+
+test("impasse repetido chama uma pessoa e pausa a conversa em vez de responder sem fim", () => {
+  assert.match(botDb, /unresolvedTurns < 3/);
+  assert.match(botDb, /Não consegui resolver isso com segurança por aqui/);
+  assert.match(botDb, /state:"human_takeover"/);
+  assert.match(botDb, /notifyOwnersOfWhatsappHandoff/);
+  assert.match(aiMigration, /unresolved_turns integer NOT NULL DEFAULT 0/);
+});
+
+test("uso de IA é medido por barbearia sem armazenar o texto da conversa", () => {
+  assert.match(aiMigration, /CREATE TABLE ai_usage_events/);
+  assert.match(aiMigration, /organization_id integer NOT NULL/);
+  assert.match(aiMigration, /input_tokens integer NOT NULL/);
+  assert.match(aiMigration, /output_tokens integer NOT NULL/);
+  assert.match(aiUsageDb, /organizationId/);
+  assert.doesNotMatch(aiUsageDb, /message|prompt|conversation|phone/);
 });
 
 test("agenda expandida permite mostrar profissionais alternativos sem mudar o fluxo público existente", async () => {
