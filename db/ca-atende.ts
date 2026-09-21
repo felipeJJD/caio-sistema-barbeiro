@@ -467,7 +467,7 @@ export async function composeReply(
     const previousBarber = rememberedBarber;
     const selectedBarber = changingProfessional ? null : (explicitBarber || rememberedBarber || aiBarber || findNamedItem(memory.barber || "", memory.barber || "", context.barbers));
     const date = interpreted.date || continuationDate || memory.date || "";
-    const desiredTime = wantsAfterTime(event.text) ? "" : changingProfessional ? "" : interpreted.time || continuationTime || memory.time || "";
+    const desiredTime = timeWindow.afterTime || timeWindow.beforeTime ? "" : interpreted.time || continuationTime || memory.time || "";
     const preservedIntent = intent === "availability" ? "availability" : "booking";
     const nextMemory = mergeCaAtendeMemory(memory, {
       intent: preservedIntent,
@@ -480,7 +480,6 @@ export async function composeReply(
     });
     if (timeWindow.afterTime || timeWindow.beforeTime) nextMemory.time = "";
     if (changingProfessional || normalized === "qualquer profissional") nextMemory.barber = "";
-    if (changingProfessional) nextMemory.time = "";
 
     if (!selectedService) {
       return { reply:"Qual serviço você quer?", intent:preservedIntent, state:"awaiting_service", memory:nextMemory, source:"rule", choices:serviceChoices(context) };
@@ -581,7 +580,7 @@ export async function composeReply(
         reply:`${changingProfessional ? "Claro. " : ""}Para ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""} em ${humanDate(date)}, tenho ${changingProfessional && !selectedBarber && slots.length && slots.every(slot => slot.barberId === slots[0].barberId) ? `${slots[0].barberName}: ` : ""}${slotSummary(slots)}. Qual horário você prefere?`,
         intent:preservedIntent,
         state:"awaiting_booking_choice",
-        memory:changingProfessional ? { ...nextMemory, barber:"", time:"" } : { ...nextMemory, afterTime, beforeTime },
+        memory:changingProfessional ? { ...nextMemory, barber:"", time:desiredTime, afterTime, beforeTime } : { ...nextMemory, afterTime, beforeTime },
         source:changingProfessional ? "rule" : interpreted.source,
         dataSource:"agenda",
         choices:slots.slice(0,10).map(slot => `${slot.barberName} · ${slot.time}`),
