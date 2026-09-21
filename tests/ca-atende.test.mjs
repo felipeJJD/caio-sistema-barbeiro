@@ -64,9 +64,10 @@ test("IA é fallback e nunca a primeira etapa para mensagens simples", () => {
   assert.match(botDb, /interpretCaAtendeWithAi/);
 });
 
-test("saudação padrão manda uma única mensagem com nome e opções", () => {
+test("saudação padrão manda uma única mensagem com link e mantém Ver opções", () => {
   assert.match(botDb, /Seja bem-vindo à/);
-  assert.match(botDb, /Como posso te ajudar\? Responda “Ver opções”/);
+  assert.match(botDb, /Para agendar seu horário é só acessar/);
+  assert.match(botDb, /Se preferir outro assunto, toque em “Ver opções”/);
   assert.match(botDb, /bookingLink\(context\.organization\.slug\)/);
 });
 
