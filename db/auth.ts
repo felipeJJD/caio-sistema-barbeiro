@@ -488,6 +488,11 @@ export async function listBarbershops(access: AccessContext) {
       ownerEmail: owner?.loginEmail ?? "",
       ownerWhatsapp: shop.ownerWhatsapp,
       signupSource: shop.signupSource,
+      estimatedMonthlyClients: shop.estimatedMonthlyClients,
+      estimatedMonthlyWhatsappContacts: shop.estimatedMonthlyWhatsappContacts,
+      estimatedProfessionals: shop.estimatedProfessionals,
+      serviceMode: shop.serviceMode,
+      automationGoal: shop.automationGoal,
       isCurrent: shop.id === access.organizationId,
     };
   });
@@ -635,6 +640,14 @@ type BarbershopRegistrationInput = {
   password: string;
 };
 
+type BarbershopUsageProfile = {
+  estimatedMonthlyClients: number;
+  estimatedMonthlyWhatsappContacts: number;
+  estimatedProfessionals: number;
+  serviceMode: "walk_in" | "appointments" | "both" | "";
+  automationGoal: "management" | "whatsapp" | "full" | "";
+};
+
 type BarbershopProvisioningOptions = {
   trialDays: number;
   createdByInviteId?: number | null;
@@ -644,6 +657,7 @@ type BarbershopProvisioningOptions = {
   requireEmailVerification?: boolean;
   accountType?: "barbershop" | "individual";
   commissionRateBps?: number;
+  usageProfile?: BarbershopUsageProfile;
 };
 
 function checkCpf(digits: string) {
@@ -694,6 +708,42 @@ function validateWhatsapp(value: string) {
 
 function cleanSignupSource(value?: string) {
   return (value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 220);
+}
+
+function validateBarbershopUsageProfile(input: {
+  estimatedMonthlyClients?: number;
+  estimatedMonthlyWhatsappContacts?: number;
+  estimatedProfessionals?: number;
+  serviceMode?: string;
+  automationGoal?: string;
+}): BarbershopUsageProfile {
+  const estimatedMonthlyClients = Math.round(Number(input.estimatedMonthlyClients ?? 0));
+  const estimatedMonthlyWhatsappContacts = Math.round(Number(input.estimatedMonthlyWhatsappContacts ?? 0));
+  const estimatedProfessionals = Math.round(Number(input.estimatedProfessionals ?? 0));
+  const serviceMode = String(input.serviceMode ?? "");
+  const automationGoal = String(input.automationGoal ?? "");
+
+  if (!Number.isInteger(estimatedMonthlyClients) || estimatedMonthlyClients < 1 || estimatedMonthlyClients > 100000) {
+    throw new Error("Informe aproximadamente quantos clientes a barbearia atende por mês.");
+  }
+  if (!Number.isInteger(estimatedMonthlyWhatsappContacts) || estimatedMonthlyWhatsappContacts < 0 || estimatedMonthlyWhatsappContacts > 100000) {
+    throw new Error("Informe uma estimativa válida de clientes que chamam no WhatsApp.");
+  }
+  if (estimatedMonthlyWhatsappContacts > estimatedMonthlyClients * 5) {
+    throw new Error("Confira a estimativa de contatos no WhatsApp.");
+  }
+  if (!Number.isInteger(estimatedProfessionals) || estimatedProfessionals < 1 || estimatedProfessionals > 1000) {
+    throw new Error("Informe quantos profissionais trabalham na barbearia.");
+  }
+  if (!["walk_in","appointments","both"].includes(serviceMode)) throw new Error("Informe como a barbearia atende hoje.");
+  if (!["management","whatsapp","full"].includes(automationGoal)) throw new Error("Informe o que você espera do Cortou Anotou.");
+  return {
+    estimatedMonthlyClients,
+    estimatedMonthlyWhatsappContacts,
+    estimatedProfessionals,
+    serviceMode: serviceMode as BarbershopUsageProfile["serviceMode"],
+    automationGoal: automationGoal as BarbershopUsageProfile["automationGoal"],
+  };
 }
 
 async function assertBarbershopEmailAvailable(email: string) {
@@ -766,6 +816,11 @@ async function createBarbershopWorkspace(input: BarbershopRegistrationInput, opt
       ownerWhatsapp: options.ownerWhatsapp ?? "",
       signupSource: cleanSignupSource(options.signupSource),
       termsAcceptedAt: options.termsAcceptedAt ?? null,
+      estimatedMonthlyClients: options.usageProfile?.estimatedMonthlyClients ?? 0,
+      estimatedMonthlyWhatsappContacts: options.usageProfile?.estimatedMonthlyWhatsappContacts ?? 0,
+      estimatedProfessionals: options.usageProfile?.estimatedProfessionals ?? 0,
+      serviceMode: options.usageProfile?.serviceMode ?? "",
+      automationGoal: options.usageProfile?.automationGoal ?? "",
       ownerDocumentHash: documentHash,
     }).returning({ id: organizations.id });
     organizationId = createdOrganization[0].id;
@@ -1012,10 +1067,16 @@ export async function createPublicBarbershop(input: BarbershopRegistrationInput 
   referralCode?: string;
   termsAccepted?: boolean;
   requestIp?: string;
+  estimatedMonthlyClients?: number;
+  estimatedMonthlyWhatsappContacts?: number;
+  estimatedProfessionals?: number;
+  serviceMode?: string;
+  automationGoal?: string;
 }) {
   if (!input.termsAccepted) throw new Error("Confirme que você leu e concorda com os termos do teste.");
   const registration = validateBarbershopRegistration(input);
   const ownerWhatsapp = validateWhatsapp(input.whatsapp);
+  const usageProfile = validateBarbershopUsageProfile(input);
   await assertBarbershopEmailAvailable(registration.email);
   const documentHash = await ownerDocumentHash(registration.ownerDocument);
   await assertBarbershopDocumentAvailable(documentHash);
@@ -1027,6 +1088,7 @@ export async function createPublicBarbershop(input: BarbershopRegistrationInput 
     signupSource: cleanSignupSource(input.signupSource) || "cadastro-publico",
     termsAcceptedAt: new Date().toISOString(),
     requireEmailVerification,
+    usageProfile,
   });
   await attachOrganizationReferral(result.organizationId, input.referralCode);
   return result;
