@@ -115,11 +115,17 @@ function findServiceByMessage(message: string, items: CaAtendeRuntimeContext["se
 function defaultGreeting(context: CaAtendeRuntimeContext) {
   const link = bookingLink(context.organization.slug);
   const custom = context.settings.greetingText.trim();
-  if (custom) return custom
-    .replaceAll("{barbearia}", context.organization.name)
-    .replaceAll("{link}", link)
-    .slice(0,3500);
-  return `Olá! Seja bem-vindo à ${context.organization.name}. Como posso te ajudar? Responda “Ver opções” para escolher um assunto.`;
+  if (custom) {
+    const rendered = custom
+      .replaceAll("{barbearia}", context.organization.name)
+      .replaceAll("{link}", link)
+      .trim();
+    const withLink = rendered.includes(link)
+      ? rendered
+      : `${rendered}\n\nPara agendar seu horário: ${link}`;
+    return withLink.slice(0,3500);
+  }
+  return `Olá! Seja bem-vindo à ${context.organization.name}. Para agendar seu horário é só acessar: ${link}\n\nSe preferir outro assunto, toque em “Ver opções” ou escreva o que precisa.`;
 }
 
 function defaultHandoff(context: CaAtendeRuntimeContext) {
