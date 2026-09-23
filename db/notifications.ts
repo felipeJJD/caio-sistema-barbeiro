@@ -55,6 +55,8 @@ type SubscriptionPaymentNotification = {
   periodDays: number;
 };
 
+type BatchResult = Awaited<ReturnType<typeof sendPushBatch>>;
+
 async function vapidConfig() {
   return getRuntimeVapidConfig();
 }
@@ -86,6 +88,35 @@ function pushLog(kind: string, details: Record<string, string | number>) {
 
 function pushError(kind: string, details: Record<string, string | number>, error: unknown) {
   console.error(`[push:${kind}:error]`, { ...details, error: error instanceof Error ? error.message : String(error) });
+}
+
+function pushFailureStatus(error: unknown) {
+  if (error && typeof error === "object" && "statusCode" in error) {
+    const status = Number((error as { statusCode?: unknown }).statusCode);
+    if (Number.isFinite(status) && status > 0) return String(status);
+  }
+  if (error instanceof TypeError) return "network";
+  return "unknown";
+}
+
+function logBatchResult(kind: string, details: Record<string, string | number>, result: BatchResult) {
+  pushLog(kind, {
+    ...details,
+    delivered: result.delivered,
+    gone: result.gone.length,
+    failed: result.failed.length,
+  });
+  if (!result.failed.length) return;
+  const statuses = new Map<string, number>();
+  for (const item of result.failed) {
+    const status = pushFailureStatus(item.error);
+    statuses.set(status, (statuses.get(status) ?? 0) + 1);
+  }
+  console.error(`[push:${kind}:failed]`, {
+    ...details,
+    failed: result.failed.length,
+    statuses: [...statuses.entries()].map(([status, count]) => `${status}:${count}`).join(","),
+  });
 }
 
 function notificationCutoff() {
@@ -256,7 +287,7 @@ async function deliverNotification(input: {
     concurrency: 10,
     timeoutMs: 8000,
   });
-  pushLog("delivery", { organizationId: input.organizationId, attempted: subscriptions.length, gone: result.gone.length });
+  logBatchResult("delivery", { organizationId: input.organizationId, attempted: subscriptions.length }, result);
   if (result.gone.length) await db.delete(pushSubscriptions).where(inArray(pushSubscriptions.endpoint, result.gone));
 }
 
@@ -358,12 +389,11 @@ export async function notifyOwnersOfAttendance(access: AccessContext, attendance
       timeoutMs: 8000,
     });
 
-    pushLog("attendance-delivery", {
+    logBatchResult("attendance-delivery", {
       organizationId: access.organizationId,
       recordId: attendance.recordId,
       attempted: subscriptions.length,
-      gone: result.gone.length,
-    });
+    }, result);
     if (result.gone.length) {
       await db.delete(pushSubscriptions).where(inArray(pushSubscriptions.endpoint, result.gone));
     }
