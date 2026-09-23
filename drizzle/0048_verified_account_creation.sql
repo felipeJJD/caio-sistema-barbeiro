@@ -1,4 +1,10 @@
-ALTER TABLE `team` ADD `deleted_at` text;
+CREATE TABLE `deleted_team_members` (
+  `team_member_id` integer PRIMARY KEY NOT NULL,
+  `organization_id` integer NOT NULL,
+  `deleted_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `deleted_team_members_organization_idx` ON `deleted_team_members` (`organization_id`,`team_member_id`);
 --> statement-breakpoint
 CREATE TABLE `pending_registrations` (
   `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
