@@ -1,8 +1,9 @@
-import { createTeamInvite, getSessionAccess, listTeamInvites, listTeamUsers, revokeTeamInvite, setTeamUserActive } from "../../../db/auth";
+import { createTeamInvite, getSessionAccess, listTeamInvites, revokeTeamInvite, setTeamUserActive } from "../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../db/access";
+import { listVisibleTeamUsers } from "../../../db/team-cleanup";
 
 async function accessData(access: NonNullable<Awaited<ReturnType<typeof getSessionAccess>>>) {
-  return { invites: await listTeamInvites(access), users: await listTeamUsers(access) };
+  return { invites: await listTeamInvites(access), users: await listVisibleTeamUsers(access) };
 }
 
 export async function GET() {
