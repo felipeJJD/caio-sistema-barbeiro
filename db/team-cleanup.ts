@@ -19,10 +19,10 @@ type PendingCandidate = {
 };
 
 async function deletedTeamIds(organizationId: number) {
-  const result = await env.DB.prepare("SELECT id FROM team WHERE organization_id = ? AND deleted_at IS NOT NULL")
+  const result = await env.DB.prepare("SELECT team_member_id FROM deleted_team_members WHERE organization_id = ?")
     .bind(organizationId)
     .all();
-  return new Set((result.results as Array<{ id: number }>).map((row) => Number(row.id)));
+  return new Set((result.results as Array<{ team_member_id: number }>).map((row) => Number(row.team_member_id)));
 }
 
 export async function listVisibleTeamUsers(access: AccessContext) {
@@ -36,7 +36,13 @@ export async function listTeamCleanupCandidates(access: AccessContext) {
   requireOwner(access);
   const suspendedResult = await env.DB.prepare(`SELECT t.id, t.name, t.role, t.login_email AS email
     FROM team t
-    WHERE t.organization_id = ? AND t.active = 0 AND t.deleted_at IS NULL AND t.id <> ?
+    WHERE t.organization_id = ?
+      AND t.active = 0
+      AND t.id <> ?
+      AND NOT EXISTS (
+        SELECT 1 FROM deleted_team_members d
+        WHERE d.team_member_id = t.id AND d.organization_id = t.organization_id
+      )
     ORDER BY t.name COLLATE NOCASE, t.id`)
     .bind(access.organizationId, access.teamMemberId)
     .all();
@@ -69,10 +75,14 @@ export async function deleteSuspendedTeamUser(access: AccessContext, teamMemberI
   requireOwner(access);
   if (!Number.isInteger(teamMemberId) || teamMemberId <= 0) throw new Error("Funcionário inválido.");
   if (teamMemberId === access.teamMemberId) throw new Error("Você não pode excluir seu próprio acesso.");
-  const member = await env.DB.prepare("SELECT id, active, deleted_at FROM team WHERE id = ? AND organization_id = ? LIMIT 1")
+  const member = await env.DB.prepare("SELECT id, active FROM team WHERE id = ? AND organization_id = ? LIMIT 1")
     .bind(teamMemberId, access.organizationId)
-    .first() as { id: number; active: number; deleted_at: string | null } | null;
-  if (!member || member.deleted_at) throw new Error("Este funcionário já foi removido.");
+    .first() as { id: number; active: number } | null;
+  if (!member) throw new Error("Funcionário não encontrado.");
+  const tombstone = await env.DB.prepare("SELECT team_member_id FROM deleted_team_members WHERE team_member_id = ? AND organization_id = ? LIMIT 1")
+    .bind(teamMemberId, access.organizationId)
+    .first();
+  if (tombstone) throw new Error("Este funcionário já foi removido.");
   if (Number(member.active) !== 0) throw new Error("Suspenda o funcionário antes de excluí-lo.");
 
   const account = await env.DB.prepare("SELECT id FROM auth_accounts WHERE team_member_id = ? LIMIT 1")
@@ -92,11 +102,10 @@ export async function deleteSuspendedTeamUser(access: AccessContext, teamMemberI
     env.DB.prepare("DELETE FROM push_subscriptions WHERE organization_id = ? AND team_member_id = ?").bind(access.organizationId, teamMemberId),
     env.DB.prepare("DELETE FROM pending_registrations WHERE kind = 'team' AND organization_id = ? AND team_member_id = ? AND used_at IS NULL").bind(access.organizationId, teamMemberId),
     env.DB.prepare("DELETE FROM team_invites WHERE organization_id = ? AND team_member_id = ? AND used_at IS NULL").bind(access.organizationId, teamMemberId),
-    env.DB.prepare("UPDATE team SET active = 0, login_email = NULL, deleted_at = ? WHERE id = ? AND organization_id = ? AND active = 0 AND deleted_at IS NULL").bind(now, teamMemberId, access.organizationId),
+    env.DB.prepare("UPDATE team SET active = 0, login_email = NULL WHERE id = ? AND organization_id = ? AND active = 0").bind(teamMemberId, access.organizationId),
+    env.DB.prepare("INSERT INTO deleted_team_members (team_member_id, organization_id, deleted_at) VALUES (?, ?, ?)").bind(teamMemberId, access.organizationId, now),
   );
-  const results = await env.DB.batch(statements);
-  const updateResult = results[results.length - 1];
-  if (Number(updateResult.meta.changes) !== 1) throw new Error("Não foi possível remover este funcionário.");
+  await env.DB.batch(statements);
 }
 
 export async function deleteUnusedTeamInvite(access: AccessContext, inviteId: number) {
