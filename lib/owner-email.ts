@@ -19,6 +19,23 @@ type PasswordResetEmailInput = {
   resetToken: string;
 };
 
+const CANONICAL_APP_URL = "https://cortouanotou.com.br";
+
+function resolvePublicAppUrl(value?: string) {
+  const candidate = String(value ?? "").trim().replace(/\/$/, "");
+  if (!candidate) return CANONICAL_APP_URL;
+
+  try {
+    const url = new URL(candidate);
+    if (url.hostname === "railway.app" || url.hostname.endsWith(".up.railway.app")) {
+      return CANONICAL_APP_URL;
+    }
+    return url.origin;
+  } catch {
+    return CANONICAL_APP_URL;
+  }
+}
+
 async function runtimeEmailConfig() {
   const { env } = await import("@/runtime/env");
   const values = env as unknown as Record<string, string | undefined>;
@@ -26,7 +43,7 @@ async function runtimeEmailConfig() {
     apiKey: String(values.RESEND_API_KEY ?? "").trim(),
     apiUrl: String(values.RESEND_API_URL ?? "https://api.resend.com/emails").trim(),
     from: String(values.OWNER_EMAIL_FROM ?? "Cortou Anotou <acesso@cortouanotou.com.br>").trim(),
-    appUrl: String(values.PUBLIC_APP_URL ?? "https://cortouanotou.com.br").trim().replace(/\/$/, ""),
+    appUrl: resolvePublicAppUrl(values.PUBLIC_APP_URL),
     supportEmail: String(values.SUPPORT_EMAIL ?? "cortouanotou@gmail.com").trim(),
   };
 }
