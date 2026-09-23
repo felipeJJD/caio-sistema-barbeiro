@@ -41,6 +41,19 @@ function notificationIcon(kind: string): AppIconName {
   return "scissors";
 }
 
+function base64UrlKey(value: ArrayBuffer) {
+  const bytes = new Uint8Array(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function subscriptionUsesPublicKey(subscription: PushSubscription, publicKey: string) {
+  const key = subscription.options.applicationServerKey;
+  if (!key || !publicKey) return false;
+  return base64UrlKey(key) === publicKey.replace(/=+$/g, "");
+}
+
 export function NotificationCenter({ notifications, onReplace, onRead, onNavigate }: NotificationCenterProps) {
   const [open, setOpen] = useState(false);
   const [supported, setSupported] = useState<boolean | null>(null);
@@ -78,14 +91,28 @@ export function NotificationCenter({ notifications, onReplace, onRead, onNavigat
       try {
         const payload = await api("GET");
         if (cancelled) return;
-        setPublicKey(payload.publicKey ?? "");
+        const currentPublicKey = payload.publicKey ?? "";
+        setPublicKey(currentPublicKey);
         const canPush = isPushSupported();
         setSupported(canPush);
         if (!canPush) return;
         setPermission(Notification.permission);
         await navigator.serviceWorker.register("/sw.js");
-        const current = await getCurrentSubscription();
+        let current = await getCurrentSubscription();
         if (cancelled) return;
+
+        if (current && Notification.permission === "granted" && currentPublicKey && !subscriptionUsesPublicKey(current, currentPublicKey)) {
+          const oldEndpoint = await unsubscribe();
+          if (oldEndpoint) await api("DELETE", { endpoint: oldEndpoint }).catch(() => undefined);
+          const renewed = await subscribe(currentPublicKey);
+          if (renewed.status === "unsupported") throw new Error("Este aparelho ainda não oferece notificações para este app.");
+          if (renewed.status === "denied") {
+            setPermission("denied");
+            throw new Error("A permissão foi bloqueada. Libere o Cortou Anotou nos ajustes de notificações do aparelho.");
+          }
+          current = renewed.subscription;
+        }
+
         setActive(Boolean(current));
         if (current && Notification.permission === "granted") await saveCurrentSubscription(current);
       } catch (error) {
