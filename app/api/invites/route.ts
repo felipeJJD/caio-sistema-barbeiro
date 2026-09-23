@@ -1,6 +1,6 @@
 import { createTeamInvite, getSessionAccess, listTeamInvites, revokeTeamInvite, setTeamUserActive } from "../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../db/access";
-import { listVisibleTeamUsers } from "../../../db/team-cleanup";
+import { deleteTeamInviteHistoryRecord, listVisibleTeamUsers } from "../../../db/team-cleanup";
 
 async function accessData(access: NonNullable<Awaited<ReturnType<typeof getSessionAccess>>>) {
   return { invites: await listTeamInvites(access), users: await listVisibleTeamUsers(access) };
@@ -38,6 +38,8 @@ export async function POST(request: Request) {
       inviteUrl = new URL(`/convite/${invite.inviteToken}`, "https://cortouanotou.com.br").toString();
     } else if (data.action === "revoke") {
       await revokeTeamInvite(access, Number(data.inviteId));
+    } else if (data.action === "delete-history") {
+      await deleteTeamInviteHistoryRecord(access, Number(data.inviteId));
     } else if (data.action === "toggle-user") {
       await setTeamUserActive(access, Number(data.teamMemberId), Boolean(data.active));
     } else {
