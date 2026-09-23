@@ -1,4 +1,5 @@
 import { createPublicBarbershop, createPublicIndividualBarber, sessionCookie } from "../../../../db/auth";
+import { ownerEmailVerificationIsConfigured } from "../../../../lib/owner-email";
 
 type SignupBody = {
   accountType?: "barbershop" | "individual";
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
   try {
     const data = await request.json() as SignupBody;
     if (String(data.companyWebsite ?? "").trim()) return Response.json({ ok: true });
+    if (!await ownerEmailVerificationIsConfigured()) throw new Error("O envio de confirmação por e-mail ainda não está configurado.");
 
     const forwardedIp = request.headers.get("cf-connecting-ip")
       ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
@@ -80,11 +82,13 @@ export async function POST(request: Request) {
       "Este e-mail já possui acesso ao Cortou Anotou.",
       "Este e-mail já está cadastrado em uma barbearia.",
       "Este CPF ou CNPJ já foi usado para criar uma barbearia.",
+      "O envio de confirmação por e-mail ainda não está configurado.",
       "Não foi possível enviar o e-mail agora.",
       "Muitas tentativas com este e-mail. Aguarde 15 minutos e tente novamente.",
     ];
     const publicMessage = safeMessages.includes(message) ? message : "Não foi possível criar seu acesso agora.";
-    const status = message.startsWith("Muitas tentativas") ? 429 : message.startsWith("Não foi possível enviar") ? 503 : safeMessages.includes(message) ? 400 : 500;
+    const emailUnavailable = message.includes("confirmação por e-mail") || message.startsWith("Não foi possível enviar");
+    const status = message.startsWith("Muitas tentativas") ? 429 : emailUnavailable ? 503 : safeMessages.includes(message) ? 400 : 500;
     return Response.json({ error: publicMessage }, { status });
   }
 }
