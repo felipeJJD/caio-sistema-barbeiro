@@ -8,8 +8,10 @@ import "./affiliate-portal.css";
 import "./shell-chrome.css";
 import "./help-chat.css";
 import "./legal.css";
+import "./help-launcher-drag.css";
 import { AppGestureGuard } from "./ui/app-gesture-guard";
 import { AppToastHost } from "./ui/app-toast";
+import { HelpLauncherDragGuard } from "./ui/help-launcher-drag-guard";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -53,7 +55,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         />
         <link rel="apple-touch-startup-image" href="/splash-cortou-anotou.png" />
       </head>
-      <body><AppGestureGuard /><AppToastHost />{children}</body>
+      <body><AppGestureGuard /><AppToastHost /><HelpLauncherDragGuard />{children}</body>
     </html>
   );
 }
