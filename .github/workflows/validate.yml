@@ -51,10 +51,10 @@ jobs:
         run: npm ci
       - name: Verificar tipos
         run: npm run typecheck
-      - name: Rodar testes automatizados
-        run: npm test
       - name: Validar build de produção
         run: npm run build
+      - name: Rodar testes automatizados
+        run: npm test
 
   carga:
     name: Teste de carga local
