@@ -18,7 +18,13 @@ function paymentDayLabel(day: number) {
 }
 
 function downloadPdf(id: number) {
-  window.location.assign(`/api/team-money/closures/${id}/pdf`);
+  const link = document.createElement("a");
+  link.href = `/api/team-money/closures/${id}/pdf`;
+  link.download = "";
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 async function fetchTeamMoneyData() {
@@ -224,7 +230,7 @@ function ClosureHistory({ data }: { data: TeamMoneyData }) {
   return <section className="panel closure-history">
     <div className="team-money-heading"><div><span>HISTÓRICO</span><h3>Fechamentos</h3></div><b>{visible.length} fechamento(s)</b></div>
     <div className="closure-list">
-      {visible.map((closure) => <article key={closure.id}><div><strong>{closure.teamMemberName}</strong><small>{date(closure.periodStartDate)} a {date(closure.periodEndDate)} · {closure.recordCount} atendimento(s)</small></div><b>{money(closure.settlementCents)}</b><button type="button" onClick={() => downloadPdf(closure.id)}>PDF</button></article>)}
+      {visible.map((closure) => <article key={closure.id}><div><strong>{closure.teamMemberName}</strong><small>{date(closure.periodStartDate)} a {date(closure.periodEndDate)} · {closure.recordCount} atendimento(s)</small></div><b>{money(closure.settlementCents)}</b><button type="button" onClick={() => downloadPdf(closure.id)}>Baixar PDF</button></article>)}
       {!visible.length && <p className="team-money-empty">Os próximos fechamentos aparecerão aqui com o PDF pronto.</p>}
     </div>
   </section>;
