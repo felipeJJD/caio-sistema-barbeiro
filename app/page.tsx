@@ -1,6 +1,5 @@
 import { DashboardApp } from "./ui/dashboard-app";
 import { OwnerSetupScreen, SignInScreen } from "./ui/access-screen";
-import { TeamCleanupPanel } from "./ui/team-cleanup-panel";
 import { ensureDemoData, getDashboardData } from "../db/dashboard";
 import { getAccessContext } from "../db/access";
 import { getChatGPTUser } from "./chatgpt-auth";
@@ -14,7 +13,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
   const sessionAccess = await getSessionAccess();
   if (sessionAccess) {
     const data = await getDashboardData(sessionAccess);
-    return <><DashboardApp initialData={data} />{sessionAccess.isOwner && <TeamCleanupPanel />}</>;
+    return <DashboardApp initialData={data} />;
   }
 
   const chatGPTUser = await getChatGPTUser();
