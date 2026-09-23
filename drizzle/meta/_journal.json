@@ -330,6 +330,13 @@
       "when": 1790009000000,
       "tag": "0046_ai_first_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1790013000000,
+      "tag": "0047_plan_profile",
+      "breakpoints": true
     }
   ]
 }

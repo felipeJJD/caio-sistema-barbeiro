@@ -6,6 +6,11 @@ type SignupBody = {
   organizationName?: string;
   workplaceName?: string;
   commissionRateBps?: number;
+  estimatedMonthlyClients?: number;
+  estimatedMonthlyWhatsappContacts?: number;
+  estimatedProfessionals?: number;
+  serviceMode?: string;
+  automationGoal?: string;
   whatsapp?: string;
   ownerDocument?: string;
   email?: string;
@@ -45,6 +50,11 @@ export async function POST(request: Request) {
           ...common,
           ownerName: String(data.ownerName ?? ""),
           organizationName: String(data.organizationName ?? ""),
+          estimatedMonthlyClients: Number(data.estimatedMonthlyClients ?? 0),
+          estimatedMonthlyWhatsappContacts: Number(data.estimatedMonthlyWhatsappContacts ?? 0),
+          estimatedProfessionals: Number(data.estimatedProfessionals ?? 0),
+          serviceMode: String(data.serviceMode ?? ""),
+          automationGoal: String(data.automationGoal ?? ""),
         });
     if (created.verificationRequired) return Response.json({ ok: true, verificationRequired: true, email: created.email });
     if (!created.token) throw new Error("Não foi possível criar a sessão.");
@@ -60,6 +70,12 @@ export async function POST(request: Request) {
       "Crie uma senha com pelo menos 6 caracteres.",
       "A senha informada é muito longa.",
       "Informe uma comissão entre 0% e 100%.",
+      "Informe aproximadamente quantos clientes a barbearia atende por mês.",
+      "Informe uma estimativa válida de clientes que chamam no WhatsApp.",
+      "Confira a estimativa de contatos no WhatsApp.",
+      "Informe quantos profissionais trabalham na barbearia.",
+      "Informe como a barbearia atende hoje.",
+      "Informe o que você espera do Cortou Anotou.",
       "Confirme que você leu e concorda com os termos do teste.",
       "Este e-mail já possui acesso ao Cortou Anotou.",
       "Este e-mail já está cadastrado em uma barbearia.",
