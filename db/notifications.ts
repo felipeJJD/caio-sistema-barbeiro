@@ -80,6 +80,14 @@ function validPushEndpoint(value: string) {
   }
 }
 
+function pushLog(kind: string, details: Record<string, string | number>) {
+  console.info(`[push:${kind}]`, details);
+}
+
+function pushError(kind: string, details: Record<string, string | number>, error: unknown) {
+  console.error(`[push:${kind}:error]`, { ...details, error: error instanceof Error ? error.message : String(error) });
+}
+
 function notificationCutoff() {
   return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
 }
@@ -138,6 +146,7 @@ export async function savePushSubscription(access: AccessContext, subscription: 
       updatedAt: now,
     },
   });
+  pushLog("subscription-saved", { organizationId: access.organizationId, teamMemberId: access.teamMemberId });
 }
 
 export async function removePushSubscription(access: AccessContext, endpoint: string) {
@@ -222,12 +231,18 @@ async function deliverNotification(input: {
   }))).onConflictDoNothing();
 
   const vapid = await vapidConfig();
-  if (!vapid.publicKey || !vapid.privateKey || !vapid.subject) return;
+  if (!vapid.publicKey || !vapid.privateKey || !vapid.subject) {
+    pushLog("not-configured", { organizationId: input.organizationId, recipients: recipientIds.length });
+    return;
+  }
   const stored = await db.select().from(pushSubscriptions).where(and(
     eq(pushSubscriptions.organizationId, input.organizationId),
     inArray(pushSubscriptions.teamMemberId, recipientIds),
   ));
-  if (!stored.length) return;
+  if (!stored.length) {
+    pushLog("no-subscription", { organizationId: input.organizationId, recipients: recipientIds.length });
+    return;
+  }
   const subscriptions: PushSubscriptionData[] = stored.map((item) => ({ endpoint: item.endpoint, keys: { p256dh: item.p256dh, auth: item.auth } }));
   const result = await sendPushBatch(subscriptions, {
     title: input.title,
@@ -241,6 +256,7 @@ async function deliverNotification(input: {
     concurrency: 10,
     timeoutMs: 8000,
   });
+  pushLog("delivery", { organizationId: input.organizationId, attempted: subscriptions.length, gone: result.gone.length });
   if (result.gone.length) await db.delete(pushSubscriptions).where(inArray(pushSubscriptions.endpoint, result.gone));
 }
 
@@ -259,8 +275,8 @@ export async function notifyOwnersOfAppointmentCancellation(access: AccessContex
       tag: `appointment-cancelled-${appointment.appointmentId}`,
       topic: `appointment-cancelled:${appointment.appointmentId}`,
     });
-  } catch {
-    // O cancelamento nunca pode falhar por causa de uma notificação.
+  } catch (error) {
+    pushError("appointment-cancelled", { organizationId: access.organizationId, appointmentId: appointment.appointmentId }, error);
   }
 }
 
@@ -276,8 +292,8 @@ export async function notifyOwnersOfSubscriptionPayment(payment: SubscriptionPay
       tag: `subscription-payment-${payment.paymentId}`,
       topic: `subscription-payment:${payment.paymentId}`,
     });
-  } catch {
-    // A liberação do plano nunca pode falhar por causa de uma notificação.
+  } catch (error) {
+    pushError("subscription-payment", { organizationId: payment.organizationId, paymentId: payment.paymentId }, error);
   }
 }
 
@@ -311,13 +327,19 @@ export async function notifyOwnersOfAttendance(access: AccessContext, attendance
     }))).onConflictDoNothing();
 
     const vapid = await vapidConfig();
-    if (!vapid.publicKey || !vapid.privateKey || !vapid.subject) return;
+    if (!vapid.publicKey || !vapid.privateKey || !vapid.subject) {
+      pushLog("attendance-not-configured", { organizationId: access.organizationId, recordId: attendance.recordId });
+      return;
+    }
 
     const stored = await db.select().from(pushSubscriptions).where(and(
       eq(pushSubscriptions.organizationId, access.organizationId),
       inArray(pushSubscriptions.teamMemberId, ownerIds),
     ));
-    if (!stored.length) return;
+    if (!stored.length) {
+      pushLog("attendance-no-subscription", { organizationId: access.organizationId, recordId: attendance.recordId, owners: ownerIds.length });
+      return;
+    }
 
     const subscriptions: PushSubscriptionData[] = stored.map((item) => ({
       endpoint: item.endpoint,
@@ -330,16 +352,23 @@ export async function notifyOwnersOfAttendance(access: AccessContext, attendance
       tag: `attendance-${attendance.recordId}`,
     }, vapid, {
       ttl: 60 * 60 * 12,
-      urgency: "normal",
+      urgency: "high",
       topic: await topicFromString(`attendance:${attendance.recordId}`),
       concurrency: 10,
       timeoutMs: 8000,
     });
 
+    pushLog("attendance-delivery", {
+      organizationId: access.organizationId,
+      recordId: attendance.recordId,
+      attempted: subscriptions.length,
+      gone: result.gone.length,
+    });
     if (result.gone.length) {
       await db.delete(pushSubscriptions).where(inArray(pushSubscriptions.endpoint, result.gone));
     }
-  } catch {
+  } catch (error) {
+    pushError("attendance", { organizationId: access.organizationId, recordId: attendance.recordId }, error);
     // O atendimento nunca pode deixar de ser salvo por uma falha de notificação.
   }
 }
@@ -363,8 +392,8 @@ export async function notifyOwnersOfWhatsappHandoff(input: {
       tag: `whatsapp-handoff-${input.messageId}`,
       topic: `whatsapp-handoff:${input.messageId}`,
     });
-  } catch {
-    // O atendimento automático nunca pode falhar por causa de uma notificação.
+  } catch (error) {
+    pushError("whatsapp-handoff", { organizationId: input.organizationId, messageId: input.messageId }, error);
   }
 }
 
@@ -383,8 +412,8 @@ export async function notifyOwnersOfPublicBooking(booking: PublicBookingNotifica
       tag: `public-booking-${booking.appointmentId}`,
       topic: `public-booking:${booking.status}:${booking.appointmentId}`,
     });
-  } catch {
-    // O agendamento nunca deve falhar por causa de uma notificação.
+  } catch (error) {
+    pushError("public-booking", { organizationId: booking.organizationId, appointmentId: booking.appointmentId }, error);
   }
 }
 
@@ -404,7 +433,7 @@ export async function notifyBookingChange(booking: PublicBookingNotification, ac
       tag: `public-booking-${action}-${booking.appointmentId}`,
       topic: `public-booking-${action}:${booking.appointmentId}`,
     });
-  } catch {
-    // A alteração do cliente nunca deve falhar por causa de uma notificação.
+  } catch (error) {
+    pushError(`public-booking-${action}`, { organizationId: booking.organizationId, appointmentId: booking.appointmentId }, error);
   }
 }
