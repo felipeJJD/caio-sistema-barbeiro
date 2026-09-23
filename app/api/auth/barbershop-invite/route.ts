@@ -1,7 +1,9 @@
 import { acceptBarbershopInvite, sessionCookie } from "../../../../db/auth";
+import { ownerEmailVerificationIsConfigured } from "../../../../lib/owner-email";
 
 export async function POST(request: Request) {
   try {
+    if (!await ownerEmailVerificationIsConfigured()) throw new Error("O envio de confirmação por e-mail ainda não está configurado.");
     const data = await request.json() as {
       inviteToken?: string;
       ownerName?: string;
@@ -34,9 +36,12 @@ export async function POST(request: Request) {
       "Este e-mail já possui acesso ao Cortou Anotou.",
       "Este e-mail já está cadastrado em uma barbearia.",
       "Este CPF ou CNPJ já foi usado para criar uma barbearia.",
+      "O envio de confirmação por e-mail ainda não está configurado.",
       "Não foi possível enviar o e-mail de confirmação agora.",
+      "Não foi possível enviar o e-mail agora.",
     ];
-    const status = message.startsWith("Não foi possível enviar") ? 503 : safeMessages.includes(message) ? 400 : 500;
+    const emailUnavailable = message.includes("confirmação por e-mail") || message.startsWith("Não foi possível enviar");
+    const status = emailUnavailable ? 503 : safeMessages.includes(message) ? 400 : 500;
     return Response.json({ error: safeMessages.includes(message) ? message : "Não foi possível criar sua barbearia agora." }, { status });
   }
 }
