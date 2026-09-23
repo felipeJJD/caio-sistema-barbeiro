@@ -13,6 +13,21 @@ const PIX_EXPIRATION_MINUTES = 30;
 const PIX_FALLBACK_URL = "https://mpago.la/2yinhJS";
 const DEFAULT_PUBLIC_APP_URL = "https://cortouanotou.com.br";
 
+function resolvePublicAppUrl(value: unknown) {
+  const candidate = String(value ?? "").trim().replace(/\/$/, "");
+  if (!candidate) return DEFAULT_PUBLIC_APP_URL;
+
+  try {
+    const url = new URL(candidate);
+    if (url.hostname === "railway.app" || url.hostname.endsWith(".up.railway.app")) {
+      return DEFAULT_PUBLIC_APP_URL;
+    }
+    return url.origin;
+  } catch {
+    return DEFAULT_PUBLIC_APP_URL;
+  }
+}
+
 type MercadoPagoPayment = {
   id?: number | string;
   status?: string;
@@ -59,8 +74,7 @@ class MercadoPagoRequestError extends Error {
 async function billingConfig() {
   const { env } = await import("@/runtime/env");
   const runtime = env as unknown as Record<string, unknown>;
-  const publicAppUrlValue = String(runtime.PUBLIC_APP_URL ?? DEFAULT_PUBLIC_APP_URL).trim().replace(/\/$/, "");
-  const publicAppUrl = /^https:\/\//i.test(publicAppUrlValue) ? publicAppUrlValue : DEFAULT_PUBLIC_APP_URL;
+  const publicAppUrl = resolvePublicAppUrl(runtime.PUBLIC_APP_URL);
   const environmentAccessToken = String(runtime.MERCADO_PAGO_ACCESS_TOKEN ?? "").trim();
   const environmentWebhookSecret = String(runtime.MERCADO_PAGO_WEBHOOK_SECRET ?? "").trim();
   return {
