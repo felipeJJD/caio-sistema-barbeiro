@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { TeamMoneyData, TeamMoneyEntry, TeamMoneyRow } from "../../db/team-money";
 import { showAppToast } from "./app-toast";
 
@@ -21,6 +21,17 @@ function downloadPdf(id: number) {
   window.location.assign(`/api/team-money/closures/${id}/pdf`);
 }
 
+async function fetchTeamMoneyData() {
+  const response = await fetch("/api/team-money", { cache: "no-store" });
+  if (response.status === 401) {
+    window.location.assign("/");
+    return null;
+  }
+  const payload = await response.json() as { data?: TeamMoneyData; error?: string };
+  if (!response.ok || !payload.data) throw new Error(payload.error ?? "Não foi possível carregar a Minha Grana.");
+  return payload.data;
+}
+
 export function TeamMoneySection({ owner, post, pending: outerPending = false }: { owner: boolean; post?: Post; pending?: boolean }) {
   const [data, setData] = useState<TeamMoneyData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,25 +39,35 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
   const [pending, setPending] = useState(false);
   const [editing, setEditing] = useState<TeamMoneyEntry | null>(null);
 
-  const load = useCallback(async () => {
+  async function load() {
     try {
-      const response = await fetch("/api/team-money", { cache: "no-store" });
-      if (response.status === 401) {
-        window.location.assign("/");
-        return;
-      }
-      const payload = await response.json() as { data?: TeamMoneyData; error?: string };
-      if (!response.ok || !payload.data) throw new Error(payload.error ?? "Não foi possível carregar a Minha Grana.");
-      setData(payload.data);
+      const nextData = await fetchTeamMoneyData();
+      if (!nextData) return;
+      setData(nextData);
       setFeedback(null);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Não foi possível carregar agora.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    void fetchTeamMoneyData()
+      .then((nextData) => {
+        if (!active || !nextData) return;
+        setData(nextData);
+        setFeedback(null);
+      })
+      .catch((error) => {
+        if (active) setFeedback(error instanceof Error ? error.message : "Não foi possível carregar agora.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   const rows = data?.rows ?? [];
   const openEntries = useMemo(() => rows.flatMap((row) => row.openEntries).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id - a.id), [rows]);
