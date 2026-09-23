@@ -117,6 +117,23 @@ export async function deleteUnusedTeamInvite(access: AccessContext, inviteId: nu
   if (Number(result.meta.changes) !== 1) throw new Error("Este convite já foi utilizado ou não está disponível para exclusão.");
 }
 
+export async function deleteTeamInviteHistoryRecord(access: AccessContext, inviteId: number) {
+  requireOwner(access);
+  if (!Number.isInteger(inviteId) || inviteId <= 0) throw new Error("Convite inválido.");
+
+  const invite = await env.DB.prepare("SELECT id FROM team_invites WHERE id = ? AND organization_id = ? LIMIT 1")
+    .bind(inviteId, access.organizationId)
+    .first() as { id: number } | null;
+  if (!invite) throw new Error("Convite não encontrado.");
+
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM pending_registrations WHERE kind = 'team' AND organization_id = ? AND source_invite_id = ? AND used_at IS NULL")
+      .bind(access.organizationId, inviteId),
+    env.DB.prepare("DELETE FROM team_invites WHERE id = ? AND organization_id = ?")
+      .bind(inviteId, access.organizationId),
+  ]);
+}
+
 export async function deletePendingTeamRegistration(access: AccessContext, pendingId: number) {
   requireOwner(access);
   if (!Number.isInteger(pendingId) || pendingId <= 0) throw new Error("Cadastro pendente inválido.");
