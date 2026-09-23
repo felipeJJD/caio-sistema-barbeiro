@@ -24,6 +24,7 @@ async function runtimeEmailConfig() {
   const values = env as unknown as Record<string, string | undefined>;
   return {
     apiKey: String(values.RESEND_API_KEY ?? "").trim(),
+    apiUrl: String(values.RESEND_API_URL ?? "https://api.resend.com/emails").trim(),
     from: String(values.OWNER_EMAIL_FROM ?? "Cortou Anotou <acesso@cortouanotou.com.br>").trim(),
     appUrl: String(values.PUBLIC_APP_URL ?? "https://cortouanotou.com.br").trim().replace(/\/$/, ""),
     supportEmail: String(values.SUPPORT_EMAIL ?? "cortouanotou@gmail.com").trim(),
@@ -53,7 +54,7 @@ async function sendTransactionalEmail(input: {
   const config = await runtimeEmailConfig();
   if (!config.apiKey) throw new Error("O envio de confirmação por e-mail ainda não está configurado.");
 
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = await fetch(config.apiUrl, {
     method: "POST",
     headers: {
       authorization: `Bearer ${config.apiKey}`,
