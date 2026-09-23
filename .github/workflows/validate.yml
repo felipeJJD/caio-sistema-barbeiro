@@ -5,17 +5,55 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: validar-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  validar:
+  qualidade:
+    name: Qualidade e regressões
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      CI: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Baixar código
+        uses: actions/checkout@v4
+      - name: Preparar Node 24.13.0
+        uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.13.0
           cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
-      - run: npm test
+      - name: Instalar dependências
+        run: npm ci
+      - name: Verificar lint
+        run: npm run lint
+      - name: Verificar tipos
+        run: npm run typecheck
+      - name: Rodar testes automatizados
+        run: npm test
+      - name: Validar build de produção
+        run: npm run build
+
+  carga:
+    name: Teste de carga local
+    needs: qualidade
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CI: true
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+      - name: Preparar Node 24.13.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Simular múltiplas barbearias e usuários
+        run: npm run test:load
