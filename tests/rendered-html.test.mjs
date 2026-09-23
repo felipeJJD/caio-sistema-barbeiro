@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 import { openDatabase } from '../runtime/storage.mjs';
 import { bootstrapAdmin } from '../scripts/bootstrap-admin.mjs';
 import { appDate } from '../lib/app-date.ts';
@@ -18,6 +19,17 @@ test('production server: login, dashboard, writes, authorization, photos, and re
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
   const base = `http://127.0.0.1:${port}`;
+  const sentEmails = [];
+  const emailServer = createHttpServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    sentEmails.push(JSON.parse(raw || '{}'));
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ id: `test-email-${sentEmails.length}` }));
+  });
+  await new Promise(resolve => emailServer.listen(0, '127.0.0.1', resolve));
+  const emailPort = emailServer.address().port;
+  const emailApiUrl = `http://127.0.0.1:${emailPort}/emails`;
   const password = randomBytes(24).toString('hex');
   const db = openDatabase(join(directory, 'app.sqlite'));
   await bootstrapAdmin(db, { email: 'admin@example.invalid', password });
@@ -33,7 +45,15 @@ test('production server: login, dashboard, writes, authorization, photos, and re
   let diagnostics = '';
   const start = async () => {
     server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], {
-      env: { ...process.env, DATA_DIR: directory, NODE_ENV: 'production', PUBLIC_APP_URL: 'https://shop.example.invalid' }, stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        DATA_DIR: directory,
+        NODE_ENV: 'production',
+        PUBLIC_APP_URL: base,
+        RESEND_API_KEY: 'test-key',
+        RESEND_API_URL: emailApiUrl,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     server.stdout.on('data', chunk => { diagnostics = (diagnostics + chunk).slice(-4000); });
     server.stderr.on('data', chunk => { diagnostics = (diagnostics + chunk).slice(-4000); });
@@ -120,11 +140,27 @@ test('production server: login, dashboard, writes, authorization, photos, and re
       const invitationBody = await invitation.json();
       assert.equal(invitation.status, 200, JSON.stringify(invitationBody));
       const inviteToken = new URL(invitationBody.inviteUrl).pathname.split('/').pop();
+      const emailAddress = `${name.toLowerCase()}@example.invalid`;
+      const emailCountBefore = sentEmails.length;
       const accepted = await jsonPost('/api/auth/invite', {
-        inviteToken, name, email: `${name.toLowerCase()}@example.invalid`, password,
+        inviteToken, name, email: emailAddress, password,
       });
-      assert.equal(accepted.status, 200, await accepted.clone().text());
-      const staffCookie = accepted.headers.get('set-cookie').split(';')[0];
+      const acceptedBody = await accepted.clone().json();
+      assert.equal(accepted.status, 200, JSON.stringify(acceptedBody));
+      assert.equal(acceptedBody.verificationRequired, true);
+      assert.equal(accepted.headers.get('set-cookie'), null);
+      assert.equal(sentEmails.length, emailCountBefore + 1);
+      assert.equal((await jsonPost('/api/auth/login', { email: emailAddress, password })).status, 401);
+      const sentEmail = sentEmails.at(-1);
+      assert.deepEqual(sentEmail.to, [emailAddress]);
+      assert.match(sentEmail.subject, /Confirme seu e-mail/);
+      const confirmationUrl = String(sentEmail.text ?? '').match(/http:\/\/127\.0\.0\.1:\d+\/confirmar-email\/[0-9a-f]+/i)?.[0];
+      assert.ok(confirmationUrl, JSON.stringify(sentEmail));
+      const confirmation = await fetch(confirmationUrl, { redirect: 'manual' });
+      assert.equal(confirmation.status, 303, await confirmation.clone().text());
+      const setCookie = confirmation.headers.get('set-cookie');
+      assert.ok(setCookie);
+      const staffCookie = setCookie.split(';')[0];
       const staffData = await readDashboard(staffCookie);
       assert.equal(staffData.viewer.isOwner, false);
       const record = await jsonPost('/api/action', {
@@ -306,5 +342,9 @@ test('production server: login, dashboard, writes, authorization, photos, and re
     const notificationsAfterRestart = await fetch(`${base}/api/notifications`, { headers: { Cookie: cookie } });
     const notificationsAfterRestartBody = await notificationsAfterRestart.json();
     assert.equal(notificationsAfterRestartBody.publicKey, notificationsBody.publicKey);
-  } finally { await stop(); await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await stop();
+    await new Promise(resolve => emailServer.close(resolve));
+    await rm(directory, { recursive: true, force: true });
+  }
 });
