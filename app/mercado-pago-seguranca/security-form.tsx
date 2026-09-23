@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type MercadoPagoStatus = {
   configured: boolean;
@@ -32,22 +32,26 @@ export function MercadoPagoSecurityForm() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const loadStatus = useCallback(async () => {
-    try {
-      const response = await fetch("/api/platform/mercado-pago", { cache: "no-store" });
-      const payload = await response.json() as MercadoPagoPayload;
-      if (!response.ok) throw new Error(payload.error ?? "Não foi possível consultar a integração.");
-      setStatus(payload.status ?? null);
-    } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Não foi possível consultar a integração.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void loadStatus();
-  }, [loadStatus]);
+    let active = true;
+
+    fetch("/api/platform/mercado-pago", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as MercadoPagoPayload;
+        if (!response.ok) throw new Error(payload.error ?? "Não foi possível consultar a integração.");
+        if (active) setStatus(payload.status ?? null);
+      })
+      .catch((error: unknown) => {
+        if (active) setFeedback(error instanceof Error ? error.message : "Não foi possível consultar a integração.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
