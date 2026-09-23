@@ -337,6 +337,13 @@
       "when": 1790013000000,
       "tag": "0047_plan_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1790014000000,
+      "tag": "0048_verified_account_creation",
+      "breakpoints": true
     }
   ]
 }
