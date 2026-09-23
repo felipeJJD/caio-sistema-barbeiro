@@ -17,14 +17,76 @@ function paymentDayLabel(day: number) {
   return day === 31 ? "último dia do mês (ou dia 31)" : `dia ${day}`;
 }
 
-function downloadPdf(id: number) {
-  const link = document.createElement("a");
-  link.href = `/api/team-money/closures/${id}/pdf`;
-  link.download = "";
-  link.rel = "noopener";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+function pdfFilename(response: Response, id: number) {
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const utf8 = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8.replace(/["']/g, ""));
+    } catch {
+      // Se o nome vier malformado, usa o nome simples abaixo.
+    }
+  }
+  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]?.trim();
+  return plain || `fechamento-${id}.pdf`;
+}
+
+function isAppleMobileDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+async function downloadPdf(id: number) {
+  try {
+    const response = await fetch(`/api/team-money/closures/${id}/pdf`, { cache: "no-store" });
+    if (response.status === 401) {
+      window.location.assign("/");
+      return;
+    }
+    if (!response.ok) {
+      let message = "Não foi possível baixar o PDF agora.";
+      try {
+        const payload = await response.json() as { error?: string };
+        if (payload.error) message = payload.error;
+      } catch {
+        // Mantém a mensagem padrão quando a resposta não for JSON.
+      }
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    const filename = pdfFilename(response, id);
+    const file = new File([blob], filename, { type: "application/pdf" });
+    const shareData: ShareData = { files: [file], title: "Fechamento do Cortou Anotou" };
+
+    if (
+      isAppleMobileDevice()
+      && typeof navigator.share === "function"
+      && typeof navigator.canShare === "function"
+      && navigator.canShare(shareData)
+    ) {
+      try {
+        showAppToast("No iPhone, escolha Salvar em Arquivos para guardar o PDF.");
+        await navigator.share(shareData);
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+
+    const downloadBlob = new Blob([blob], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(downloadBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+  } catch (error) {
+    showAppToast(error instanceof Error ? error.message : "Não foi possível baixar o PDF agora.");
+  }
 }
 
 async function fetchTeamMoneyData() {
@@ -230,7 +292,7 @@ function ClosureHistory({ data }: { data: TeamMoneyData }) {
   return <section className="panel closure-history">
     <div className="team-money-heading"><div><span>HISTÓRICO</span><h3>Fechamentos</h3></div><b>{visible.length} fechamento(s)</b></div>
     <div className="closure-list">
-      {visible.map((closure) => <article key={closure.id}><div><strong>{closure.teamMemberName}</strong><small>{date(closure.periodStartDate)} a {date(closure.periodEndDate)} · {closure.recordCount} atendimento(s)</small></div><b>{money(closure.settlementCents)}</b><button type="button" onClick={() => downloadPdf(closure.id)}>Baixar PDF</button></article>)}
+      {visible.map((closure) => <article key={closure.id}><div><strong>{closure.teamMemberName}</strong><small>{date(closure.periodStartDate)} a {date(closure.periodEndDate)} · {closure.recordCount} atendimento(s)</small></div><b>{money(closure.settlementCents)}</b><button type="button" onClick={() => void downloadPdf(closure.id)}>Baixar PDF</button></article>)}
       {!visible.length && <p className="team-money-empty">Os próximos fechamentos aparecerão aqui com o PDF pronto.</p>}
     </div>
   </section>;
