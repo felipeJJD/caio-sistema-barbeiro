@@ -8,6 +8,8 @@ const webhookRouteSource = readFileSync(new URL("../app/api/payments/mercado-pag
 test("Mercado Pago usa o dominio canonico do Cortou Anotou como fallback", () => {
   assert.match(billingSource, /const DEFAULT_PUBLIC_APP_URL = "https:\/\/cortouanotou\.com\.br";/);
   assert.doesNotMatch(billingSource, /clube-fiel-v11\.kaylon-estefani2016\.chatgpt\.site/);
+  assert.match(billingSource, /url\.hostname === "railway\.app" \|\| url\.hostname\.endsWith\("\.up\.railway\.app"\)/);
+  assert.match(billingSource, /const publicAppUrl = resolvePublicAppUrl\(runtime\.PUBLIC_APP_URL\);/);
   assert.match(billingSource, /notification_url: `\$\{config\.publicAppUrl\}\/api\/payments\/mercado-pago\/webhook\?source_news=webhooks`/);
 });
 
