@@ -11,7 +11,7 @@ import { getAffiliateAccessToken, getOrganizationAffiliateSplit } from "./mercad
 
 const PIX_EXPIRATION_MINUTES = 30;
 const PIX_FALLBACK_URL = "https://mpago.la/2yinhJS";
-const DEFAULT_PUBLIC_APP_URL = "https://clube-fiel-v11.kaylon-estefani2016.chatgpt.site";
+const DEFAULT_PUBLIC_APP_URL = "https://cortouanotou.com.br";
 
 type MercadoPagoPayment = {
   id?: number | string;
@@ -321,13 +321,13 @@ function bytesToHex(bytes: ArrayBuffer) {
 }
 
 export async function validateMercadoPagoWebhookSignature(request: Request, dataId: string) {
+  const { webhookSecret } = await billingConfig();
+  if (!webhookSecret) return false;
   const db = await getDb();
   const splitOrder = (await db.select({ splitAffiliateId: subscriptionPayments.splitAffiliateId }).from(subscriptionPayments).where(eq(subscriptionPayments.providerPaymentId, dataId)).limit(1))[0];
   // Para o split, a notificação só dispara uma consulta autenticada ao Mercado Pago;
   // nenhuma informação recebida no webhook é aplicada diretamente.
   if (splitOrder?.splitAffiliateId) return true;
-  const { webhookSecret } = await billingConfig();
-  if (!webhookSecret) return true;
   const signature = request.headers.get("x-signature") ?? "";
   const requestId = request.headers.get("x-request-id") ?? "";
   const parts = Object.fromEntries(signature.split(",").map((part) => {
