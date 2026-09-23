@@ -1,4 +1,5 @@
 import { DashboardApp } from "./ui/dashboard-app";
+import { InviteHistoryTrash } from "./ui/invite-history-trash";
 import { OwnerSetupScreen, SignInScreen } from "./ui/access-screen";
 import { ensureDemoData, getDashboardData } from "../db/dashboard";
 import { getAccessContext } from "../db/access";
@@ -13,7 +14,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
   const sessionAccess = await getSessionAccess();
   if (sessionAccess) {
     const data = await getDashboardData(sessionAccess);
-    return <DashboardApp initialData={data} />;
+    return <><DashboardApp initialData={data} />{sessionAccess.isOwner && <InviteHistoryTrash />}</>;
   }
 
   const chatGPTUser = await getChatGPTUser();
