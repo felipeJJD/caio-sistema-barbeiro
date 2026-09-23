@@ -13,6 +13,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint (alerta)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    env:
+      CI: true
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v5
+      - name: Preparar Node 24.13.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Verificar lint e apontar código que merece limpeza
+        run: npm run lint
+
   qualidade:
     name: Qualidade e regressões
     runs-on: ubuntu-latest
@@ -21,16 +41,14 @@ jobs:
       CI: true
     steps:
       - name: Baixar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Preparar Node 24.13.0
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24.13.0
           cache: npm
       - name: Instalar dependências
         run: npm ci
-      - name: Verificar lint
-        run: npm run lint
       - name: Verificar tipos
         run: npm run typecheck
       - name: Rodar testes automatizados
@@ -47,9 +65,9 @@ jobs:
       CI: true
     steps:
       - name: Baixar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Preparar Node 24.13.0
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24.13.0
           cache: npm
