@@ -1,5 +1,6 @@
 import { resendOwnerVerificationEmail } from "../../../../db/auth";
 import { enforceRateLimit, RateLimitError } from "../../../../db/rate-limit";
+import { resendPendingVerification } from "../../../../db/verified-registration";
 
 export async function POST(request: Request) {
   try {
@@ -22,7 +23,8 @@ export async function POST(request: Request) {
       windowMs: 60 * 60 * 1000,
       message: "Muitas solicitações para este e-mail. Aguarde uma hora e tente novamente.",
     });
-    await resendOwnerVerificationEmail(email);
+    const resentPending = await resendPendingVerification(email);
+    if (!resentPending) await resendOwnerVerificationEmail(email);
     return Response.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
