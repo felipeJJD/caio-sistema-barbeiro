@@ -151,13 +151,6 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
 
   const rows = data?.rows ?? [];
 
-  useEffect(() => {
-    if (!owner || !rows.length) return;
-    if (selectedMemberId === null || !rows.some((row) => row.teamMemberId === selectedMemberId)) {
-      setSelectedMemberId(rows[0].teamMemberId);
-    }
-  }, [owner, rows, selectedMemberId]);
-
   const selectedRow = owner
     ? rows.find((row) => row.teamMemberId === selectedMemberId) ?? rows[0]
     : rows[0];
