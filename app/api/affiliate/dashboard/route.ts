@@ -1,5 +1,5 @@
 import { getAffiliateSessionAccess } from "../../../../db/affiliate-auth";
-import { createAffiliateLink, getAffiliateDashboard, setOwnAffiliateLinkActive, updateOwnAffiliatePix } from "../../../../db/affiliate-portal";
+import { createAffiliateLink, deleteOwnUnusedAffiliateLink, getAffiliateDashboard, setOwnAffiliateLinkActive, setOwnReferralArchived, updateOwnAffiliatePix } from "../../../../db/affiliate-portal";
 
 function noStore(payload: unknown, status = 200) {
   return Response.json(payload, { status, headers: { "cache-control": "no-store" } });
@@ -26,6 +26,11 @@ export async function POST(request: Request) {
     } else if (body.action === "set-link-active") {
       if (typeof body.active !== "boolean") throw new Error("Informe o novo status do link.");
       await setOwnAffiliateLinkActive(access, Number(body.linkId), body.active);
+    } else if (body.action === "delete-link") {
+      await deleteOwnUnusedAffiliateLink(access, Number(body.linkId));
+    } else if (body.action === "set-referral-archived") {
+      if (typeof body.archived !== "boolean") throw new Error("Informe se a indicação deve ser arquivada.");
+      await setOwnReferralArchived(access, Number(body.referralId), body.archived);
     } else if (body.action === "update-pix") {
       await updateOwnAffiliatePix(access, String(body.pixKey ?? ""));
     } else {

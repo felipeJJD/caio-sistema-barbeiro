@@ -344,6 +344,13 @@
       "when": 1790014000000,
       "tag": "0048_verified_account_creation",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1790262000000,
+      "tag": "0049_affiliate_cleanup",
+      "breakpoints": true
     }
   ]
 }

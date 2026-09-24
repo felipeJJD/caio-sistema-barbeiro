@@ -1,10 +1,17 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, notExists } from "drizzle-orm";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { AffiliateAccess } from "./affiliate-auth";
 import { getDb } from "./index";
 import { affiliateCommissions, affiliateLinks, affiliates, organizationReferrals, organizations, subscriptionPayments } from "./schema";
 import { appMonth } from "../lib/app-date";
 
 const PUBLIC_APP_URL = "https://cortouanotou.com.br";
+
+const affiliateReferralArchives = sqliteTable("affiliate_referral_archives", {
+  referralId: integer("referral_id").primaryKey(),
+  affiliateId: integer("affiliate_id").notNull(),
+  archivedAt: text("archived_at").notNull(),
+});
 
 function cleanCode(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
@@ -52,7 +59,7 @@ export async function getAffiliateDashboard(access: AffiliateAccess, monthValue?
   requireAffiliate(access);
   const { month, start, end } = monthBounds(monthValue);
   const db = await getDb();
-  const [profile, linkRows, referralRows, commissionRows, paymentRows] = await Promise.all([
+  const [profile, linkRows, referralRows, commissionRows, paymentRows, archiveRows] = await Promise.all([
     db.select({
       name: affiliates.name,
       email: affiliates.email,
@@ -91,9 +98,12 @@ export async function getAffiliateDashboard(access: AffiliateAccess, monthValue?
       .innerJoin(affiliateLinks, eq(affiliateLinks.id, organizationReferrals.affiliateLinkId))
       .where(and(eq(affiliateLinks.affiliateId, access.affiliateId), eq(subscriptionPayments.status, "approved")))
       .orderBy(asc(subscriptionPayments.id)),
+    db.select({ referralId: affiliateReferralArchives.referralId }).from(affiliateReferralArchives)
+      .where(eq(affiliateReferralArchives.affiliateId, access.affiliateId)),
   ]);
   if (!profile[0]) throw new Error("Afiliado não encontrado.");
 
+  const archivedReferralIds = new Set(archiveRows.map((item) => item.referralId));
   const paymentsByOrganization = new Map<number, typeof paymentRows>();
   for (const payment of paymentRows) {
     const group = paymentsByOrganization.get(payment.organizationId) ?? [];
@@ -130,12 +140,14 @@ export async function getAffiliateDashboard(access: AffiliateAccess, monthValue?
       code: referral.code,
       status: status.key,
       statusLabel: status.label,
+      archived: archivedReferralIds.has(referral.id),
       lastPaymentAt,
       monthCommissionCents: commissions.filter((item) => inPeriod(item.createdAt, start, end)).reduce((total, item) => total + item.commissionAmountCents, 0),
       lifetimeCommissionCents: commissions.reduce((total, item) => total + item.commissionAmountCents, 0),
     };
   }).sort((left, right) => right.attributedAt.localeCompare(left.attributedAt));
 
+  const mainLinkId = linkRows[0]?.id ?? 0;
   const links = linkRows.map((link) => {
     const referrals = referralRows.filter((item) => item.affiliateLinkId === link.id);
     const commissions = commissionsByLink.get(link.id) ?? [];
@@ -147,6 +159,7 @@ export async function getAffiliateDashboard(access: AffiliateAccess, monthValue?
       commissionBps: link.commissionBps,
       commissionMonths: link.commissionMonths,
       active: link.active,
+      isMain: link.id === mainLinkId,
       referrals: referrals.length,
       payingReferrals: referrals.filter((item) => (paymentsByOrganization.get(item.organizationId) ?? []).length > 0).length,
       earnedCents: commissions.reduce((total, item) => total + item.commissionAmountCents, 0),
@@ -226,6 +239,51 @@ export async function setOwnAffiliateLinkActive(access: AffiliateAccess, linkId:
   )).limit(1))[0];
   if (!link) throw new Error("Link não encontrado.");
   await db.update(affiliateLinks).set({ active, updatedAt: new Date().toISOString() }).where(eq(affiliateLinks.id, link.id));
+}
+
+export async function deleteOwnUnusedAffiliateLink(access: AffiliateAccess, linkId: number) {
+  requireAffiliate(access);
+  if (!Number.isInteger(linkId) || linkId <= 0) throw new Error("Link inválido.");
+  const db = await getDb();
+  const links = await db.select({ id: affiliateLinks.id }).from(affiliateLinks)
+    .where(eq(affiliateLinks.affiliateId, access.affiliateId)).orderBy(asc(affiliateLinks.id));
+  if (!links.some((item) => item.id === linkId)) throw new Error("Link não encontrado.");
+  if (links[0]?.id === linkId) throw new Error("O link principal não pode ser excluído.");
+
+  const referralExists = db.select({ id: organizationReferrals.id }).from(organizationReferrals)
+    .where(eq(organizationReferrals.affiliateLinkId, linkId));
+  const commissionExists = db.select({ id: affiliateCommissions.id }).from(affiliateCommissions)
+    .where(eq(affiliateCommissions.affiliateLinkId, linkId));
+  const deleted = await db.delete(affiliateLinks).where(and(
+    eq(affiliateLinks.id, linkId),
+    eq(affiliateLinks.affiliateId, access.affiliateId),
+    notExists(referralExists),
+    notExists(commissionExists),
+  )).returning({ id: affiliateLinks.id });
+  if (!deleted.length) throw new Error("Este link já possui indicação ou comissão. Pause o link para preservar o histórico.");
+}
+
+export async function setOwnReferralArchived(access: AffiliateAccess, referralId: number, archived: boolean) {
+  requireAffiliate(access);
+  if (!Number.isInteger(referralId) || referralId <= 0) throw new Error("Indicação inválida.");
+  const db = await getDb();
+  const referral = (await db.select({ id: organizationReferrals.id }).from(organizationReferrals)
+    .innerJoin(affiliateLinks, eq(affiliateLinks.id, organizationReferrals.affiliateLinkId))
+    .where(and(eq(organizationReferrals.id, referralId), eq(affiliateLinks.affiliateId, access.affiliateId)))
+    .limit(1))[0];
+  if (!referral) throw new Error("Indicação não encontrada.");
+  if (!archived) {
+    await db.delete(affiliateReferralArchives).where(and(
+      eq(affiliateReferralArchives.referralId, referralId),
+      eq(affiliateReferralArchives.affiliateId, access.affiliateId),
+    ));
+    return;
+  }
+  const now = new Date().toISOString();
+  await db.insert(affiliateReferralArchives).values({ referralId, affiliateId: access.affiliateId, archivedAt: now }).onConflictDoUpdate({
+    target: affiliateReferralArchives.referralId,
+    set: { affiliateId: access.affiliateId, archivedAt: now },
+  });
 }
 
 export async function updateOwnAffiliatePix(access: AffiliateAccess, pixKeyValue: string) {
