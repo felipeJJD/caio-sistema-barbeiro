@@ -11,7 +11,22 @@ import { getAffiliateAccessToken, getOrganizationAffiliateSplit } from "./mercad
 
 const PIX_EXPIRATION_MINUTES = 30;
 const PIX_FALLBACK_URL = "https://mpago.la/2yinhJS";
-const DEFAULT_PUBLIC_APP_URL = "https://clube-fiel-v11.kaylon-estefani2016.chatgpt.site";
+const DEFAULT_PUBLIC_APP_URL = "https://cortouanotou.com.br";
+
+function resolvePublicAppUrl(value: unknown) {
+  const candidate = String(value ?? "").trim().replace(/\/$/, "");
+  if (!candidate) return DEFAULT_PUBLIC_APP_URL;
+
+  try {
+    const url = new URL(candidate);
+    if (url.hostname === "railway.app" || url.hostname.endsWith(".up.railway.app")) {
+      return DEFAULT_PUBLIC_APP_URL;
+    }
+    return url.origin;
+  } catch {
+    return DEFAULT_PUBLIC_APP_URL;
+  }
+}
 
 type MercadoPagoPayment = {
   id?: number | string;
@@ -59,8 +74,7 @@ class MercadoPagoRequestError extends Error {
 async function billingConfig() {
   const { env } = await import("@/runtime/env");
   const runtime = env as unknown as Record<string, unknown>;
-  const publicAppUrlValue = String(runtime.PUBLIC_APP_URL ?? DEFAULT_PUBLIC_APP_URL).trim().replace(/\/$/, "");
-  const publicAppUrl = /^https:\/\//i.test(publicAppUrlValue) ? publicAppUrlValue : DEFAULT_PUBLIC_APP_URL;
+  const publicAppUrl = resolvePublicAppUrl(runtime.PUBLIC_APP_URL);
   const environmentAccessToken = String(runtime.MERCADO_PAGO_ACCESS_TOKEN ?? "").trim();
   const environmentWebhookSecret = String(runtime.MERCADO_PAGO_WEBHOOK_SECRET ?? "").trim();
   return {
@@ -321,13 +335,13 @@ function bytesToHex(bytes: ArrayBuffer) {
 }
 
 export async function validateMercadoPagoWebhookSignature(request: Request, dataId: string) {
+  const { webhookSecret } = await billingConfig();
+  if (!webhookSecret) return false;
   const db = await getDb();
   const splitOrder = (await db.select({ splitAffiliateId: subscriptionPayments.splitAffiliateId }).from(subscriptionPayments).where(eq(subscriptionPayments.providerPaymentId, dataId)).limit(1))[0];
   // Para o split, a notificação só dispara uma consulta autenticada ao Mercado Pago;
   // nenhuma informação recebida no webhook é aplicada diretamente.
   if (splitOrder?.splitAffiliateId) return true;
-  const { webhookSecret } = await billingConfig();
-  if (!webhookSecret) return true;
   const signature = request.headers.get("x-signature") ?? "";
   const requestId = request.headers.get("x-request-id") ?? "";
   const parts = Object.fromEntries(signature.split(",").map((part) => {
