@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { TeamMoneyData, TeamMoneyEntry, TeamMoneyRow } from "../../db/team-money";
 import { showAppToast } from "./app-toast";
+import { AppIcon } from "./app-icon";
 
 type Post = (body: Record<string, string | number | boolean>, success: string) => Promise<boolean>;
 
@@ -14,7 +15,16 @@ const today = () => {
 };
 
 function paymentDayLabel(day: number) {
-  return day === 31 ? "último dia do mês (ou dia 31)" : `dia ${day}`;
+  return day === 31 ? "último dia do mês" : `dia ${day}`;
+}
+
+function initials(value: string) {
+  return value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CA";
+}
+
+function MemberAvatar({ row, large = false }: { row: TeamMoneyRow; large?: boolean }) {
+  if (row.photoUrl) return <img className={`team-money-v2-avatar${large ? " large" : ""}`} src={row.photoUrl} alt={`Foto de ${row.teamMemberName}`} loading="lazy" />;
+  return <span className={`team-money-v2-avatar fallback${large ? " large" : ""}`}>{initials(row.teamMemberName)}</span>;
 }
 
 function pdfFilename(response: Response, id: number) {
@@ -96,7 +106,7 @@ async function fetchTeamMoneyData() {
     return null;
   }
   const payload = await response.json() as { data?: TeamMoneyData; error?: string };
-  if (!response.ok || !payload.data) throw new Error(payload.error ?? "Não foi possível carregar a Minha Grana.");
+  if (!response.ok || !payload.data) throw new Error(payload.error ?? "Não foi possível carregar os valores da equipe.");
   return payload.data;
 }
 
@@ -105,7 +115,9 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
   const [editing, setEditing] = useState<TeamMoneyEntry | null>(null);
+  const [valeFormOpen, setValeFormOpen] = useState(false);
 
   async function load() {
     try {
@@ -138,7 +150,22 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
   }, []);
 
   const rows = data?.rows ?? [];
-  const openEntries = useMemo(() => rows.flatMap((row) => row.openEntries).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id - a.id), [rows]);
+
+  useEffect(() => {
+    if (!owner || !rows.length) return;
+    if (selectedMemberId === null || !rows.some((row) => row.teamMemberId === selectedMemberId)) {
+      setSelectedMemberId(rows[0].teamMemberId);
+    }
+  }, [owner, rows, selectedMemberId]);
+
+  const selectedRow = owner
+    ? rows.find((row) => row.teamMemberId === selectedMemberId) ?? rows[0]
+    : rows[0];
+
+  const selectedClosures = useMemo(
+    () => data?.closures.filter((closure) => !closure.isBaseline && (!selectedRow || closure.teamMemberId === selectedRow.teamMemberId)) ?? [],
+    [data?.closures, selectedRow],
+  );
 
   async function teamMoneyAction(body: Record<string, string | number | boolean>) {
     setPending(true);
@@ -169,131 +196,169 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
   }
 
   async function closeCycle(row: TeamMoneyRow) {
-    if (!window.confirm(`Fechar o pagamento de ${row.teamMemberName} em ${money(row.currentBalanceCents)}? Tudo que está em aberto entra neste fechamento e o saldo atual volta para R$ 0,00.`)) return;
+    if (!window.confirm(`Fechar o período de ${row.teamMemberName} em ${money(row.currentBalanceCents)}? O valor atual será registrado como recebido e o próximo período começará zerado.`)) return;
     const result = await teamMoneyAction({ action: "close", teamMemberId: row.teamMemberId });
     if (!result?.closureId) return;
-    showAppToast("Fechamento concluído. O saldo voltou a zero e o PDF está pronto.");
+    showAppToast("Período fechado. O saldo atual voltou para R$ 0,00 e o PDF está pronto.");
   }
 
-  async function submitEntry(event: FormEvent<HTMLFormElement>) {
+  async function submitVale(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!post) return;
+    if (!post || !selectedRow) return;
     const form = new FormData(event.currentTarget);
-    const teamMemberId = Number(form.get("teamMemberId"));
-    const row = rows.find((item) => item.teamMemberId === teamMemberId);
-    const kind = String(form.get("kind") ?? "Vale");
     const ok = await post({
       action: "team-payment",
       id: editing?.id ?? 0,
-      teamMemberId,
+      teamMemberId: selectedRow.teamMemberId,
       occurredAt: String(form.get("occurredAt") ?? today()),
-      kind,
+      kind: "Vale",
       reason: String(form.get("reason") ?? ""),
       valueCents: Math.round(Number(form.get("value") ?? 0) * 100),
-    }, editing ? "Lançamento atualizado." : `${kind} registrado para ${row?.teamMemberName ?? "o funcionário"}.`);
+    }, editing ? "Vale atualizado." : `Vale registrado para ${selectedRow.teamMemberName}.`);
     if (ok) {
       setEditing(null);
       await load();
+      setValeFormOpen(false);
     }
   }
 
   async function removeEntry(entry: TeamMoneyEntry) {
-    if (!post) return;
-    if (!window.confirm(`Excluir ${entry.kind.toLowerCase()} de ${money(entry.valueCents)} de ${entry.teamMemberName}?`)) return;
-    const ok = await post({ action: "delete-team-payment", id: entry.id }, "Lançamento excluído.");
+    if (!post || entry.kind !== "Vale") return;
+    if (!window.confirm(`Excluir vale de ${money(entry.valueCents)} de ${entry.teamMemberName}?`)) return;
+    const ok = await post({ action: "delete-team-payment", id: entry.id }, "Vale excluído.");
     if (ok) {
       if (editing?.id === entry.id) setEditing(null);
       await load();
     }
   }
 
-  if (loading) return <section className="panel team-money-loading">Carregando...</section>;
+  function openNewVale() {
+    setEditing(null);
+    setValeFormOpen(true);
+  }
+
+  function editVale(entry: TeamMoneyEntry) {
+    if (entry.kind !== "Vale") return;
+    setEditing(entry);
+    setValeFormOpen(true);
+  }
+
+  if (loading) return <section className="panel team-money-loading">Carregando valores da equipe...</section>;
 
   if (!owner) {
     const row = rows[0];
-    return <div className="team-money-shell">
+    return <div className="team-money-shell team-money-v2">
       {feedback && <div className="notice error">{feedback}</div>}
       {row ? <>
-        <section className="panel my-money-hero">
-          <span>MINHA GRANA</span>
-          <h2>{money(row.currentBalanceCents)}</h2>
-          <p>Saldo atual a receber. Comissões e 100% das gorjetas entram automaticamente aqui.</p>
-          <div className="my-money-meta">
-            <div><small>Vales recebidos</small><strong>{money(row.valeCents)}</strong></div>
-            <div><small>Pagamentos recebidos</small><strong>{money(row.paidCents)}</strong></div>
-            <div><small>Pagamento previsto</small><strong>{paymentDayLabel(row.paymentDay)}</strong></div>
-          </div>
-          {row.lastClosure && <small className="last-close">Último fechamento: {date(row.lastClosure.periodEndDate)} · {money(row.lastClosure.settlementCents)}</small>}
+        <section className="team-money-v2-intro">
+          <div><span>MINHA GRANA</span><h2>Meu saldo</h2><p>Acompanhe o que você já ganhou, os vales retirados e o próximo fechamento.</p></div>
+          <MemberAvatar row={row} large />
         </section>
-        <section className="panel">
-          <div className="team-money-heading"><div><span>EM ABERTO</span><h3>Movimentações desde o último fechamento</h3></div><b>{row.openRecordCount} atendimento(s)</b></div>
-          <div className="team-money-entry-list">
-            {row.openEntries.map((entry) => <article key={entry.id}><span className={entry.kind === "Vale" ? "vale" : "payment"}>{entry.kind}</span><div><strong>{date(entry.occurredAt)}</strong><small>{entry.reason}</small></div><b>- {money(entry.valueCents)}</b></article>)}
-            {!row.openEntries.length && <p className="team-money-empty">Nenhum vale ou pagamento em aberto.</p>}
+        <section className="panel team-money-v2-focus">
+          <header className="team-money-v2-person">
+            <MemberAvatar row={row} large />
+            <div><h2>{row.teamMemberName}</h2><small>{row.role}</small></div>
+          </header>
+          <div className="team-money-v2-summary">
+            <article className="receive"><span><AppIcon name="money" /></span><div><small>A RECEBER</small><strong>{money(row.currentBalanceCents)}</strong><em>saldo atual</em></div></article>
+            <article><span><AppIcon name="scissors" /></span><div><small>COMISSÃO GERADA</small><strong>{money(row.earnedCents)}</strong><em>desde o último fechamento</em></div></article>
+            <article><span><AppIcon name="money" /></span><div><small>VALES</small><strong>{money(row.valeCents)}</strong><em>já descontados</em></div></article>
+            <article><span><AppIcon name="calendar" /></span><div><small>FECHAMENTO PREVISTO</small><strong>{paymentDayLabel(row.paymentDay)}</strong><em>{row.lastClosure ? `Último: ${date(row.lastClosure.periodEndDate)}` : "Sem fechamento anterior"}</em></div></article>
           </div>
         </section>
-        {data && <ClosureHistory data={data} />}
-      </> : <section className="panel team-money-loading">Seu cadastro não possui saldo de equipe.</section>}
+        <section className="panel team-money-v2-movements">
+          <div className="team-money-v2-heading"><div><span>EM ABERTO</span><h3>Vales deste período</h3></div><b>{row.openEntries.filter((entry) => entry.kind === "Vale").length}</b></div>
+          <div className="team-money-v2-list">
+            {row.openEntries.filter((entry) => entry.kind === "Vale").map((entry) => <article key={entry.id}><i className="vale"><AppIcon name="money" /></i><div><strong>Vale</strong><small>{date(entry.occurredAt)} · {entry.reason}</small></div><b>- {money(entry.valueCents)}</b></article>)}
+            {!row.openEntries.some((entry) => entry.kind === "Vale") && <p className="team-money-empty">Nenhum vale em aberto neste período.</p>}
+          </div>
+        </section>
+        {data && <ClosureHistory data={data} memberId={row.teamMemberId} />}
+      </> : <section className="panel team-money-loading">Seu cadastro ainda não possui saldo disponível.</section>}
     </div>;
   }
 
-  return <div className="team-money-shell">
+  if (!selectedRow) return <section className="panel team-money-loading">Cadastre a equipe para controlar vales e fechamentos.</section>;
+
+  const visibleEntries = selectedRow.openEntries.slice().sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id - a.id);
+  const openValeCount = visibleEntries.filter((entry) => entry.kind === "Vale").length;
+
+  return <div className="team-money-shell team-money-v2">
     {feedback && <div className="notice error">{feedback}</div>}
-    <section className="team-money-cards">
-      {rows.map((row) => <article className="panel team-money-card" key={row.teamMemberId}>
-        <header><div className="team-money-avatar">{row.teamMemberName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</div><div><h2>{row.teamMemberName}</h2><small>{row.role}</small></div></header>
-        <div className="team-money-balance"><small>SALDO ATUAL</small><strong>{money(row.currentBalanceCents)}</strong><span>Inclui comissões e 100% das gorjetas.</span></div>
-        <dl>
-          <div><dt>Vales</dt><dd>{money(row.valeCents)}</dd></div>
-          <div><dt>Pagamentos</dt><dd>{money(row.paidCents)}</dd></div>
-        </dl>
-        <div className="team-money-close-meta">
-          <span>Último fechamento</span>
-          <strong>{row.lastClosure ? `${date(row.lastClosure.periodEndDate)} · ${money(row.lastClosure.settlementCents)}` : "Nenhum fechamento ainda"}</strong>
-        </div>
-        <form className="payment-day-form" onSubmit={(event) => savePaymentDay(event, row)}>
-          <label>Dia previsto de pagamento<input name="paymentDay" type="number" min="1" max="31" defaultValue={row.paymentDay} /></label>
-          <button type="submit" disabled={pending || outerPending}>Salvar dia</button>
-        </form>
-        <button className="primary-button close-payment-button" type="button" disabled={pending || outerPending || (row.openRecordCount === 0 && row.openEntries.length === 0)} onClick={() => void closeCycle(row)}>Fechar pagamento</button>
-      </article>)}
-      {!rows.length && <section className="panel team-money-loading">Cadastre um funcionário para controlar vales e pagamentos.</section>}
+
+    <section className="team-money-v2-intro">
+      <div><span>CONTROLE DA EQUIPE</span><h2>Vales e fechamentos</h2><p>Veja quanto cada profissional tem para receber, registre vales e feche o período sem fazer conta por fora.</p></div>
     </section>
 
-    <section className="team-money-layout">
-      <div className="panel">
-        <div className="team-money-heading"><div><span>EM ABERTO</span><h3>Vales e pagamentos</h3></div><b>{openEntries.length} lançamento(s)</b></div>
-        <div className="team-money-entry-list">
-          {openEntries.map((entry) => <article key={entry.id}><span className={entry.kind === "Vale" ? "vale" : "payment"}>{entry.kind}</span><div><strong>{entry.teamMemberName}</strong><small>{date(entry.occurredAt)} · {entry.reason}</small></div><b>{money(entry.valueCents)}</b><div className="team-money-actions"><button type="button" onClick={() => setEditing(entry)}>Editar</button><button type="button" className="danger" disabled={pending || outerPending} onClick={() => void removeEntry(entry)}>Excluir</button></div></article>)}
-          {!openEntries.length && <p className="team-money-empty">Nenhum vale ou pagamento em aberto.</p>}
-        </div>
+    <nav className="team-money-v2-tabs" aria-label="Escolher profissional">
+      {rows.map((row) => <button type="button" key={row.teamMemberId} className={selectedRow.teamMemberId === row.teamMemberId ? "active" : ""} onClick={() => { setSelectedMemberId(row.teamMemberId); setValeFormOpen(false); setEditing(null); }}>
+        <MemberAvatar row={row} />
+        <span><strong>{row.teamMemberName}</strong><small>{money(row.currentBalanceCents)} a receber</small></span>
+      </button>)}
+    </nav>
+
+    <section className="panel team-money-v2-focus">
+      <header className="team-money-v2-person">
+        <MemberAvatar row={selectedRow} large />
+        <div><h2>{selectedRow.teamMemberName}</h2><small>{selectedRow.role}</small></div>
+        <span className="team-money-v2-status">Em aberto</span>
+      </header>
+
+      <div className="team-money-v2-summary">
+        <article className="receive"><span><AppIcon name="money" /></span><div><small>A RECEBER</small><strong>{money(selectedRow.currentBalanceCents)}</strong><em>já descontados os vales</em></div></article>
+        <article><span><AppIcon name="money" /></span><div><small>VALES</small><strong>{money(selectedRow.valeCents)}</strong><em>{openValeCount} {openValeCount === 1 ? "vale" : "vales"} no período</em></div></article>
+        <article><span><AppIcon name="scissors" /></span><div><small>COMISSÃO GERADA</small><strong>{money(selectedRow.earnedCents)}</strong><em>serviços, produtos e gorjetas</em></div></article>
+        <article><span><AppIcon name="calendar" /></span><div><small>ÚLTIMO FECHAMENTO</small><strong>{selectedRow.lastClosure ? money(selectedRow.lastClosure.settlementCents) : "—"}</strong><em>{selectedRow.lastClosure ? date(selectedRow.lastClosure.periodEndDate) : "Ainda não realizado"}</em></div></article>
       </div>
 
-      <section className="panel team-money-form">
-        <div className="team-money-heading"><div><span>{editing ? "EDITANDO" : "NOVO"}</span><h3>{editing ? "Editar lançamento" : "Vale ou pagamento"}</h3></div></div>
-        {rows.length ? <form onSubmit={submitEntry} key={editing?.id ?? "new"}>
-          <label>Funcionário<select name="teamMemberId" defaultValue={editing?.teamMemberId ?? rows[0]?.teamMemberId}>{rows.map((row) => <option value={row.teamMemberId} key={row.teamMemberId}>{row.teamMemberName}</option>)}</select></label>
-          <label>Data<input name="occurredAt" type="date" defaultValue={editing?.occurredAt ?? today()} required /></label>
-          <label>Tipo<select name="kind" defaultValue={editing?.kind ?? "Vale"}><option>Vale</option><option>Pagamento</option></select></label>
-          <label>Valor (R$)<input name="value" type="number" min="0.01" step="0.01" inputMode="decimal" defaultValue={editing ? editing.valueCents / 100 : undefined} required /></label>
-          <label>Motivo<input name="reason" maxLength={160} placeholder="Ex.: adiantamento" defaultValue={editing?.reason ?? ""} required /></label>
-          <button className="primary-button" disabled={pending || outerPending}>{editing ? "Salvar alterações" : "Salvar lançamento"}</button>
-          {editing && <button type="button" className="cancel-button" onClick={() => setEditing(null)}>Cancelar edição</button>}
-        </form> : <p className="team-money-empty">Cadastre um funcionário antes de lançar valores.</p>}
-      </section>
+      <div className="team-money-v2-actions">
+        <button className="vale-action" type="button" disabled={pending || outerPending} onClick={openNewVale}><AppIcon name="money" /> Novo vale</button>
+        <button className="close-action" type="button" disabled={pending || outerPending || !selectedRow.hasOpenActivity} onClick={() => void closeCycle(selectedRow)}><AppIcon name="check" /> Fechar período</button>
+      </div>
+
+      <form className="team-money-v2-day" onSubmit={(event) => savePaymentDay(event, selectedRow)} key={`day-${selectedRow.teamMemberId}`}>
+        <label>Dia previsto de fechamento <input name="paymentDay" type="number" min="1" max="31" defaultValue={selectedRow.paymentDay} /></label>
+        <button type="submit" disabled={pending || outerPending}>Salvar</button>
+      </form>
     </section>
 
-    {data && <ClosureHistory data={data} />}
+    {valeFormOpen && <section className="panel team-money-v2-vale-form">
+      <div className="team-money-v2-heading"><div><span>{editing ? "EDITANDO VALE" : "NOVO VALE"}</span><h3>{selectedRow.teamMemberName}</h3></div><button type="button" className="quiet-close" onClick={() => { setValeFormOpen(false); setEditing(null); }}>Fechar</button></div>
+      <form onSubmit={submitVale} key={editing?.id ?? `new-${selectedRow.teamMemberId}`}>
+        <label>Data<input name="occurredAt" type="date" defaultValue={editing?.occurredAt ?? today()} required /></label>
+        <label>Valor (R$)<input name="value" type="number" min="0.01" step="0.01" inputMode="decimal" defaultValue={editing ? editing.valueCents / 100 : undefined} placeholder="0,00" required /></label>
+        <label className="reason-field">Motivo<input name="reason" maxLength={160} placeholder="Ex.: adiantamento, almoço, transporte" defaultValue={editing?.reason ?? ""} required /></label>
+        <button className="primary-button" disabled={pending || outerPending}>{editing ? "Salvar vale" : "Registrar vale"}</button>
+      </form>
+    </section>}
+
+    <section className="panel team-money-v2-movements">
+      <div className="team-money-v2-heading"><div><span>MOVIMENTAÇÕES</span><h3>Desde o último fechamento</h3></div><b>{visibleEntries.length} lançamento{visibleEntries.length === 1 ? "" : "s"}</b></div>
+      <div className="team-money-v2-list">
+        {visibleEntries.map((entry) => {
+          const isVale = entry.kind === "Vale";
+          return <article key={entry.id}>
+            <i className={isVale ? "vale" : "legacy"}>{isVale ? <AppIcon name="money" /> : <AppIcon name="check" />}</i>
+            <div><strong>{isVale ? "Vale" : "Ajuste antigo"}</strong><small>{date(entry.occurredAt)} · {entry.reason}</small></div>
+            <b>- {money(entry.valueCents)}</b>
+            {isVale && <div className="team-money-v2-entry-actions"><button type="button" onClick={() => editVale(entry)}>Editar</button><button type="button" className="danger" disabled={pending || outerPending} onClick={() => void removeEntry(entry)}>Excluir</button></div>}
+          </article>;
+        })}
+        {!visibleEntries.length && <p className="team-money-empty">Nenhum vale em aberto. As novas movimentações vão aparecer aqui.</p>}
+      </div>
+    </section>
+
+    <ClosureHistory data={data!} memberId={selectedRow.teamMemberId} closures={selectedClosures} />
   </div>;
 }
 
-function ClosureHistory({ data }: { data: TeamMoneyData }) {
-  const visible = data.closures.filter((closure) => !closure.isBaseline);
-  return <section className="panel closure-history">
-    <div className="team-money-heading"><div><span>HISTÓRICO</span><h3>Fechamentos</h3></div><b>{visible.length} fechamento(s)</b></div>
-    <div className="closure-list">
+function ClosureHistory({ data, memberId, closures }: { data: TeamMoneyData; memberId?: number; closures?: TeamMoneyData["closures"] }) {
+  const visible = closures ?? data.closures.filter((closure) => !closure.isBaseline && (!memberId || closure.teamMemberId === memberId));
+  return <section className="panel team-money-v2-history">
+    <div className="team-money-v2-heading"><div><span>HISTÓRICO</span><h3>Fechamentos concluídos</h3></div><b>{visible.length}</b></div>
+    <div className="team-money-v2-history-list">
       {visible.map((closure) => <article key={closure.id}><div><strong>{closure.teamMemberName}</strong><small>{date(closure.periodStartDate)} a {date(closure.periodEndDate)} · {closure.recordCount} atendimento(s)</small></div><b>{money(closure.settlementCents)}</b><button type="button" onClick={() => void downloadPdf(closure.id)}>Baixar PDF</button></article>)}
-      {!visible.length && <p className="team-money-empty">Os próximos fechamentos aparecerão aqui com o PDF pronto.</p>}
+      {!visible.length && <p className="team-money-empty">O primeiro fechamento deste profissional vai aparecer aqui.</p>}
     </div>
   </section>;
 }
