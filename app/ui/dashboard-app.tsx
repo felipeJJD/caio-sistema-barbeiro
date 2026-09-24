@@ -940,6 +940,27 @@ function Overview({ data: baseData, go, planAutoOpen, post, pending }: { data: D
   const [start, setStart] = useState(monthStart);
   const [end, setEnd] = useState(today);
   const [showAllPayouts, setShowAllPayouts] = useState(false);
+  const [teamMoneyRows, setTeamMoneyRows] = useState<Array<{ teamMemberId: number; teamMemberName: string; currentBalanceCents: number; photoUrl: string | null }>>([]);
+  useEffect(() => {
+    let active = true;
+    const loadBalances = () => {
+      void fetch("/api/team-money", { cache: "no-store" })
+        .then(async (response) => {
+          const payload = await response.json() as { data?: { rows?: Array<{ teamMemberId: number; teamMemberName: string; currentBalanceCents: number; photoUrl: string | null }> } };
+          if (active && response.ok) setTeamMoneyRows(payload.data?.rows ?? []);
+        })
+        .catch(() => undefined);
+    };
+    loadBalances();
+    const refresh = () => { if (document.visibilityState === "visible") loadBalances(); };
+    window.addEventListener("focus", loadBalances);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", loadBalances);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
   const data = usePeriodDashboardData(baseData, start, end);
   const records = data.records.filter((item) => inRange(item.occurredAt, start, end));
   const expenseList = data.expenses.filter((item) => inRange(item.occurredAt, start, end));
@@ -963,29 +984,42 @@ function Overview({ data: baseData, go, planAutoOpen, post, pending }: { data: D
     const sales = productSales.filter((sale) => sale.sellerTeamMemberId === member.id);
     return { name: member.name, count: items.reduce((sum, item) => sum + item.quantity, 0), sales: sales.length, commissionCents: items.reduce((sum, item) => sum + barberPayoutCents(item), 0) + sales.reduce((sum, sale) => sum + sale.commissionCents, 0) };
   }).filter((item) => item.count > 0 || item.sales > 0).sort((a, b) => b.commissionCents - a.commissionCents);
-  const payoutFor = (memberId: number) => records.filter((item) => item.barberId === memberId).reduce((sum, item) => sum + barberPayoutCents(item), 0) + productSales.filter((item) => item.sellerTeamMemberId === memberId).reduce((sum, item) => sum + item.commissionCents, 0);
+  const periodPayoutFor = (memberId: number) => records.filter((item) => item.barberId === memberId).reduce((sum, item) => sum + barberPayoutCents(item), 0) + productSales.filter((item) => item.sellerTeamMemberId === memberId).reduce((sum, item) => sum + item.commissionCents, 0);
+  const payoutFor = (memberId: number) => teamMoneyRows.find((row) => row.teamMemberId === memberId)?.currentBalanceCents ?? periodPayoutFor(memberId);
+  const photoFor = (memberId: number) => teamMoneyRows.find((row) => row.teamMemberId === memberId)?.photoUrl ?? null;
   const owner = data.team.find((member) => member.id === data.viewer.teamMemberId);
   const ownerName = owner?.name?.trim() || data.viewer.name.trim() || "Proprietário";
   const ownerRecords = records.filter((item) => item.barberId === data.viewer.teamMemberId);
   const ownerAttendanceCount = ownerRecords.reduce((sum, item) => sum + item.quantity, 0);
   const ownerWorkedDays = new Set(ownerRecords.map((item) => item.occurredAt)).size;
   const teamPayoutCards = data.team
-    .filter((member) => member.id !== data.viewer.teamMemberId && member.active)
-    .map((member) => ({ label: `PAGAR ${member.name.toUpperCase()}`, value: money(payoutFor(member.id)) }));
-  const visibleTeamPayoutCards = showAllPayouts ? teamPayoutCards : teamPayoutCards.slice(0, 2);
+    .filter((member) => member.active)
+    .sort((left, right) => Number(left.id === data.viewer.teamMemberId) - Number(right.id === data.viewer.teamMemberId))
+    .map((member) => ({
+      memberId: member.id,
+      name: member.name,
+      label: `PAGAR ${member.name.toUpperCase()}`,
+      valueCents: payoutFor(member.id),
+      photoUrl: photoFor(member.id),
+    }));
+  const visibleTeamPayoutCards = showAllPayouts ? teamPayoutCards : teamPayoutCards.slice(0, 3);
   const hiddenPayoutCards = Math.max(0, teamPayoutCards.length - visibleTeamPayoutCards.length);
-  const summaryCards = [
-    ...visibleTeamPayoutCards,
-    { label: `COMISSÃO ${ownerName.toUpperCase()}`, value: money(payoutFor(data.viewer.teamMemberId)) },
-    { label: "SOBRA MENSALISTAS", value: money(activeMembership.revenueCents - activeMembership.payoutCents) },
-  ];
   return <>
     {data.viewer.isOwner && data.viewer.trialEndsAt && <TrialStatus viewer={data.viewer} offer={data.billingOffer} autoOpen={planAutoOpen} />}
     {data.viewer.organizationStatus === "trial" && !data.records.length && <NewShopWelcome data={data} go={go} />}
     <DateFilter start={start} end={end} setStart={setStart} setEnd={setEnd} />
     <section className="stat-grid six"><Stat label={`Atendimentos ${ownerName}`} value={String(ownerAttendanceCount)} note={`${ownerWorkedDays} ${ownerWorkedDays === 1 ? "dia trabalhado" : "dias trabalhados"}`} tone="blue" icon={<AppIcon name="scissors" />} /><Stat label="Faturamento total" value={shortMoney(revenueCents)} note={`${progress}% da meta`} tone="gold" icon={<AppIcon name="trend" />} /><Stat label="Lucro líquido" value={shortMoney(netProfitCents)} note="Depois de todos os custos" tone="green" icon={<AppIcon name="money" />} /><Stat label="Mensalistas ativos" value={money(activeMembership.revenueCents)} note={`${data.stats.active} ${data.stats.active === 1 ? "mensalista ativo" : "mensalistas ativos"}`} tone="purple" icon={<AppIcon name="members" />} /><Stat label="Despesas" value={money(expenseCents)} note={`${money(feeCents)} em taxas`} tone="rose" icon={<AppIcon name="trend" className="icon-down" />} /><Stat label="Agendados hoje" value={String(data.appointments.filter((item) => item.appointmentDate === today && isOpenAppointment(item.status)).length)} note="Horários confirmados" tone="cyan" icon={<AppIcon name="calendar" />} /></section>
-    <section className="club-summary dynamic-summary">{summaryCards.map((item) => <article key={item.label}><small>{item.label}</small><strong>{item.value}</strong></article>)}</section>
-    {teamPayoutCards.length > 2 && <div className="summary-expand"><button type="button" aria-expanded={showAllPayouts} onClick={() => setShowAllPayouts((current) => !current)}>{showAllPayouts ? "Ver menos comissões" : `Ver mais comissões (+${hiddenPayoutCards})`}</button></div>}
+    <section className="team-payout-summary">
+      <div className="team-payout-summary-head"><div><span><AppIcon name="members" /> PAGAMENTOS DA EQUIPE</span><p>Valores líquidos que cada um ainda precisa receber.</p></div><button type="button" onClick={() => go("Equipe")}>Ver detalhes →</button></div>
+      <div className="team-payout-summary-grid">
+        {visibleTeamPayoutCards.map((item) => <button type="button" className="team-payout-card" key={item.memberId} onClick={() => go("Equipe")}>
+          <div className="team-payout-avatar">{item.photoUrl ? <img src={item.photoUrl} alt={`Foto de ${item.name}`} loading="lazy" /> : initials(item.name)}</div>
+          <div><small>{item.label}</small><strong>{money(item.valueCents)}</strong><em>já descontado vale e fechamento</em></div>
+        </button>)}
+        <button type="button" className="team-payout-card monthly" onClick={() => go("Mensalistas")}><div className="team-payout-avatar"><AppIcon name="money" /></div><div><small>SOBRA MENSALISTAS</small><strong>{money(activeMembership.revenueCents - activeMembership.payoutCents)}</strong><em>saldo do período</em></div></button>
+      </div>
+    </section>
+    {teamPayoutCards.length > 3 && <div className="summary-expand team-payout-expand"><button type="button" aria-expanded={showAllPayouts} onClick={() => setShowAllPayouts((current) => !current)}>{showAllPayouts ? "Ver menos saldos" : `Ver mais saldos (+${hiddenPayoutCards})`}</button></div>}
     <OwnerPayoutEditor data={data} post={post} pending={pending} />
       <section className="dashboard-grid"><div className="panel quick-panel" data-tour="quick-actions"><SectionTitle title="Ações rápidas" copy="O que você quer fazer agora?" /><div className="quick-actions"><button onClick={() => go("Registrar")}><b>+</b><span><strong>Novo atendimento</strong><small>Avulso ou mensalista</small></span></button><button onClick={() => go("Agenda")}><b><AppIcon name="calendar" /></b><span><strong>Agendar horário</strong><small>Organizar a agenda</small></span></button><button onClick={() => go("Produtos")}><b><AppIcon name="box" /></b><span><strong>Vender produto</strong><small>Baixar do estoque</small></span></button><button onClick={() => go("Financeiro")}><b><AppIcon name="money" /></b><span><strong>Nova despesa</strong><small>Lançar uma saída</small></span></button><button onClick={() => go("Configurações")}><b><AppIcon name="settings" /></b><span><strong>Editar cadastros</strong><small>Clientes, preços e regras</small></span></button></div></div><div className="panel goal-card"><SectionTitle title="Meta do mês" copy={`${money(revenueCents)} de ${money(data.goal.revenueCents)}`} /><Progress value={progress} /><div className="goal-footer"><span><small>Falta</small><strong>{money(Math.max(0, data.goal.revenueCents - revenueCents))}</strong></span><span><small>Progresso</small><strong>{progress}%</strong></span></div><button className="text-button" onClick={() => go("Financeiro")}>Abrir no Financeiro →</button></div><div className="panel today-panel"><SectionTitle title="Agenda de hoje" copy="Próximos horários" /><div className="schedule-list">{data.appointments.filter((item) => item.appointmentDate === today && isOpenAppointment(item.status)).slice(0, 4).map((item) => <div className="schedule" key={item.id}><time>{item.appointmentTime}</time><i /><div><strong>{item.clientName}</strong><small>{item.serviceName} · {item.barberName}</small></div></div>)}{!data.appointments.some((item) => item.appointmentDate === today && isOpenAppointment(item.status)) && <Empty text="Nenhum horário para hoje." />}</div></div><div className="panel ranking-panel"><SectionTitle title="Equipe no período" copy="Atendimentos, vendas e comissões" /><div className="ranking-list">{teamRanking.map((item, index) => <div className="ranking" key={item.name}><span>{index + 1}</span><div className="avatar">{initials(item.name)}</div><div><strong>{item.name}</strong><small>{item.count} atendimentos · {item.sales} vendas</small></div><b>{money(item.commissionCents)}</b></div>)}{!teamRanking.length && <Empty text="Nenhum atendimento ou venda no período." />}</div></div></section>
   </>;

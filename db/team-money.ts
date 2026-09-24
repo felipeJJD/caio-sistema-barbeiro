@@ -6,6 +6,7 @@ import { dailyRecords, productSales, services, shopProducts, team, teamPaymentCl
 import { barberPayoutCents } from "../lib/earnings";
 import { isTeamPaymentKind, type TeamPaymentKind } from "../lib/team-payments";
 import { appDate } from "../lib/app-date";
+import { listPublicGalleryImages } from "./public-gallery";
 
 export type TeamMoneyEntry = {
   id: number;
@@ -38,6 +39,7 @@ export type TeamMoneyRow = {
   teamMemberId: number;
   teamMemberName: string;
   role: string;
+  photoUrl: string | null;
   paymentDay: number;
   earnedCents: number;
   tipCents: number;
@@ -45,6 +47,7 @@ export type TeamMoneyRow = {
   paidCents: number;
   currentBalanceCents: number;
   openRecordCount: number;
+  hasOpenActivity: boolean;
   lastClosure: TeamMoneyClosureSummary | null;
   openEntries: TeamMoneyEntry[];
 };
@@ -225,16 +228,23 @@ async function memberCycle(organizationId: number, member: MemberRow) {
 
 export async function getTeamMoneyData(access: AccessContext): Promise<TeamMoneyData> {
   const db = await getDb();
-  const memberRows = await db.select({
-    id: team.id,
-    name: team.name,
-    role: team.role,
-    accessRole: team.accessRole,
-    paymentDay: team.paymentDay,
-  }).from(team).where(eq(team.organizationId, access.organizationId)).orderBy(team.name);
+  const [memberRows, gallery] = await Promise.all([
+    db.select({
+      id: team.id,
+      name: team.name,
+      role: team.role,
+      accessRole: team.accessRole,
+      paymentDay: team.paymentDay,
+    }).from(team).where(eq(team.organizationId, access.organizationId)).orderBy(team.name),
+    listPublicGalleryImages(access.organizationId),
+  ]);
+  const photoByMember = new Map(
+    gallery
+      .filter((image) => image.kind === "barber" && image.teamMemberId)
+      .map((image) => [Number(image.teamMemberId), image.url] as const),
+  );
 
   const visibleMembers = memberRows
-    .filter((member) => member.accessRole !== "owner")
     .filter((member) => access.isOwner || member.id === access.teamMemberId);
   const cycles = await Promise.all(visibleMembers.map(async (member) => ({ member, cycle: await memberCycle(access.organizationId, member) })));
 
@@ -251,6 +261,7 @@ export async function getTeamMoneyData(access: AccessContext): Promise<TeamMoney
       teamMemberId: member.id,
       teamMemberName: member.name,
       role: member.role,
+      photoUrl: photoByMember.get(member.id) ?? null,
       paymentDay: member.paymentDay,
       earnedCents: cycle.earnedCents,
       tipCents: cycle.tipCents,
@@ -258,6 +269,7 @@ export async function getTeamMoneyData(access: AccessContext): Promise<TeamMoney
       paidCents: cycle.paidCents,
       currentBalanceCents: cycle.currentBalanceCents,
       openRecordCount: cycle.records.length,
+      hasOpenActivity: cycle.records.length > 0 || cycle.sales.length > 0 || cycle.entries.length > 0,
       lastClosure: cycle.latestClosure ? publicClosure(cycle.latestClosure) : null,
       openEntries: cycle.entries.slice().sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id - a.id),
     })),
@@ -273,7 +285,6 @@ export async function saveTeamPaymentDay(access: AccessContext, teamMemberId: nu
   const updated = await db.update(team).set({ paymentDay: normalizedDay }).where(and(
     eq(team.id, teamMemberId),
     eq(team.organizationId, access.organizationId),
-    eq(team.accessRole, "barber"),
   )).returning({ id: team.id });
   if (!updated.length) throw new Error("Funcionário não encontrado.");
 }
@@ -285,7 +296,7 @@ export async function assertTeamPaymentOpen(organizationId: number, teamMemberId
     eq(teamPaymentClosures.teamMemberId, teamMemberId),
   )).orderBy(desc(teamPaymentClosures.id)).limit(1))[0];
   if (latestClosure && paymentId <= latestClosure.lastTeamPaymentId) {
-    throw new Error("Este lançamento já faz parte de um fechamento e não pode ser alterado. Registre um novo vale ou pagamento.");
+    throw new Error("Este lançamento já faz parte de um fechamento e não pode ser alterado. Registre um novo vale.");
   }
 }
 
@@ -302,7 +313,7 @@ export async function closeTeamPaymentCycle(access: AccessContext, teamMemberId:
     eq(team.id, teamMemberId),
     eq(team.organizationId, access.organizationId),
   )).limit(1))[0];
-  if (!member || member.accessRole === "owner") throw new Error("Escolha um funcionário válido.");
+  if (!member) throw new Error("Escolha um profissional válido.");
 
   const cycle = await memberCycle(access.organizationId, member);
   const hasActivity = cycle.records.length > 0 || cycle.sales.length > 0 || cycle.entries.length > 0;
