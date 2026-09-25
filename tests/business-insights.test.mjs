@@ -51,7 +51,7 @@ test("builds monthly revenue from services, memberships and products without cha
     today: "2026-09-24",
     monthCount: 2,
     attendances: [
-      { ...attendance("2026-09-02", "Ana", 1000), tipCents: 100 },
+      { ...attendance("2026-09-02", "Ana", 1000), tipCents: 100, isMembership: true },
       attendance("2026-09-03", "Bruno", 2000),
       attendance("2026-08-10", "Ana", 1500, 2),
     ],
@@ -73,7 +73,6 @@ test("builds monthly revenue from services, memberships and products without cha
   assert.equal(months[1].attendanceCount, 2);
 });
 
-
 test("builds client frequency ranking inside the selected period", () => {
   const clients = buildClientFrequency({
     today: "2026-09-25",
@@ -93,4 +92,20 @@ test("builds client frequency ranking inside the selected period", () => {
   assert.equal(clients[0].cadenceDays, 31);
   assert.equal(clients.find((client) => client.name === "Lucas")?.visitCount, 2);
   assert.equal(clients.some((client) => client.name === "Fora do período"), false);
+});
+
+test("keeps monthly members out of the client frequency radar", () => {
+  const clients = buildClientFrequency({
+    today: "2026-09-25",
+    days: 90,
+    attendances: [
+      attendance("2026-08-10", "Avulso"),
+      attendance("2026-09-10", "Avulso"),
+      { ...attendance("2026-08-05", "Mensalista"), isMembership: true },
+      { ...attendance("2026-09-05", "Mensalista"), isMembership: true },
+    ],
+  });
+
+  assert.equal(clients.find((client) => client.name === "Avulso")?.visitCount, 2);
+  assert.equal(clients.some((client) => client.name === "Mensalista"), false);
 });
