@@ -980,11 +980,6 @@ function Overview({ data: baseData, go, planAutoOpen, post, pending }: { data: D
   const revenueCents = membershipRevenueCents + serviceRevenueCents + productRevenueCents;
   const netProfitCents = revenueCents - feeCents - commissionCents - expenseCents - productCostCents;
   const progress = pct(revenueCents, data.goal.revenueCents);
-  const teamRanking = data.team.map((member) => {
-    const items = records.filter((record) => record.barberId === member.id);
-    const sales = productSales.filter((sale) => sale.sellerTeamMemberId === member.id);
-    return { name: member.name, count: items.reduce((sum, item) => sum + item.quantity, 0), sales: sales.length, commissionCents: items.reduce((sum, item) => sum + barberPayoutCents(item), 0) + sales.reduce((sum, sale) => sum + sale.commissionCents, 0) };
-  }).filter((item) => item.count > 0 || item.sales > 0).sort((a, b) => b.commissionCents - a.commissionCents);
   const periodPayoutFor = (memberId: number) => records.filter((item) => item.barberId === memberId).reduce((sum, item) => sum + barberPayoutCents(item), 0) + productSales.filter((item) => item.sellerTeamMemberId === memberId).reduce((sum, item) => sum + item.commissionCents, 0);
   const payoutFor = (memberId: number) => teamMoneyRows.find((row) => row.teamMemberId === memberId)?.currentBalanceCents ?? periodPayoutFor(memberId);
   const photoFor = (memberId: number) => teamMoneyRows.find((row) => row.teamMemberId === memberId)?.photoUrl ?? null;
@@ -1023,15 +1018,6 @@ function Overview({ data: baseData, go, planAutoOpen, post, pending }: { data: D
     {teamPayoutCards.length > 3 && <div className="summary-expand team-payout-expand"><button type="button" aria-expanded={showAllPayouts} onClick={() => setShowAllPayouts((current) => !current)}>{showAllPayouts ? "Ver menos saldos" : `Ver mais saldos (+${hiddenPayoutCards})`}</button></div>}
     <OwnerPayoutEditor data={data} post={post} pending={pending} />
     <ClientPulse />
-    <section className="dashboard-grid">
-      <div className="panel ranking-panel" style={{ gridColumn: "1 / -1" }}>
-        <SectionTitle title="Equipe no período" copy="Atendimentos, vendas e comissões" />
-        <div className="ranking-list">
-          {teamRanking.map((item, index) => <div className="ranking" key={item.name}><span>{index + 1}</span><div className="avatar">{initials(item.name)}</div><div><strong>{item.name}</strong><small>{item.count} atendimentos · {item.sales} vendas</small></div><b>{money(item.commissionCents)}</b></div>)}
-          {!teamRanking.length && <Empty text="Nenhum atendimento ou venda no período." />}
-        </div>
-      </div>
-    </section>
   </>;
 }
 
