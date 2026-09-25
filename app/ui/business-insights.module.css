@@ -535,3 +535,147 @@
     min-width: 600px;
   }
 }
+
+
+/* Radar de clientes */
+.radarControls {
+  display: grid;
+  gap: 12px;
+  padding: 0 22px 16px;
+}
+
+.clientSearch span {
+  display: block;
+  margin-bottom: 5px;
+  color: #777d74;
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.clientSearch input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(35, 42, 35, .14);
+  border-radius: 13px;
+  outline: none;
+  background: #fff;
+  color: #262d26;
+  font-size: 13px;
+}
+
+.clientSearch input:focus {
+  border-color: rgba(139, 100, 23, .52);
+  box-shadow: 0 0 0 3px rgba(214, 162, 49, .12);
+}
+
+.periodSwitch,
+.radarTabs {
+  display: grid;
+  gap: 5px;
+  padding: 4px;
+  border-radius: 14px;
+  background: #ece9df;
+}
+
+.periodSwitch {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.radarTabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.periodSwitch button,
+.radarTabs button {
+  min-height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #6f756d;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.periodSwitch button.active,
+.radarTabs button.active {
+  background: #202820;
+  color: #f0c664;
+  box-shadow: 0 4px 12px rgba(20, 27, 20, .14);
+}
+
+.radarSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 22px 12px;
+  color: #767d74;
+  font-size: 11px;
+}
+
+.radarSummary strong {
+  color: #8b6417;
+  font-size: 11px;
+}
+
+.clientRow {
+  grid-template-columns: 24px 42px minmax(0, 1fr);
+}
+
+.rank {
+  color: #a4a79f;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.visitBadge {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #f4ead0;
+  color: #8c6515;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.frequencyTrack {
+  height: 8px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #ece9df;
+}
+
+.frequencyTrack i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d9a437, #8b671d);
+}
+
+@media (max-width: 680px) {
+  .radarControls,
+  .radarSummary {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .periodSwitch button,
+  .radarTabs button {
+    font-size: 10px;
+  }
+
+  .clientRow {
+    grid-template-columns: 22px 40px minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .clientMain small {
+    white-space: normal;
+    line-height: 1.35;
+  }
+}

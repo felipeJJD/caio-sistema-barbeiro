@@ -1,6 +1,7 @@
 import { and, eq, gte, isNull, lte } from "drizzle-orm";
 import { appDate, shiftAppMonth } from "../lib/app-date";
 import {
+  buildClientFrequency,
   buildDormantClients,
   buildFinanceMonths,
   type BusinessInsights,
@@ -72,6 +73,12 @@ export async function getBusinessInsights(access: AccessContext): Promise<Busine
     barberName: barberNames.get(row.barberId) ?? "Profissional",
   }));
 
+  const clientRadar = {
+    "30": buildClientFrequency({ attendances, today, days: 30 }),
+    "90": buildClientFrequency({ attendances, today, days: 90 }),
+    "180": buildClientFrequency({ attendances, today, days: 180 }),
+    "365": buildClientFrequency({ attendances, today, days: 365 }),
+  };
   const dormantClients = buildDormantClients({
     attendances,
     appointments: appointmentRows,
@@ -91,6 +98,7 @@ export async function getBusinessInsights(access: AccessContext): Promise<Busine
 
   return {
     generatedAt: today,
+    clientRadar: { periods: clientRadar },
     dormant: {
       total: dormantClients.length,
       buckets: {
