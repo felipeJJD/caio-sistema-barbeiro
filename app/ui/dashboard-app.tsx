@@ -23,6 +23,7 @@ import { showAppToast } from "./app-toast";
 import { AppIcon } from "./app-icon";
 import { TeamMoneySection } from "./team-money-section";
 import { WhatsappAutomation } from "./whatsapp-automation";
+import { ClientPulse, FinanceInsights } from "./business-insights";
 
 type NavIconName = "dashboard" | "plus" | "history" | "calendar" | "products" | "finance" | "members" | "goals" | "team" | "users" | "whatsapp" | "settings" | "plan" | "platform" | "more";
 type NavigationItem = { label: string; section: string; icon: NavIconName; group: "operation" | "management" };
@@ -1021,7 +1022,16 @@ function Overview({ data: baseData, go, planAutoOpen, post, pending }: { data: D
     </section>
     {teamPayoutCards.length > 3 && <div className="summary-expand team-payout-expand"><button type="button" aria-expanded={showAllPayouts} onClick={() => setShowAllPayouts((current) => !current)}>{showAllPayouts ? "Ver menos saldos" : `Ver mais saldos (+${hiddenPayoutCards})`}</button></div>}
     <OwnerPayoutEditor data={data} post={post} pending={pending} />
-      <section className="dashboard-grid"><div className="panel quick-panel" data-tour="quick-actions"><SectionTitle title="Ações rápidas" copy="O que você quer fazer agora?" /><div className="quick-actions"><button onClick={() => go("Registrar")}><b>+</b><span><strong>Novo atendimento</strong><small>Avulso ou mensalista</small></span></button><button onClick={() => go("Agenda")}><b><AppIcon name="calendar" /></b><span><strong>Agendar horário</strong><small>Organizar a agenda</small></span></button><button onClick={() => go("Produtos")}><b><AppIcon name="box" /></b><span><strong>Vender produto</strong><small>Baixar do estoque</small></span></button><button onClick={() => go("Financeiro")}><b><AppIcon name="money" /></b><span><strong>Nova despesa</strong><small>Lançar uma saída</small></span></button><button onClick={() => go("Configurações")}><b><AppIcon name="settings" /></b><span><strong>Editar cadastros</strong><small>Clientes, preços e regras</small></span></button></div></div><div className="panel goal-card"><SectionTitle title="Meta do mês" copy={`${money(revenueCents)} de ${money(data.goal.revenueCents)}`} /><Progress value={progress} /><div className="goal-footer"><span><small>Falta</small><strong>{money(Math.max(0, data.goal.revenueCents - revenueCents))}</strong></span><span><small>Progresso</small><strong>{progress}%</strong></span></div><button className="text-button" onClick={() => go("Financeiro")}>Abrir no Financeiro →</button></div><div className="panel today-panel"><SectionTitle title="Agenda de hoje" copy="Próximos horários" /><div className="schedule-list">{data.appointments.filter((item) => item.appointmentDate === today && isOpenAppointment(item.status)).slice(0, 4).map((item) => <div className="schedule" key={item.id}><time>{item.appointmentTime}</time><i /><div><strong>{item.clientName}</strong><small>{item.serviceName} · {item.barberName}</small></div></div>)}{!data.appointments.some((item) => item.appointmentDate === today && isOpenAppointment(item.status)) && <Empty text="Nenhum horário para hoje." />}</div></div><div className="panel ranking-panel"><SectionTitle title="Equipe no período" copy="Atendimentos, vendas e comissões" /><div className="ranking-list">{teamRanking.map((item, index) => <div className="ranking" key={item.name}><span>{index + 1}</span><div className="avatar">{initials(item.name)}</div><div><strong>{item.name}</strong><small>{item.count} atendimentos · {item.sales} vendas</small></div><b>{money(item.commissionCents)}</b></div>)}{!teamRanking.length && <Empty text="Nenhum atendimento ou venda no período." />}</div></div></section>
+    <ClientPulse />
+    <section className="dashboard-grid">
+      <div className="panel ranking-panel" style={{ gridColumn: "1 / -1" }}>
+        <SectionTitle title="Equipe no período" copy="Atendimentos, vendas e comissões" />
+        <div className="ranking-list">
+          {teamRanking.map((item, index) => <div className="ranking" key={item.name}><span>{index + 1}</span><div className="avatar">{initials(item.name)}</div><div><strong>{item.name}</strong><small>{item.count} atendimentos · {item.sales} vendas</small></div><b>{money(item.commissionCents)}</b></div>)}
+          {!teamRanking.length && <Empty text="Nenhum atendimento ou venda no período." />}
+        </div>
+      </div>
+    </section>
   </>;
 }
 
@@ -1552,7 +1562,29 @@ function Finance({ data: baseData, post, pending }: { data: DashboardData; post:
   async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const ok = await post({ action: "expense", id: editingId ?? 0, occurredAt: String(form.get("occurredAt")), type: String(form.get("type")), description: String(form.get("description")), valueCents: Math.round(Number(form.get("value")) * 100), paid: form.get("paid") === "on" }, editingId ? "Despesa atualizada." : "Despesa registrada no financeiro."); if (ok) setEditingId(null); }
   async function remove(id: number) { if (window.confirm("Excluir esta despesa? O financeiro será recalculado.")) await post({ action: "delete-expense", id }, "Despesa excluída e financeiro atualizado."); }
   return <>
+    <FinanceInsights />
     <DateFilter start={start} end={end} setStart={setStart} setEnd={setEnd} />
+    <section className="form-layout">
+      <div className={`panel form-card compact editor-scroll-target${editing ? " is-editing" : ""}`} ref={editorRef} tabIndex={-1}>
+        <SectionTitle title={editing ? "Editar despesa" : "Nova despesa"} copy={editing ? "Altere e salve o lançamento." : "Registre uma saída da empresa sem misturar com as contas pessoais."} />
+        <form className="app-form" onSubmit={submit} key={editing?.id ?? "new-expense"}>
+          <Field label="Data"><input name="occurredAt" type="date" defaultValue={editing?.occurredAt ?? today} required /></Field>
+          <Field label="Tipo"><select name="type" defaultValue={editing?.type ?? "Variável"}><option>Variável</option><option>Fixa</option></select></Field>
+          <Field label="Descrição"><input name="description" placeholder="Ex.: aluguel, material, energia" defaultValue={editing?.description ?? ""} required /></Field>
+          <Field label="Valor (R$)"><input name="value" type="number" min="0.01" step="0.01" defaultValue={editing ? editing.valueCents / 100 : undefined} required /></Field>
+          <label className="check"><input name="paid" type="checkbox" defaultChecked={editing?.paid ?? true} /> Já foi pago</label>
+          <button className="primary-button" disabled={pending}>{editing ? "Salvar alterações" : "Salvar despesa"}</button>
+          {editing && <button type="button" className="cancel-button" onClick={() => setEditingId(null)}>Cancelar edição</button>}
+        </form>
+      </div>
+      <div className="panel">
+        <SectionTitle title="Despesas do período" copy={`${expenses.length} ${expenses.length === 1 ? "lançamento" : "lançamentos"} · ${money(expenseCents)}`} />
+        <div className="expense-list">
+          {expenses.map((item) => <div className="expense" key={item.id}><span className={item.type === "Fixa" ? "expense-icon fixed" : "expense-icon"}><AppIcon name="trend" /></span><div><strong>{item.description}</strong><small>{date(item.occurredAt)} · {item.type}</small></div><b>{money(item.valueCents)}</b><span className={item.paid ? "paid" : "unpaid"}>{item.paid ? "Pago" : "Pendente"}</span><div className="icon-actions"><button title="Editar despesa" aria-label="Editar despesa" onClick={() => setEditingId(item.id)}><AppIcon name="edit" /></button><button className="danger" title="Excluir despesa" aria-label="Excluir despesa" onClick={() => remove(item.id)}><AppIcon name="trash" /></button></div></div>)}
+          {!expenses.length && <Empty text="Nenhuma despesa neste período." />}
+        </div>
+      </div>
+    </section>
     <section className="stat-grid finance-stats"><Stat label="Receita avulsa" value={money(serviceRevenueCents)} note="Serviços + gorjetas" tone="gold" icon={<AppIcon name="trend" />} /><Stat label="Mensalidades recebidas" value={money(membershipRevenueCents)} note="Histórico financeiro do período" tone="blue" icon={<AppIcon name="members" />} /><Stat label="Venda de produtos" value={money(productRevenueCents)} note={`${money(productCostCents)} em custo dos produtos`} tone="cyan" icon={<AppIcon name="box" />} /><Stat label="Taxas e comissões" value={money(automaticCosts)} note="Custos automáticos" tone="purple" icon="%" /><Stat label="Total de despesas" value={money(expenseCents)} note={`${expenses.length} ${expenses.length === 1 ? "lançamento" : "lançamentos"} no período`} tone="rose" icon={<AppIcon name="trend" className="icon-down" />} /><Stat className="finance-profit" label="Lucro líquido" value={money(netProfitCents)} note="Valor que realmente sobrou no período" tone="green" icon={<AppIcon name="money" />} /></section>
     <section className={`panel finance-goals-panel${goalsOpen ? " open" : ""}`}>
       <button type="button" className="finance-goals-toggle" onClick={() => setGoalsOpen((value) => !value)} aria-expanded={goalsOpen}>
@@ -1563,7 +1595,6 @@ function Finance({ data: baseData, post, pending }: { data: DashboardData; post:
       </button>
       {goalsOpen && <div className="finance-goals-content"><Goals data={baseData} /><GoalSettings data={baseData} post={post} pending={pending} /></div>}
     </section>
-    <section className="form-layout"><div className="panel"><SectionTitle title="Despesas do período" copy={`${expenses.length} ${expenses.length === 1 ? "lançamento" : "lançamentos"} · ${money(expenseCents)}`} /><div className="expense-list">{expenses.map((item) => <div className="expense" key={item.id}><span className={item.type === "Fixa" ? "expense-icon fixed" : "expense-icon"}><AppIcon name="trend" /></span><div><strong>{item.description}</strong><small>{date(item.occurredAt)} · {item.type}</small></div><b>{money(item.valueCents)}</b><span className={item.paid ? "paid" : "unpaid"}>{item.paid ? "Pago" : "Pendente"}</span><div className="icon-actions"><button title="Editar despesa" aria-label="Editar despesa" onClick={() => setEditingId(item.id)}><AppIcon name="edit" /></button><button className="danger" title="Excluir despesa" aria-label="Excluir despesa" onClick={() => remove(item.id)}><AppIcon name="trash" /></button></div></div>)}{!expenses.length && <Empty text="Nenhuma despesa neste período." />}</div></div><div className={`panel form-card compact editor-scroll-target${editing ? " is-editing" : ""}`} ref={editorRef} tabIndex={-1}><SectionTitle title={editing ? "Editar despesa" : "Nova despesa"} copy={editing ? "Altere e salve o lançamento." : "Registre uma saída de caixa."} /><form className="app-form" onSubmit={submit} key={editing?.id ?? "new-expense"}><Field label="Data"><input name="occurredAt" type="date" defaultValue={editing?.occurredAt ?? today} required /></Field><Field label="Tipo"><select name="type" defaultValue={editing?.type ?? "Variável"}><option>Variável</option><option>Fixa</option></select></Field><Field label="Descrição"><input name="description" placeholder="Ex.: produtos" defaultValue={editing?.description ?? ""} required /></Field><Field label="Valor (R$)"><input name="value" type="number" min="0.01" step="0.01" defaultValue={editing ? editing.valueCents / 100 : undefined} required /></Field><label className="check"><input name="paid" type="checkbox" defaultChecked={editing?.paid ?? true} /> Já foi pago</label><button className="primary-button" disabled={pending}>{editing ? "Salvar alterações" : "Salvar despesa"}</button>{editing && <button type="button" className="cancel-button" onClick={() => setEditingId(null)}>Cancelar edição</button>}</form></div></section>
   </>;
 }
 
