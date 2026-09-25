@@ -21,6 +21,8 @@ jobs:
         with:
           node-version: 24.13.0
           cache: npm
+      - name: Corrigir gerador
+        run: node scripts/fix-client-radar-script.mjs
       - name: Aplicar ajuste
         run: node scripts/apply-client-radar.mjs
       - name: Instalar dependências
