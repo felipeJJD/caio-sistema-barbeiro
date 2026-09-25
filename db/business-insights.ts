@@ -29,6 +29,9 @@ export async function getBusinessInsights(access: AccessContext): Promise<Busine
       tipCents: dailyRecords.tipCents,
       serviceId: dailyRecords.serviceId,
       barberId: dailyRecords.barberId,
+      origin: dailyRecords.origin,
+      recordType: dailyRecords.recordType,
+      membershipClientId: dailyRecords.membershipClientId,
     }).from(dailyRecords).where(and(
       eq(dailyRecords.organizationId, access.organizationId),
       gte(dailyRecords.occurredAt, recordsStart),
@@ -63,7 +66,7 @@ export async function getBusinessInsights(access: AccessContext): Promise<Busine
 
   const serviceNames = new Map(serviceRows.map((row) => [row.id, row.name]));
   const barberNames = new Map(teamRows.map((row) => [row.id, row.name]));
-  const attendances: BusinessInsightAttendance[] = recordRows.map((row) => ({
+  const toInsightAttendance = (row: typeof recordRows[number]): BusinessInsightAttendance => ({
     occurredAt: row.occurredAt,
     clientName: row.clientName,
     quantity: row.quantity,
@@ -71,13 +74,20 @@ export async function getBusinessInsights(access: AccessContext): Promise<Busine
     tipCents: row.tipCents,
     serviceName: serviceNames.get(row.serviceId) ?? "Serviço",
     barberName: barberNames.get(row.barberId) ?? "Profissional",
-  }));
+  });
+  const attendances: BusinessInsightAttendance[] = recordRows.map(toInsightAttendance);
+  const isMonthlyRecord = (row: typeof recordRows[number]) => {
+    if (row.membershipClientId !== null) return true;
+    const marker = `${row.recordType ?? ""} ${row.origin ?? ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+    return marker.includes("mensal") || marker.includes("assinatura");
+  };
+  const radarAttendances = recordRows.filter((row) => !isMonthlyRecord(row)).map(toInsightAttendance);
 
   const clientRadar = {
-    "30": buildClientFrequency({ attendances, today, days: 30 }),
-    "90": buildClientFrequency({ attendances, today, days: 90 }),
-    "180": buildClientFrequency({ attendances, today, days: 180 }),
-    "365": buildClientFrequency({ attendances, today, days: 365 }),
+    "30": buildClientFrequency({ attendances: radarAttendances, today, days: 30 }),
+    "90": buildClientFrequency({ attendances: radarAttendances, today, days: 90 }),
+    "180": buildClientFrequency({ attendances: radarAttendances, today, days: 180 }),
+    "365": buildClientFrequency({ attendances: radarAttendances, today, days: 365 }),
   };
   const dormantClients = buildDormantClients({
     attendances,
