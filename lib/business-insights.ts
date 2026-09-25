@@ -6,6 +6,7 @@ export type BusinessInsightAttendance = {
   tipCents: number;
   serviceName: string;
   barberName: string;
+  isMembership?: boolean;
 };
 
 export type BusinessInsightAppointment = {
@@ -152,6 +153,7 @@ export function buildClientFrequency(input: {
   const windowDays = Math.max(1, Math.round(input.days));
   const groups = new Map<string, BusinessInsightAttendance[]>();
   for (const attendance of input.attendances) {
+    if (attendance.isMembership) continue;
     if (!usefulClientName(attendance.clientName)) continue;
     if (daysBetween(attendance.occurredAt, input.today) > windowDays) continue;
     const key = normalizeClientKey(attendance.clientName);
