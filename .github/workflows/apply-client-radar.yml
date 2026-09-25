@@ -1,0 +1,42 @@
+name: Aplicar radar de clientes
+
+on:
+  push:
+    branches:
+      - feat/client-radar
+
+permissions:
+  contents: write
+
+jobs:
+  aplicar:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/client-radar
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - name: Aplicar ajuste
+        run: node scripts/apply-client-radar.mjs
+      - name: Instalar dependências
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Testes
+        run: npm test
+      - name: Salvar ajuste
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/business-insights.ts db/business-insights.ts app/ui/business-insights.tsx app/ui/business-insights.module.css tests/business-insights.test.mjs tests/client-radar-contract.test.mjs
+          git commit -m "Criar radar simples de frequência dos clientes"
+          git push origin HEAD:feat/client-radar
