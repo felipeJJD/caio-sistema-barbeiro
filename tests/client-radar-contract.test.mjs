@@ -5,17 +5,23 @@ import test from "node:test";
 const ui = readFileSync("app/ui/business-insights.tsx", "utf8");
 const db = readFileSync("db/business-insights.ts", "utf8");
 
-test("client radar stays simple and focused on frequency", () => {
-  assert.match(ui, /RADAR DE CLIENTES/);
-  assert.match(ui, /Pesquisar cliente/);
-  assert.match(ui, /Mais frequentes/);
-  assert.match(ui, /Menos frequentes/);
-  assert.match(ui, /30 dias/);
-  assert.match(ui, /3 meses/);
-  assert.match(ui, /6 meses/);
-  assert.match(ui, /12 meses/);
+test("client list stays compact and shows only the most recurrent names", () => {
+  assert.match(ui, />CLIENTES</);
+  assert.match(ui, /Quem mais vem/);
+  assert.match(ui, /periods\["90"\]/);
+  assert.match(ui, /slice\(0, 6\)/);
+  assert.doesNotMatch(ui, /Pesquisar cliente/);
+  assert.doesNotMatch(ui, /Mais frequentes/);
+  assert.doesNotMatch(ui, /Menos frequentes/);
+  assert.doesNotMatch(ui, /periodSwitch/);
+  assert.doesNotMatch(ui, /radarTabs/);
+  assert.doesNotMatch(ui, /frequencyTrack/);
+  assert.doesNotMatch(ui, /visitBadge/);
+  assert.doesNotMatch(ui, /Retorno médio/);
   assert.doesNotMatch(ui, /Tornar VIP/);
   assert.doesNotMatch(ui, /Benefício VIP/);
+  assert.doesNotMatch(ui, /Progresso para mimo/);
+  assert.doesNotMatch(ui, /Bônus liberado/);
 });
 
 test("client radar excludes monthly membership attendances without changing other business insights", () => {
