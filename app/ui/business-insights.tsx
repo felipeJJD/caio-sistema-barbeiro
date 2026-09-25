@@ -29,6 +29,9 @@ async function fetchInsights() {
 export function ClientPulse() {
   const [data, setData] = useState<BusinessInsights | null>(null);
   const [error, setError] = useState("");
+  const [period, setPeriod] = useState<"30" | "90" | "180" | "365">("90");
+  const [mode, setMode] = useState<"most" | "least">("most");
+  const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -56,39 +59,62 @@ export function ClientPulse() {
   }, []);
 
   if (error) return <section className={styles.clientPanel}><p className={styles.error}>{error}</p></section>;
-  if (!data) return <section className={styles.clientPanel}><p className={styles.loading}>Analisando o ritmo dos seus clientes...</p></section>;
+  if (!data) return <section className={styles.clientPanel}><p className={styles.loading}>Montando o radar dos seus clientes...</p></section>;
 
-  const visible = data.dormant.clients.slice(0, expanded ? 12 : 5);
+  const normalize = (value: string) => value.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+  const search = normalize(query);
+  const periodClients = data.clientRadar.periods[period] ?? [];
+  const matching = search
+    ? periodClients.filter((client) => normalize(client.name).includes(search))
+    : periodClients.filter((client) => client.visitCount >= 2);
+  const ordered = matching.slice().sort((left, right) => mode === "most"
+    ? right.visitCount - left.visitCount || right.lastVisit.localeCompare(left.lastVisit)
+    : left.visitCount - right.visitCount || right.daysAway - left.daysAway);
+  const visible = ordered.slice(0, expanded ? 12 : 6);
+  const maxVisits = Math.max(1, ...ordered.map((client) => client.visitCount));
+  const periodLabels = { "30": "30 dias", "90": "3 meses", "180": "6 meses", "365": "12 meses" } as const;
+
   return <section className={styles.clientPanel}>
     <header className={styles.clientHeader}>
-      <div><span className={styles.eyebrow}>RETORNO DE CLIENTES</span><h2>Clientes parados</h2><p>Quem costumava voltar e saiu do próprio ritmo de atendimento.</p></div>
-      <div className={styles.valueHint}><small>valor de referência</small><strong>{money(data.dormant.estimatedValueCents)}</strong></div>
+      <div><span className={styles.eyebrow}>RADAR DE CLIENTES</span><h2>Seus clientes</h2><p>Veja quem mais aparece e quem vem com menos frequência.</p></div>
     </header>
 
-    <div className={styles.clientSummary}>
-      <article><span>30–44 dias</span><strong>{data.dormant.buckets.days30to44}</strong></article>
-      <article><span>45–59 dias</span><strong>{data.dormant.buckets.days45to59}</strong></article>
-      <article><span>60+ dias</span><strong>{data.dormant.buckets.days60plus}</strong></article>
+    <div className={styles.radarControls}>
+      <label className={styles.clientSearch}>
+        <span>Pesquisar cliente</span>
+        <input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setExpanded(false); }} placeholder="Digite o nome do cliente" />
+      </label>
+      <div className={styles.periodSwitch} role="group" aria-label="Período do radar">
+        {(["30", "90", "180", "365"] as const).map((value) => <button type="button" className={period === value ? styles.active : ""} onClick={() => { setPeriod(value); setExpanded(false); }} key={value}>{periodLabels[value]}</button>)}
+      </div>
+      <div className={styles.radarTabs} role="group" aria-label="Ordem dos clientes">
+        <button type="button" className={mode === "most" ? styles.active : ""} onClick={() => { setMode("most"); setExpanded(false); }}>Mais frequentes</button>
+        <button type="button" className={mode === "least" ? styles.active : ""} onClick={() => { setMode("least"); setExpanded(false); }}>Menos frequentes</button>
+      </div>
+    </div>
+
+    <div className={styles.radarSummary}>
+      <span>{search ? ordered.length + " resultado" + (ordered.length === 1 ? "" : "s") : ordered.length + " clientes recorrentes"}</span>
+      <strong>{periodLabels[period]}</strong>
     </div>
 
     <div className={styles.clientList}>
-      {visible.map((client) => <article className={styles.clientRow} key={client.key}>
+      {visible.map((client, index) => <article className={styles.clientRow} key={client.key}>
+        <span className={styles.rank}>{index + 1}</span>
         <span className={styles.avatar}>{initials(client.name)}</span>
         <div className={styles.clientMain}>
-          <div className={styles.clientNameLine}><strong>{client.name}</strong><span className={styles.overdue}>{client.daysAway} dias</span></div>
+          <div className={styles.clientNameLine}><strong>{client.name}</strong><span className={styles.visitBadge}>{client.visitCount} {client.visitCount === 1 ? "visita" : "visitas"}</span></div>
           <small>Última visita {humanDate(client.lastVisit)} · {client.lastService} · {client.lastBarber}</small>
-          <em>{client.cadenceDays ? `Costumava voltar em cerca de ${client.cadenceDays} dias` : `${client.visitCount} visitas no histórico`} · referência {money(client.estimatedValueCents)}</em>
+          <div className={styles.frequencyTrack} aria-hidden="true"><i style={{ width: Math.max(8, Math.round(client.visitCount / maxVisits * 100)) + "%" }} /></div>
+          <em>{client.cadenceDays ? "Retorno médio: " + client.cadenceDays + " dias" : client.visitCount > 1 ? "Ainda calculando o ritmo de retorno" : "Uma visita registrada neste período"}</em>
         </div>
-        {client.whatsappReady
-          ? <a className={styles.whatsappButton} href={whatsappHref(client.phone)} target="_blank" rel="noreferrer">WhatsApp</a>
-          : <span className={styles.noPhone}>sem telefone</span>}
       </article>)}
-      {!visible.length && <p className={styles.empty}>Nenhum cliente fora do ritmo agora. Quando alguém passar do intervalo normal de retorno, aparece aqui.</p>}
+      {!visible.length && <p className={styles.empty}>{search ? "Nenhum cliente encontrado neste período." : "Ainda não há clientes com pelo menos duas visitas neste período."}</p>}
     </div>
 
     <footer className={styles.clientFooter}>
-      <p>Já fica preparado para a automação: clientes com telefone poderão entrar no fluxo de retorno quando o Cortou Atende for ativado.</p>
-      {data.dormant.clients.length > 5 && <button type="button" onClick={() => setExpanded((value) => !value)}>{expanded ? "Ver menos" : `Ver mais (${data.dormant.total})`}</button>}
+      <p>O ranking considera clientes com 2 ou mais visitas. A busca também encontra quem veio uma única vez.</p>
+      {ordered.length > 6 && <button type="button" onClick={() => setExpanded((value) => !value)}>{expanded ? "Ver menos" : "Ver mais (" + ordered.length + ")"}</button>}
     </footer>
   </section>;
 }

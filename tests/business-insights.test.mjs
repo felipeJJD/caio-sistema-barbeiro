@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildDormantClients, buildFinanceMonths } from "../lib/business-insights.ts";
+import { buildClientFrequency, buildDormantClients, buildFinanceMonths } from "../lib/business-insights.ts";
 
 const attendance = (occurredAt, clientName, valueCents = 3000, quantity = 1) => ({
   occurredAt,
@@ -71,4 +71,26 @@ test("builds monthly revenue from services, memberships and products without cha
   assert.equal(months[1].month, "2026-08");
   assert.equal(months[1].totalRevenueCents, 4700);
   assert.equal(months[1].attendanceCount, 2);
+});
+
+
+test("builds client frequency ranking inside the selected period", () => {
+  const clients = buildClientFrequency({
+    today: "2026-09-25",
+    days: 90,
+    attendances: [
+      attendance("2026-07-10", "João"),
+      attendance("2026-08-10", "João"),
+      attendance("2026-09-10", "João"),
+      attendance("2026-08-20", "Lucas"),
+      attendance("2026-09-20", "Lucas"),
+      attendance("2026-05-01", "Fora do período"),
+    ],
+  });
+
+  assert.equal(clients[0].name, "João");
+  assert.equal(clients[0].visitCount, 3);
+  assert.equal(clients[0].cadenceDays, 31);
+  assert.equal(clients.find((client) => client.name === "Lucas")?.visitCount, 2);
+  assert.equal(clients.some((client) => client.name === "Fora do período"), false);
 });

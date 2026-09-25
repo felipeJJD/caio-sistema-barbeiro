@@ -41,6 +41,17 @@ export type DormantClientInsight = {
   bucket: "30-44" | "45-59" | "60+";
 };
 
+export type ClientFrequencyInsight = {
+  key: string;
+  name: string;
+  visitCount: number;
+  lastVisit: string;
+  daysAway: number;
+  cadenceDays: number | null;
+  lastService: string;
+  lastBarber: string;
+};
+
 export type FinanceMonthInsight = {
   month: string;
   label: string;
@@ -52,6 +63,9 @@ export type FinanceMonthInsight = {
 
 export type BusinessInsights = {
   generatedAt: string;
+  clientRadar: {
+    periods: Record<"30" | "90" | "180" | "365", ClientFrequencyInsight[]>;
+  };
   dormant: {
     total: number;
     buckets: { days30to44: number; days45to59: number; days60plus: number };
@@ -128,6 +142,47 @@ function phoneDigits(value: string) {
 function whatsappReady(value: string) {
   const digits = phoneDigits(value);
   return digits.length >= 10 && digits.length <= 13;
+}
+
+export function buildClientFrequency(input: {
+  attendances: BusinessInsightAttendance[];
+  today: string;
+  days: number;
+}) {
+  const windowDays = Math.max(1, Math.round(input.days));
+  const groups = new Map<string, BusinessInsightAttendance[]>();
+  for (const attendance of input.attendances) {
+    if (!usefulClientName(attendance.clientName)) continue;
+    if (daysBetween(attendance.occurredAt, input.today) > windowDays) continue;
+    const key = normalizeClientKey(attendance.clientName);
+    const rows = groups.get(key) ?? [];
+    rows.push(attendance);
+    groups.set(key, rows);
+  }
+
+  const result: ClientFrequencyInsight[] = [];
+  for (const [key, rows] of groups) {
+    const sorted = rows.slice().sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+    const uniqueDates = [...new Set(sorted.map((row) => row.occurredAt))].sort();
+    const last = sorted[sorted.length - 1];
+    const gaps = uniqueDates
+      .slice(1)
+      .map((value, index) => daysBetween(uniqueDates[index], value))
+      .filter((value) => value > 0 && value <= 120)
+      .slice(-6);
+    result.push({
+      key,
+      name: last.clientName.trim(),
+      visitCount: uniqueDates.length,
+      lastVisit: last.occurredAt,
+      daysAway: daysBetween(last.occurredAt, input.today),
+      cadenceDays: median(gaps),
+      lastService: last.serviceName,
+      lastBarber: last.barberName,
+    });
+  }
+
+  return result.sort((a, b) => b.visitCount - a.visitCount || b.lastVisit.localeCompare(a.lastVisit));
 }
 
 export function buildDormantClients(input: {
