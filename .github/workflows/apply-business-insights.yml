@@ -1,0 +1,112 @@
+name: Aplicar insights no painel
+
+on:
+  push:
+    branches:
+      - feat/client-pulse-finance-charts
+
+permissions:
+  contents: write
+
+jobs:
+  aplicar:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/client-pulse-finance-charts
+          fetch-depth: 0
+      - name: Integrar componentes no painel e financeiro
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/ui/dashboard-app.tsx")
+          text = path.read_text()
+
+          import_line = 'import { WhatsappAutomation } from "./whatsapp-automation";\n'
+          insights_import = 'import { ClientPulse, FinanceInsights } from "./business-insights";\n'
+          if insights_import not in text:
+              if import_line not in text:
+                  raise SystemExit("Import base não encontrado")
+              text = text.replace(import_line, import_line + insights_import, 1)
+
+          overview_start = '    <OwnerPayoutEditor data={data} post={post} pending={pending} />\n      <section className="dashboard-grid">'
+          overview_end = '\n  </>;\n}\n\nfunction trialPlanDetails'
+          start = text.find(overview_start)
+          end = text.find(overview_end, start)
+          if start < 0 or end < 0:
+              raise SystemExit("Trecho do Painel não encontrado")
+          overview = '''    <OwnerPayoutEditor data={data} post={post} pending={pending} />
+    <ClientPulse />
+    <section className="dashboard-grid">
+      <div className="panel ranking-panel" style={{ gridColumn: "1 / -1" }}>
+        <SectionTitle title="Equipe no período" copy="Atendimentos, vendas e comissões" />
+        <div className="ranking-list">
+          {teamRanking.map((item, index) => <div className="ranking" key={item.name}><span>{index + 1}</span><div className="avatar">{initials(item.name)}</div><div><strong>{item.name}</strong><small>{item.count} atendimentos · {item.sales} vendas</small></div><b>{money(item.commissionCents)}</b></div>)}
+          {!teamRanking.length && <Empty text="Nenhum atendimento ou venda no período." />}
+        </div>
+      </div>
+    </section>'''
+          text = text[:start] + overview + text[end:]
+
+          finance_start = text.find('function Finance({ data: baseData, post, pending }')
+          return_start = text.find('  return <>', finance_start)
+          finance_end = text.find('\n}\n\nfunction Goals', return_start)
+          if finance_start < 0 or return_start < 0 or finance_end < 0:
+              raise SystemExit("Trecho do Financeiro não encontrado")
+          finance_return = '''  return <>
+    <FinanceInsights />
+    <DateFilter start={start} end={end} setStart={setStart} setEnd={setEnd} />
+    <section className="form-layout">
+      <div className={`panel form-card compact editor-scroll-target${editing ? " is-editing" : ""}`} ref={editorRef} tabIndex={-1}>
+        <SectionTitle title={editing ? "Editar despesa" : "Nova despesa"} copy={editing ? "Altere e salve o lançamento." : "Registre uma saída da empresa sem misturar com as contas pessoais."} />
+        <form className="app-form" onSubmit={submit} key={editing?.id ?? "new-expense"}>
+          <Field label="Data"><input name="occurredAt" type="date" defaultValue={editing?.occurredAt ?? today} required /></Field>
+          <Field label="Tipo"><select name="type" defaultValue={editing?.type ?? "Variável"}><option>Variável</option><option>Fixa</option></select></Field>
+          <Field label="Descrição"><input name="description" placeholder="Ex.: aluguel, material, energia" defaultValue={editing?.description ?? ""} required /></Field>
+          <Field label="Valor (R$)"><input name="value" type="number" min="0.01" step="0.01" defaultValue={editing ? editing.valueCents / 100 : undefined} required /></Field>
+          <label className="check"><input name="paid" type="checkbox" defaultChecked={editing?.paid ?? true} /> Já foi pago</label>
+          <button className="primary-button" disabled={pending}>{editing ? "Salvar alterações" : "Salvar despesa"}</button>
+          {editing && <button type="button" className="cancel-button" onClick={() => setEditingId(null)}>Cancelar edição</button>}
+        </form>
+      </div>
+      <div className="panel">
+        <SectionTitle title="Despesas do período" copy={`${expenses.length} ${expenses.length === 1 ? "lançamento" : "lançamentos"} · ${money(expenseCents)}`} />
+        <div className="expense-list">
+          {expenses.map((item) => <div className="expense" key={item.id}><span className={item.type === "Fixa" ? "expense-icon fixed" : "expense-icon"}><AppIcon name="trend" /></span><div><strong>{item.description}</strong><small>{date(item.occurredAt)} · {item.type}</small></div><b>{money(item.valueCents)}</b><span className={item.paid ? "paid" : "unpaid"}>{item.paid ? "Pago" : "Pendente"}</span><div className="icon-actions"><button title="Editar despesa" aria-label="Editar despesa" onClick={() => setEditingId(item.id)}><AppIcon name="edit" /></button><button className="danger" title="Excluir despesa" aria-label="Excluir despesa" onClick={() => remove(item.id)}><AppIcon name="trash" /></button></div></div>)}
+          {!expenses.length && <Empty text="Nenhuma despesa neste período." />}
+        </div>
+      </div>
+    </section>
+    <section className="stat-grid finance-stats"><Stat label="Receita avulsa" value={money(serviceRevenueCents)} note="Serviços + gorjetas" tone="gold" icon={<AppIcon name="trend" />} /><Stat label="Mensalidades recebidas" value={money(membershipRevenueCents)} note="Histórico financeiro do período" tone="blue" icon={<AppIcon name="members" />} /><Stat label="Venda de produtos" value={money(productRevenueCents)} note={`${money(productCostCents)} em custo dos produtos`} tone="cyan" icon={<AppIcon name="box" />} /><Stat label="Taxas e comissões" value={money(automaticCosts)} note="Custos automáticos" tone="purple" icon="%" /><Stat label="Total de despesas" value={money(expenseCents)} note={`${expenses.length} ${expenses.length === 1 ? "lançamento" : "lançamentos"} no período`} tone="rose" icon={<AppIcon name="trend" className="icon-down" />} /><Stat className="finance-profit" label="Lucro líquido" value={money(netProfitCents)} note="Valor que realmente sobrou no período" tone="green" icon={<AppIcon name="money" />} /></section>
+    <section className={`panel finance-goals-panel${goalsOpen ? " open" : ""}`}>
+      <button type="button" className="finance-goals-toggle" onClick={() => setGoalsOpen((value) => !value)} aria-expanded={goalsOpen}>
+        <span className="finance-goals-icon" aria-hidden="true">◎</span>
+        <span className="finance-goals-copy"><small>METAS DE {appMonthLabel(today).toUpperCase()}</small><strong>Acompanhar e editar metas</strong><span>{money(baseData.stats.revenueCents)} de {money(baseData.goal.revenueCents)} no faturamento</span><span className="finance-goals-progress"><i style={{ width: `${currentGoalProgress}%` }} /></span></span>
+        <span className="finance-goals-percent">{currentGoalProgress}%</span>
+        <b>{goalsOpen ? "Fechar" : "Ver e editar"}<i aria-hidden="true">{goalsOpen ? "↑" : "↓"}</i></b>
+      </button>
+      {goalsOpen && <div className="finance-goals-content"><Goals data={baseData} /><GoalSettings data={baseData} post={post} pending={pending} /></div>}
+    </section>
+  </>;'''
+          text = text[:return_start] + finance_return + text[finance_end:]
+          path.write_text(text)
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - name: Salvar integração
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/ui/dashboard-app.tsx
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Integrar clientes parados e gráficos financeiros"
+          git push origin HEAD:feat/client-pulse-finance-charts
