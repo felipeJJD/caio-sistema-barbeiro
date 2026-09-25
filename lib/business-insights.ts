@@ -1,5 +1,3 @@
-import { appMonth, appMonthLabel, shiftAppMonth } from "./app-date";
-
 export type BusinessInsightAttendance = {
   occurredAt: string;
   clientName: string;
@@ -64,8 +62,26 @@ export type BusinessInsights = {
 };
 
 const dayMs = 86_400_000;
+const monthLabels = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const weekdayLabels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
+
+function monthOf(value: string) {
+  return /^\d{4}-\d{2}(?:-\d{2})?$/.test(value) ? value.slice(0, 7) : "";
+}
+
+function shiftMonth(value: string, offset: number) {
+  const month = monthOf(value);
+  const [year, monthNumber] = month.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, monthNumber - 1 + offset, 1, 12));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(value: string) {
+  const month = monthOf(value);
+  const [year, monthNumber] = month.split("-").map(Number);
+  return `${monthLabels[monthNumber - 1] ?? "mês"} ${year}`;
+}
 
 function dateStamp(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return Number.NaN;
@@ -188,7 +204,7 @@ export function buildDormantClients(input: {
 function monthDays(month: string, today: string) {
   const [year, monthNumber] = month.split("-").map(Number);
   const lastDay = new Date(Date.UTC(year, monthNumber, 0, 12)).getUTCDate();
-  return month === appMonth(today) ? Math.min(lastDay, Number(today.slice(8, 10))) : lastDay;
+  return month === monthOf(today) ? Math.min(lastDay, Number(today.slice(8, 10))) : lastDay;
 }
 
 function eventMonth(value: string) {
@@ -208,7 +224,7 @@ export function buildFinanceMonths(input: {
   monthCount?: number;
 }) {
   const count = Math.max(1, Math.min(18, Math.round(input.monthCount ?? 12)));
-  const months = Array.from({ length: count }, (_, index) => shiftAppMonth(input.today, -index));
+  const months = Array.from({ length: count }, (_, index) => shiftMonth(input.today, -index));
   const monthSet = new Set(months);
   const revenueByMonth = new Map<string, Map<number, number>>();
   const visitsByMonth = new Map<string, number[]>();
@@ -245,7 +261,7 @@ export function buildFinanceMonths(input: {
     const visits = visitsByMonth.get(month)!;
     return {
       month,
-      label: appMonthLabel(`${month}-01`),
+      label: monthLabel(`${month}-01`),
       totalRevenueCents: totalByMonth.get(month) ?? 0,
       attendanceCount: visits.reduce((sum, value) => sum + value, 0),
       dailyRevenue: Array.from({ length: monthDays(month, input.today) }, (_, index) => ({
