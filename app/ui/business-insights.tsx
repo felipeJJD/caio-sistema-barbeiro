@@ -66,7 +66,7 @@ export function ClientPulse() {
     <div className={styles.clientList}>
       {visible.map((client, index) => <article className={styles.clientRow} key={client.key}>
         <span className={styles.rank}>{index + 1}</span>
-        <div className={styles.clientMain}>
+        <div className={styles.clientMain} style={{ gridColumn: "2 / 4" }}>
           <div className={styles.clientNameLine}><strong>{client.name}</strong></div>
         </div>
       </article>)}
