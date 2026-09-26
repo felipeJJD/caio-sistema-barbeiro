@@ -1,0 +1,92 @@
+/* Ajustes de leitura e navegação móvel do Cortou Anotou.
+   Mantém o layout/cores atuais, aumenta apenas a legibilidade e impede
+   que a página inteira deslize horizontalmente. */
+html,body{max-width:100%;overflow-x:hidden;overscroll-behavior-x:none}
+.app-shell,.app-shell>.content{max-width:100%;overflow-x:clip}
+
+@media(max-width:680px){
+  /* A navegação entre áreas continua sendo feita pelos menus/botões. */
+  html,body{overscroll-behavior-x:none}
+  .app-shell{touch-action:pan-y}
+
+  /* Tipografia interna: aumento moderado sem redesenhar a interface. */
+  .app-shell .eyebrow{font-size:11px}
+  .app-shell .subhead{font-size:14px;line-height:1.45}
+  .app-shell .panel-header p{font-size:12px;line-height:1.45}
+  .app-shell .panel h2{font-size:20px}
+
+  .app-shell .stat-card p{font-size:12px}
+  .app-shell .stat-card small{font-size:11px;line-height:1.35}
+  .app-shell .stat-card h2{font-size:21px}
+
+  .app-shell .quick-actions strong,
+  .app-shell .schedule strong,
+  .app-shell .ranking strong,
+  .app-shell .person strong,
+  .app-shell .edit-row strong,
+  .app-shell .config-list strong,
+  .app-shell .expense strong,
+  .app-shell .appointment strong{font-size:12px}
+
+  .app-shell .quick-actions small,
+  .app-shell .schedule small,
+  .app-shell .ranking small,
+  .app-shell .person small,
+  .app-shell .edit-row small,
+  .app-shell .expense small,
+  .app-shell .appointment small,
+  .app-shell .config-list small{font-size:10px;line-height:1.4}
+
+  .app-shell .field>span,
+  .app-shell .date-filter label span,
+  .app-shell .history-barber-filter label span{font-size:10px}
+  .app-shell .field input,
+  .app-shell .field select,
+  .app-shell .field textarea{font-size:16px}
+  .app-shell .form-note,
+  .app-shell .calculation span,
+  .app-shell .check{font-size:11px;line-height:1.45}
+
+  .app-shell .primary-button{font-size:12px;min-height:44px}
+  .app-shell .mini-button,
+  .app-shell .outline-button,
+  .app-shell .filter,
+  .app-shell .date-shortcuts button,
+  .app-shell .history-more button{font-size:10px}
+
+  .app-shell th{font-size:10px}
+  .app-shell td{font-size:12px}
+  .app-shell .tag,
+  .app-shell .status{font-size:10px}
+
+  .app-shell .goal-footer small,
+  .app-shell .goal-detail small,
+  .app-shell .projection small{font-size:10px}
+  .app-shell .goal-detail p,
+  .app-shell .projection p{font-size:11px;line-height:1.4}
+
+  .app-shell .date-filter small,
+  .app-shell .history-barber-filter small,
+  .app-shell .history-more small{font-size:10px}
+
+  .app-shell .history-payment-card small,
+  .app-shell .history-payment-card.total .history-total-payout,
+  .app-shell .history-other-payments{font-size:10px;line-height:1.4}
+
+  .app-shell .mobile-menu-label{font-size:9px}
+  .app-shell .mobile-drawer-nav button>strong{font-size:13px}
+  .app-shell .mobile-drawer-shop small,
+  .app-shell .mobile-drawer-assistant small{font-size:10px}
+  .app-shell .mobile-drawer-assistant strong{font-size:12px}
+
+  .app-shell .agenda-mode-note strong,
+  .app-shell .agenda-choice-list strong,
+  .app-shell .agenda-toggle strong{font-size:11px}
+  .app-shell .agenda-mode-note small,
+  .app-shell .agenda-choice-list small,
+  .app-shell .agenda-toggle small,
+  .app-shell .agenda-settings-help{font-size:10px;line-height:1.4}
+
+  /* Elementos que realmente precisam de rolagem horizontal continuam livres. */
+  .table-wrap,.config-tabs,.filter-row,.platform-shop-filters,.help-suggestions,.help-choices{touch-action:pan-x pan-y}
+}
