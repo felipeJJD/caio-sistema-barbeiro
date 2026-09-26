@@ -129,20 +129,6 @@
 @media(max-width:380px){.mobile-drawer{width:92vw;padding-left:14px;padding-right:14px}.mobile-drawer-nav button{min-height:44px}.mobile-drawer-shop{margin-top:13px;margin-bottom:16px}.mobile-menu-group.management{margin-top:10px;padding-top:12px}}
 @media(prefers-reduced-motion:reduce){.mobile-drawer,.mobile-drawer.closing,.mobile-drawer-backdrop,.mobile-drawer-backdrop.closing{animation:none}.mobile-menu-button,.mobile-drawer-nav button{transition:none}}
 
-/* Navegação por abas com arrasto contínuo, inspirada no gesto nativo do celular. */
-.swipe-page-viewport{--swipe-x:0px;position:relative;min-width:0}
-.swipe-page{min-width:0;background:var(--cream);transform:translate3d(var(--swipe-x),0,0);will-change:transform}
-.swipe-page-current{position:relative;z-index:1}
-.swipe-page-adjacent{position:absolute;inset:0 0 auto;width:100%;z-index:2;pointer-events:none;user-select:none;-webkit-user-select:none}
-.swipe-page-adjacent.next{transform:translate3d(calc(100% + var(--swipe-x)),0,0);box-shadow:-15px 0 30px #10130f1f}
-.swipe-page-adjacent.previous{transform:translate3d(calc(-100% + var(--swipe-x)),0,0);box-shadow:15px 0 30px #10130f1f}
-.swipe-page-viewport.is-settling .swipe-page{transition:transform var(--swipe-duration,420ms) cubic-bezier(.22,.72,.18,1)}
-@media(max-width:680px){
-  .swipe-page-viewport{margin-inline:-14px;overflow:hidden;touch-action:pan-y;overscroll-behavior-x:contain}
-  .swipe-page{padding-inline:14px}
-}
-@media(prefers-reduced-motion:reduce){.swipe-page-viewport.is-settling .swipe-page{transition-duration:.01ms}}
-
 /* Gestos de aplicativo: rolagem livre em um dedo, sem ampliar a interface. */
 html,body{touch-action:pan-x pan-y;overscroll-behavior-x:none;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 @media(max-width:680px){input,select,textarea{font-size:16px!important}}
