@@ -12,6 +12,12 @@ type ToastState = ToastDetail & {
   id: number;
 };
 
+function isHaircutSaveConfirmation(message: string) {
+  return message.startsWith("Atendimento salvo")
+    || message.startsWith("Atendimento e produtos salvos")
+    || message.startsWith("Uso salvo");
+}
+
 export function showAppToast(message: string) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<ToastDetail>(TOAST_EVENT, { detail: { message } }));
@@ -27,6 +33,15 @@ export function AppToastHost() {
       if (!detail?.message) return;
       if (timer.current) clearTimeout(timer.current);
       setToast({ message: detail.message, id: Date.now() });
+
+      // After a haircut/service is really saved, move the screen upward so the
+      // barber gets a clear visual confirmation in addition to the toast/chime.
+      if (isHaircutSaveConfirmation(detail.message)) {
+        window.requestAnimationFrame(() => {
+          window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+        });
+      }
+
       timer.current = setTimeout(() => setToast(null), 3000);
     };
     window.addEventListener(TOAST_EVENT, show);
