@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, TouchEvent, useCallback, useEffect, useRef, useState } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 import type { DashboardData } from "../../db/dashboard";
 import type { HistoryWorkbookRow } from "../../lib/history-xlsx";
 import { appDate, appDaysUntil, appMonth, appMonthLabel, appMonthPeriod, appMonthStart, appTimeMinutes, nextMonthDueDate, shiftAppMonth } from "../../lib/app-date";
@@ -23,24 +23,11 @@ import { showAppToast } from "./app-toast";
 import { AppIcon } from "./app-icon";
 import { TeamMoneySection } from "./team-money-section";
 import { WhatsappAutomation } from "./whatsapp-automation";
+import { prepareClientSaveChime } from "../../lib/client-save-chime";
 import { ClientPulse, FinanceInsights } from "./business-insights";
 
 type NavIconName = "dashboard" | "plus" | "history" | "calendar" | "products" | "finance" | "members" | "goals" | "team" | "users" | "whatsapp" | "settings" | "plan" | "platform" | "more";
 type NavigationItem = { label: string; section: string; icon: NavIconName; group: "operation" | "management" };
-type SwipeDirection = "next" | "previous";
-type SwipePreview = { section: string; direction: SwipeDirection };
-type SwipeGesture = {
-  x: number;
-  y: number;
-  lastX: number;
-  lastTime: number;
-  velocity: number;
-  width: number;
-  offset: number;
-  axis: "pending" | "horizontal" | "vertical";
-  direction: SwipeDirection | null;
-  targetSection: string | null;
-};
 type PixPayment = {
   id: number;
   status: string;
@@ -338,11 +325,7 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
   const [greeting, setGreeting] = useState("Olá");
   const [recordDate, setRecordDate] = useState(appDate());
   const [recordProducts, setRecordProducts] = useState<RecordProductItem[]>([]);
-  const [swipePreview, setSwipePreview] = useState<SwipePreview | null>(null);
   const [showIntro, setShowIntro] = useState(true);
-  const swipeStart = useRef<SwipeGesture | null>(null);
-  const swipeViewport = useRef<HTMLDivElement | null>(null);
-  const swipeSettleTimer = useRef<number | null>(null);
   const drawerSwipeStart = useRef<number | null>(null);
   const menuCloseTimer = useRef<number | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -374,7 +357,6 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
     .filter((item): item is NavigationItem => Boolean(item));
   const preferredBottomSections = new Set(preferredBottomItems.map((item) => item.section));
   const secondaryNavigation = navigation.filter((item) => !preferredBottomSections.has(item.section));
-  const swipeNavigation = [...preferredBottomItems, ...secondaryNavigation];
   const unreadNotifications = liveData.notifications.filter((item) => !item.readAt).length;
   const firstName = viewer.name.split(" ")[0];
 
@@ -618,7 +600,6 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
 
   useEffect(() => () => {
     if (menuCloseTimer.current) window.clearTimeout(menuCloseTimer.current);
-    if (swipeSettleTimer.current) window.clearTimeout(swipeSettleTimer.current);
   }, []);
 
   async function post(body: Record<string, string | number | boolean>, success: string) {
@@ -655,17 +636,20 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
   }
   async function submitRecord(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = event.currentTarget; const data = new FormData(form);
+    // Avulso is the registration flow where a new customer name is typed.
+    const chime = recordType === "Avulso" ? prepareClientSaveChime() : null;
     const productItems = JSON.stringify(recordProducts.map(({ productId, quantity }) => ({ productId, quantity })));
     const ok = recordType === "Produto"
       ? await post({ action: "product-sale-bundle", occurredAt: String(data.get("occurredAt")), clientName: String(data.get("clientName") ?? ""), sellerTeamMemberId: Number(data.get("barberId")), paymentMethodId: Number(data.get("paymentMethodId")), productItems }, "Venda registrada no Histórico. Estoque, comissão e financeiro atualizados.")
       : await post({ action: "daily-record", occurredAt: String(data.get("occurredAt")), recordType, clientName: String(data.get("clientName") ?? ""), membershipClientId: Number(data.get("membershipClientId") ?? 0), barberId: Number(data.get("barberId")), serviceId: Number(data.get("serviceId") ?? 0), paymentMethodId: Number(data.get("paymentMethodId")), origin: recordType === "Mensalista" ? "Assinatura" : origin, tipCents: Math.round(Number(data.get("tip") ?? 0) * 100), productItems }, recordProducts.length ? "Atendimento e produtos salvos. Estoque e comissões atualizados." : recordType === "Mensalista" ? "Uso salvo. Saldo e painel atualizados na hora." : "Atendimento salvo. Histórico e painel atualizados na hora.");
     if (ok) {
+      chime?.play();
       form.reset();
       setRecordDate(appDate());
       setRecordProducts([]);
       const focused = document.activeElement;
       if (focused instanceof HTMLElement) focused.blur();
-    }
+    } else chime?.cancel();
   }
   function registerMember(clientId: number) { setSelectedMember(clientId); setRecordType("Mensalista"); setOrigin("Assinatura"); setSection("Registrar"); }
   function openMembershipClientForm() {
@@ -702,99 +686,6 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
     const start = drawerSwipeStart.current;
     drawerSwipeStart.current = null;
     if (start !== null && event.changedTouches.length === 1 && event.changedTouches[0].clientX - start < -55) closeMobileMenu();
-  }
-  function startSwipe(event: TouchEvent<HTMLElement>) {
-    if (window.innerWidth > 680 || event.touches.length !== 1 || swipeSettleTimer.current !== null || mobileMenuOpen) { swipeStart.current = null; return; }
-    const target = event.target as HTMLElement;
-    if (target.closest("button, a, input, select, textarea, .table-wrap, .mobile-tabs")) { swipeStart.current = null; return; }
-    const viewport = swipeViewport.current;
-    if (!viewport) return;
-    viewport.classList.remove("is-settling");
-    viewport.style.setProperty("--swipe-x", "0px");
-    viewport.style.removeProperty("--swipe-duration");
-    const touch = event.touches[0];
-    swipeStart.current = {
-      x: touch.clientX,
-      y: touch.clientY,
-      lastX: touch.clientX,
-      lastTime: event.timeStamp,
-      velocity: 0,
-      width: viewport.getBoundingClientRect().width || window.innerWidth,
-      offset: 0,
-      axis: "pending",
-      direction: null,
-      targetSection: null,
-    };
-  }
-  function moveSwipe(event: TouchEvent<HTMLElement>) {
-    const gesture = swipeStart.current;
-    const viewport = swipeViewport.current;
-    if (!gesture || !viewport || event.touches.length !== 1) return;
-    const touch = event.touches[0];
-    const rawX = touch.clientX - gesture.x;
-    const rawY = touch.clientY - gesture.y;
-    if (gesture.axis === "pending") {
-      if (Math.abs(rawX) < 9 && Math.abs(rawY) < 9) return;
-      if (Math.abs(rawY) > Math.abs(rawX) * .9) { gesture.axis = "vertical"; return; }
-      gesture.axis = "horizontal";
-      gesture.direction = rawX < 0 ? "next" : "previous";
-      const currentIndex = swipeNavigation.findIndex((item) => item.section === section);
-      const targetIndex = currentIndex + (gesture.direction === "next" ? 1 : -1);
-      gesture.targetSection = swipeNavigation[targetIndex]?.section ?? null;
-      if (gesture.targetSection) setSwipePreview({ section: gesture.targetSection, direction: gesture.direction });
-    }
-    if (gesture.axis !== "horizontal") return;
-    event.preventDefault();
-    const now = event.timeStamp;
-    const elapsed = Math.max(1, now - gesture.lastTime);
-    gesture.velocity = (touch.clientX - gesture.lastX) / elapsed;
-    gesture.lastX = touch.clientX;
-    gesture.lastTime = now;
-    if (!gesture.targetSection) {
-      gesture.offset = Math.sign(rawX) * Math.min(42, Math.abs(rawX) * .18);
-    } else {
-      gesture.offset = gesture.direction === "next" ? Math.min(0, rawX) : Math.max(0, rawX);
-    }
-    viewport.style.setProperty("--swipe-x", `${gesture.offset}px`);
-  }
-  function finishSwipe() {
-    const gesture = swipeStart.current;
-    const viewport = swipeViewport.current;
-    swipeStart.current = null;
-    if (!gesture || !viewport || gesture.axis !== "horizontal") return;
-    const distance = Math.abs(gesture.offset);
-    const shouldCommit = Boolean(gesture.targetSection) && (distance > gesture.width * .22 || (Math.abs(gesture.velocity) > .42 && distance > 30));
-    if (shouldCommit && gesture.targetSection) {
-      // Reset the translated page before replacing it. Safari on iOS can paint the
-      // new page with the old full-width transform for one frame, which leaves the
-      // app blank or horizontally clipped after a completed swipe.
-      viewport.classList.remove("is-settling");
-      viewport.style.setProperty("--swipe-x", "0px");
-      viewport.style.removeProperty("--swipe-duration");
-      flushSync(() => {
-        setSection(gesture.targetSection as string);
-        setSwipePreview(null);
-      });
-      return;
-    }
-    const remainingRatio = Math.min(1, distance / gesture.width);
-    const duration = Math.round(180 + remainingRatio * 100);
-    viewport.style.setProperty("--swipe-duration", `${duration}ms`);
-    viewport.classList.add("is-settling");
-    void viewport.offsetWidth;
-    viewport.style.setProperty("--swipe-x", "0px");
-    swipeSettleTimer.current = window.setTimeout(() => {
-      flushSync(() => setSwipePreview(null));
-      viewport.classList.remove("is-settling");
-      viewport.style.setProperty("--swipe-x", "0px");
-      viewport.style.removeProperty("--swipe-duration");
-      swipeSettleTimer.current = null;
-    }, duration + 34);
-  }
-  function cancelSwipe() {
-    if (!swipeStart.current) return;
-    swipeStart.current.velocity = 0;
-    finishSwipe();
   }
   async function renew(clientId: number) {
     const client = liveData.clients.find((item) => item.id === clientId);
@@ -879,10 +770,7 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
         <div className="mobile-drawer-footer"><div className="owner"><span className="owner-avatar">{initials(viewer.name)}</span><div><strong>{viewer.name}</strong><small>{viewer.isOwner ? "Administrador" : "Barbeiro"}</small></div></div><a href="/api/auth/logout">Sair</a></div>
       </aside>
     </>}
-    <section className="content"><div ref={swipeViewport} className="swipe-page-viewport" onTouchStart={startSwipe} onTouchMove={moveSwipe} onTouchEnd={finishSwipe} onTouchCancel={cancelSwipe}>
-      <div key={`current-${section}`} className="swipe-page swipe-page-current">{renderSectionPage(section, true)}</div>
-      {swipePreview && <div key={`preview-${swipePreview.section}`} className={`swipe-page swipe-page-adjacent ${swipePreview.direction}`} aria-hidden="true">{renderSectionPage(swipePreview.section, false)}</div>}
-    </div>
+    <section className="content"><div key={section} className="section-page">{renderSectionPage(section, true)}</div>
     </section><nav className={`mobile-bottom-navigation${secondaryNavigation.length ? " has-more" : ""}`} aria-label="Áreas principais do aplicativo">{preferredBottomItems.map((item) => {
       const active = section === item.section;
       return <button key={item.section} type="button" className={`mobile-bottom-item${active ? " active" : ""}${item.section === "Registrar" ? " primary" : ""}`} aria-current={active ? "page" : undefined} aria-label={`Abrir ${item.label}`} onClick={() => chooseSection(item.section)}><span className="mobile-bottom-icon"><NavIcon name={item.icon} />{item.section === "Histórico" && unreadNotifications > 0 && <b className="mobile-bottom-badge">{Math.min(unreadNotifications, 9)}{unreadNotifications > 9 ? "+" : ""}</b>}</span><strong>{item.label}</strong></button>;
@@ -2262,7 +2150,16 @@ function SettingsLayout({ title, copy, list, form, editingKey = null }: { title:
 function EditRow({ title, detail, active, onEdit, onDelete, pending }: { title: string; detail: string; active?: boolean; onEdit: () => void; onDelete?: () => void; pending?: boolean }) { return <div className="edit-row"><span className="edit-icon"><AppIcon name={active === false ? "settings" : "check"} /></span><div><strong>{title}</strong><small>{detail}</small></div><span className="edit-row-actions"><button onClick={onEdit}>Editar</button>{onDelete && <button className="delete" disabled={pending} onClick={onDelete} aria-label={`Excluir ${title}`}><AppIcon name="trash" /></button>}</span></div>; }
 function ClientSettings({ data, post, pending, editingId, setEditingId }: SettingProps) {
   const item = data.clients.find((x) => x.id === editingId);
-  async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); if (await post({ action: "save-client", id: editingId ?? 0, name: String(f.get("name")), phone: String(f.get("phone")), planId: Number(f.get("planId")), paymentMethodId: Number(f.get("paymentMethodId")), status: String(f.get("status")), dueDate: String(f.get("dueDate")), paidMonth: String(f.get("paidMonth")) }, editingId ? "Cliente e pagamento da mensalidade atualizados." : "Cliente mensalista cadastrado com a forma de pagamento.")) setEditingId(null); }
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const chime = prepareClientSaveChime();
+    const f = new FormData(e.currentTarget);
+    const saved = await post({ action: "save-client", id: editingId ?? 0, name: String(f.get("name")), phone: String(f.get("phone")), planId: Number(f.get("planId")), paymentMethodId: Number(f.get("paymentMethodId")), status: String(f.get("status")), dueDate: String(f.get("dueDate")), paidMonth: String(f.get("paidMonth")) }, editingId ? "Cliente e pagamento da mensalidade atualizados." : "Cliente mensalista cadastrado com a forma de pagamento.");
+    if (saved) {
+      chime?.play();
+      setEditingId(null);
+    } else chime?.cancel();
+  }
   async function remove(id: number, name: string) { if (!window.confirm(`Excluir o mensalista ${name}? Ele sairá da lista, mas os atendimentos antigos continuarão no histórico.`)) return; const ok = await post({ action: "delete-client", id }, "Mensalista excluído. O histórico foi preservado."); if (ok && editingId === id) setEditingId(null); }
   return <SettingsLayout
     title="Clientes mensalistas"

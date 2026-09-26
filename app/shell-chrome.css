@@ -173,3 +173,44 @@ svg.app-icon-whatsapp { fill: currentColor; stroke: none; }
 @media (prefers-reduced-motion: reduce) {
   .app-shell .mobile-menu-button > span:nth-child(n), .help-whatsapp-primary { transition: none; }
 }
+
+/* Tamanho de leitura confortável no painel, sobretudo em iPhones. */
+.app-shell .subhead,
+.app-shell .panel-header p,
+.app-shell .quick-actions small,
+.app-shell .schedule small,
+.app-shell .ranking small,
+.app-shell .appointment-info small,
+.app-shell .edit-row small,
+.app-shell .field-help,
+.app-shell .guide p,
+.app-shell .guide li { font-size: 13px; line-height: 1.45; }
+.app-shell .eyebrow,
+.app-shell .date-filter small,
+.app-shell .stat-card small,
+.app-shell .club-summary small,
+.app-shell .field > span,
+.app-shell table th { font-size: 12px; line-height: 1.35; }
+.app-shell .quick-actions strong,
+.app-shell .type-switch button,
+.app-shell .primary-button,
+.app-shell table td,
+.app-shell .date-shortcuts button { font-size: 14px; line-height: 1.4; }
+.app-shell .stat-card p { font-size: 13px; line-height: 1.3; }
+
+@media (max-width: 680px) {
+  .app-shell .topbar h1 { font-size: 26px; }
+  .app-shell .panel h2 { font-size: 17px; }
+  .app-shell .stat-card { min-height: 116px; }
+  .app-shell .stat-card h2 { font-size: 19px; }
+  .app-shell .stat-grid, .app-shell .stat-grid.six { gap: 9px; }
+  .app-shell .quick-actions button { min-height: 58px; }
+  .app-shell .date-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-shell .date-shortcuts button { min-height: 38px; }
+  .app-shell .field { gap: 7px; }
+  .app-shell .field input, .app-shell .field select, .app-shell .field textarea { min-height: 48px; }
+  .app-shell .primary-button { min-height: 48px; }
+  .app-shell .mobile-bottom-item > strong { font-size: 11px; }
+  .app-shell .mobile-drawer-nav button > strong { font-size: 16px; }
+  .app-shell .mobile-menu-label, .app-shell .mobile-drawer-assistant small { font-size: 13px; }
+}
