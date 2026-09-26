@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./splash.css";
 import "./notification-center.css";
 import "./products.css";
 import "./owner-payout.css";
