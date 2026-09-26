@@ -1,6 +1,7 @@
 import { changeOwnPassword, getSessionAccess, setPasswordForTeamMember } from "../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../db/access";
 import { cancelAppointment, completeAppointment, confirmAppointment, createDailyRecord, deleteAppointment, deleteClient, deleteDailyRecord, deleteExpense, deleteMembershipPayment, deletePlan, deleteService, deleteTeamPayment, ensureDemoData, getDashboardData, markAppointmentReminderSent, registerAttendance, renewClient, saveAgendaSettings, saveAppointment, saveClient, saveExpense, saveGoal, savePayment, savePlan, saveService, saveTeamMember, saveTeamPayment, syncFinishedAppointments, updateDailyRecord } from "../../../db/dashboard";
+import { recalculateOpenOwnerAvulsoCommissions } from "../../../db/owner-commission";
 import { deleteProduct, deleteProductSale, registerProductSale, registerProductSaleBundle, saveProduct } from "../../../db/products";
 import { appMonth } from "../../../lib/app-date";
 
@@ -73,7 +74,14 @@ export async function POST(request: Request) {
     else if (data.action === "delete-service") await deleteService(access, Number(data.id));
     else if (data.action === "save-agenda-settings") await saveAgendaSettings(access, { useServiceDuration: Boolean(data.useServiceDuration), openingTime: String(data.openingTime ?? "08:00"), closingTime: String(data.closingTime ?? "19:00"), weeklyHours: weeklyHoursInput(data.weeklyHours), publicBookingEnabled: typeof data.publicBookingEnabled === "boolean" ? data.publicBookingEnabled : undefined, publicBookingRequiresApproval: typeof data.publicBookingRequiresApproval === "boolean" ? data.publicBookingRequiresApproval : undefined, publicBookingWeekdays: typeof data.publicBookingWeekdays === "string" ? String(data.publicBookingWeekdays).split(",").map(Number) : undefined });
     else if (data.action === "save-payment") await savePayment(access, { id: data.id ? Number(data.id) : undefined, name: String(data.name ?? ""), feeBps: Number(data.feeBps) });
-    else if (data.action === "save-team") await saveTeamMember(access, { id: data.id ? Number(data.id) : undefined, name: String(data.name ?? ""), role: String(data.role ?? "Barbeiro"), loginEmail: String(data.loginEmail ?? ""), accessRole: String(data.accessRole ?? "barber"), commissionRateBps: Number(data.commissionRateBps), active: Boolean(data.active), weeklyHours: weeklyHoursInput(data.weeklyHours) });
+    else if (data.action === "save-team") {
+      const teamMemberId = data.id ? Number(data.id) : undefined;
+      const commissionRateBps = Number(data.commissionRateBps);
+      await saveTeamMember(access, { id: teamMemberId, name: String(data.name ?? ""), role: String(data.role ?? "Barbeiro"), loginEmail: String(data.loginEmail ?? ""), accessRole: String(data.accessRole ?? "barber"), commissionRateBps, active: Boolean(data.active), weeklyHours: weeklyHoursInput(data.weeklyHours) });
+      if (access.isOwner && teamMemberId === access.teamMemberId) {
+        await recalculateOpenOwnerAvulsoCommissions(access, commissionRateBps);
+      }
+    }
     else if (data.action === "set-team-password") await setPasswordForTeamMember(access, Number(data.teamMemberId), String(data.password ?? ""));
     else if (data.action === "change-my-password") await changeOwnPassword(access, String(data.password ?? ""));
     else if (data.action === "save-goal") await saveGoal(access, { revenueCents: Number(data.revenueCents), grossProfitCents: Number(data.grossProfitCents), expenseCents: Number(data.expenseCents), netProfitCents: Number(data.netProfitCents), attendanceTarget: Number(data.attendanceTarget) });
