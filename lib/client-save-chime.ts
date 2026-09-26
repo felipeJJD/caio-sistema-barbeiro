@@ -41,29 +41,29 @@ export function prepareClientSaveChime(): { play: () => void; cancel: () => void
         const now = context.currentTime;
         const master = context.createGain();
         master.gain.setValueAtTime(0.0001, now);
-        master.gain.exponentialRampToValueAtTime(0.085, now + 0.012);
-        master.gain.exponentialRampToValueAtTime(0.0001, now + 0.30);
+        // Stronger than the client-name chime used before, but still short and clean.
+        master.gain.exponentialRampToValueAtTime(0.18, now + 0.012);
+        master.gain.exponentialRampToValueAtTime(0.0001, now + 0.34);
         master.connect(context.destination);
 
-        // Two very short harmonics create the light "plim" confirmation sound.
         const first = context.createOscillator();
         first.type = "sine";
         first.frequency.setValueAtTime(1046.5, now);
         first.connect(master);
         first.start(now);
-        first.stop(now + 0.22);
+        first.stop(now + 0.25);
 
         const second = context.createOscillator();
         const secondGain = context.createGain();
         second.type = "sine";
         second.frequency.setValueAtTime(1568, now);
-        secondGain.gain.setValueAtTime(0.42, now);
-        secondGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+        secondGain.gain.setValueAtTime(0.5, now);
+        secondGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
         second.connect(secondGain).connect(master);
         second.start(now + 0.018);
-        second.stop(now + 0.25);
+        second.stop(now + 0.29);
 
-        window.setTimeout(close, 420);
+        window.setTimeout(close, 460);
       } catch {
         close();
       }
