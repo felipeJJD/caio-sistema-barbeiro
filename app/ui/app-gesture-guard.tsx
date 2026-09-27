@@ -16,8 +16,7 @@ export function AppGestureGuard() {
       maxTouchPoints: navigator.maxTouchPoints,
     });
     let frame = 0;
-    let shortTimer = 0;
-    let longTimer = 0;
+    let settleTimer = 0;
     let layoutViewportHeight = window.innerHeight;
 
     const focusedField = () => {
@@ -45,7 +44,10 @@ export function AppGestureGuard() {
           ? field.top - visibleTop
           : 0;
 
-      if (Math.abs(delta) > 1) scroller.scrollBy({ top: delta, behavior: "smooth" });
+      // Safari already moves the visual viewport while the keyboard opens.
+      // Only correct a meaningful remaining overlap, once the viewport settles,
+      // and avoid a smooth animation fighting the browser's own movement.
+      if (Math.abs(delta) > 12) scroller.scrollBy({ top: delta, behavior: "auto" });
     };
 
     const syncVisibleViewport = () => {
@@ -67,33 +69,29 @@ export function AppGestureGuard() {
       root.toggleAttribute("data-app-keyboard-open", viewport.keyboardOpen);
     };
 
-    const refreshVisibleViewport = () => {
+    const scheduleFocusedFieldReveal = () => {
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        syncVisibleViewport();
+        revealFocusedField();
+      }, 220);
+    };
+
+    const refreshVisibleViewport = (revealAfterSettle = false) => {
       syncVisibleViewport();
       window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        syncVisibleViewport();
-        revealFocusedField();
-      });
-      window.clearTimeout(shortTimer);
-      window.clearTimeout(longTimer);
-      shortTimer = window.setTimeout(() => {
-        syncVisibleViewport();
-        revealFocusedField();
-      }, 160);
-      longTimer = window.setTimeout(() => {
-        syncVisibleViewport();
-        revealFocusedField();
-      }, 460);
+      frame = window.requestAnimationFrame(syncVisibleViewport);
+      if (revealAfterSettle) scheduleFocusedFieldReveal();
     };
 
     const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") refreshVisibleViewport();
+      if (document.visibilityState === "visible") refreshVisibleViewport(false);
     };
 
     const refreshAfterFieldInteraction = (event: Event) => {
       const target = event.target;
       if (target instanceof HTMLElement && target.matches("input, textarea, select, [contenteditable='true']")) {
-        refreshVisibleViewport();
+        refreshVisibleViewport(event.type === "focusin");
       }
     };
 
@@ -108,43 +106,44 @@ export function AppGestureGuard() {
     };
     const preventGesture = (event: Event) => event.preventDefault();
     const preventDoubleTap = (event: MouseEvent) => event.preventDefault();
+    const refreshForResize = () => refreshVisibleViewport(true);
+    const refreshForViewportScroll = () => refreshVisibleViewport(false);
 
     document.addEventListener("touchstart", preventMultiTouch, { passive: false });
     document.addEventListener("touchmove", preventMultiTouch, { passive: false });
     document.addEventListener("gesturestart", preventGesture, { passive: false });
     document.addEventListener("gesturechange", preventGesture, { passive: false });
     document.addEventListener("dblclick", preventDoubleTap, { passive: false });
-    window.addEventListener("resize", refreshVisibleViewport);
-    window.addEventListener("focus", refreshVisibleViewport);
-    window.addEventListener("pageshow", refreshVisibleViewport);
+    window.addEventListener("resize", refreshForResize);
+    window.addEventListener("focus", refreshWhenVisible);
+    window.addEventListener("pageshow", refreshWhenVisible);
     document.addEventListener("focusin", refreshAfterFieldInteraction);
     document.addEventListener("focusout", refreshAfterFieldInteraction);
     document.addEventListener("change", refreshAfterFieldInteraction);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     document.addEventListener("visibilitychange", releaseFocusWhenHidden);
-    visualViewport?.addEventListener("resize", refreshVisibleViewport);
-    visualViewport?.addEventListener("scroll", refreshVisibleViewport);
-    refreshVisibleViewport();
+    visualViewport?.addEventListener("resize", refreshForResize);
+    visualViewport?.addEventListener("scroll", refreshForViewportScroll);
+    refreshVisibleViewport(false);
 
     return () => {
       window.cancelAnimationFrame(frame);
-      window.clearTimeout(shortTimer);
-      window.clearTimeout(longTimer);
+      window.clearTimeout(settleTimer);
       document.removeEventListener("touchstart", preventMultiTouch);
       document.removeEventListener("touchmove", preventMultiTouch);
       document.removeEventListener("gesturestart", preventGesture);
       document.removeEventListener("gesturechange", preventGesture);
       document.removeEventListener("dblclick", preventDoubleTap);
-      window.removeEventListener("resize", refreshVisibleViewport);
-      window.removeEventListener("focus", refreshVisibleViewport);
-      window.removeEventListener("pageshow", refreshVisibleViewport);
+      window.removeEventListener("resize", refreshForResize);
+      window.removeEventListener("focus", refreshWhenVisible);
+      window.removeEventListener("pageshow", refreshWhenVisible);
       document.removeEventListener("focusin", refreshAfterFieldInteraction);
       document.removeEventListener("focusout", refreshAfterFieldInteraction);
       document.removeEventListener("change", refreshAfterFieldInteraction);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       document.removeEventListener("visibilitychange", releaseFocusWhenHidden);
-      visualViewport?.removeEventListener("resize", refreshVisibleViewport);
-      visualViewport?.removeEventListener("scroll", refreshVisibleViewport);
+      visualViewport?.removeEventListener("resize", refreshForResize);
+      visualViewport?.removeEventListener("scroll", refreshForViewportScroll);
       root.style.removeProperty("--app-viewport-height");
       root.style.removeProperty("--app-viewport-top");
       root.style.removeProperty("--app-keyboard-inset");
