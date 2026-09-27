@@ -14,10 +14,9 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint (alerta)
+    name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     env:
       CI: true
     steps:
@@ -30,7 +29,7 @@ jobs:
           cache: npm
       - name: Instalar dependências
         run: npm ci
-      - name: Verificar lint e apontar código que merece limpeza
+      - name: Verificar lint
         run: npm run lint
 
   qualidade:
