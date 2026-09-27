@@ -27,21 +27,24 @@ test("abertura usa montagem tecnológica sem depender de biblioteca externa", ()
   assert.match(css, /@keyframes ca-splash-progress/);
 });
 
-test("assinatura sonora é curta, sintetizada localmente e só tenta tocar uma vez por sessão", () => {
+test("assinatura sonora é curta, sintetizada localmente e não fica bloqueada por uma sessão antiga", () => {
   assert.match(component, /AudioContext/);
   assert.match(component, /createOscillator/);
   assert.match(component, /createGain/);
-  assert.match(component, /sessionStorage/);
-  assert.match(component, /SPLASH_SOUND_KEY/);
+  assert.doesNotMatch(component, /sessionStorage|SPLASH_SOUND_KEY/);
   assert.doesNotMatch(component, /https?:\/\//);
 });
 
-test("som tem fallback para primeiro gesto quando autoplay é bloqueado", () => {
-  assert.match(component, /pointerdown/);
-  assert.match(component, /context\.state !== "running"/);
+test("iPhone libera áudio diretamente no toque e oferece entrada silenciosa", () => {
+  assert.match(component, /onClick=\{openWithSound\}/);
+  assert.match(component, /onClick=\{openWithoutSound\}/);
+  assert.match(component, /context\.resume\(\)/);
+  assert.match(component, /Abrir com som/);
+  assert.match(component, /Entrar sem som/);
+  assert.doesNotMatch(component, /addEventListener\("pointerdown"/);
 });
 
-test("movimento reduzido desliga animações e som", () => {
+test("movimento reduzido desliga animação e som automático, mas permite escolha explícita", () => {
   assert.match(component, /prefers-reduced-motion: reduce/);
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
 });

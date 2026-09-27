@@ -476,9 +476,7 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
     if (!showIntro) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const timer = window.setTimeout(() => setShowIntro(false), 2100);
     return () => {
-      window.clearTimeout(timer);
       document.body.style.overflow = previousOverflow;
     };
   }, [showIntro]);
@@ -774,7 +772,7 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
     </section><nav className={`mobile-bottom-navigation${secondaryNavigation.length ? " has-more" : ""}`} aria-label="Áreas principais do aplicativo">{preferredBottomItems.map((item) => {
       const active = section === item.section;
       return <button key={item.section} type="button" className={`mobile-bottom-item${active ? " active" : ""}${item.section === "Registrar" ? " primary" : ""}`} aria-current={active ? "page" : undefined} aria-label={`Abrir ${item.label}`} onClick={() => chooseSection(item.section)}><span className="mobile-bottom-icon"><NavIcon name={item.icon} />{item.section === "Histórico" && unreadNotifications > 0 && <b className="mobile-bottom-badge">{Math.min(unreadNotifications, 9)}{unreadNotifications > 9 ? "+" : ""}</b>}</span><strong>{item.label}</strong></button>;
-    })}{secondaryNavigation.length > 0 && <button type="button" className={`mobile-bottom-item more${preferredBottomSections.has(section) ? "" : " active"}`} aria-current={preferredBottomSections.has(section) ? undefined : "page"} aria-label="Abrir outras áreas" onClick={openMobileMenu}><span className="mobile-bottom-icon"><NavIcon name="more" /></span><strong>Mais</strong></button>}</nav><HelpAssistant viewer={viewer} data={liveData} post={post} onNavigate={navigateFromHelp} /><AppInstallPrompt isOwner={viewer.isOwner} />{showIntro && <AppLoadingScreen intro />}</main>;
+    })}{secondaryNavigation.length > 0 && <button type="button" className={`mobile-bottom-item more${preferredBottomSections.has(section) ? "" : " active"}`} aria-current={preferredBottomSections.has(section) ? undefined : "page"} aria-label="Abrir outras áreas" onClick={openMobileMenu}><span className="mobile-bottom-icon"><NavIcon name="more" /></span><strong>Mais</strong></button>}</nav><HelpAssistant viewer={viewer} data={liveData} post={post} onNavigate={navigateFromHelp} /><AppInstallPrompt isOwner={viewer.isOwner} />{showIntro && <AppLoadingScreen intro onComplete={() => setShowIntro(false)} />}</main>;
 }
 
 function ExpiredAccessScreen({ data }: { data: DashboardData }) {
