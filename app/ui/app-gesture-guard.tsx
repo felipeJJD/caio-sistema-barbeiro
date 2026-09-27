@@ -18,6 +18,8 @@ export function AppGestureGuard() {
     let frame = 0;
     let settleTimer = 0;
     let layoutViewportHeight = window.innerHeight;
+    let edgeGestureStart: { x: number; y: number } | null = null;
+    const edgeGuardWidth = 32;
 
     const focusedField = () => {
       const active = document.activeElement;
@@ -104,13 +106,47 @@ export function AppGestureGuard() {
     const preventMultiTouch = (event: TouchEvent) => {
       if (event.touches.length > 1) event.preventDefault();
     };
+
+    const trackEdgeGestureStart = (event: TouchEvent) => {
+      preventMultiTouch(event);
+      edgeGestureStart = null;
+      if (!resetIdleOffset || event.touches.length !== 1) return;
+
+      const touch = event.touches[0];
+      const viewportWidth = visualViewport?.width ?? window.innerWidth;
+      if (touch.clientX <= edgeGuardWidth || touch.clientX >= viewportWidth - edgeGuardWidth) {
+        edgeGestureStart = { x: touch.clientX, y: touch.clientY };
+      }
+    };
+
+    const preventEdgeHorizontalSwipe = (event: TouchEvent) => {
+      preventMultiTouch(event);
+      if (!edgeGestureStart || event.touches.length !== 1) return;
+
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - edgeGestureStart.x;
+      const deltaY = touch.clientY - edgeGestureStart.y;
+
+      // Preserve normal vertical scrolling even when the finger starts near an edge.
+      // Only cancel a deliberate horizontal swipe once its direction is clear.
+      if (Math.abs(deltaX) >= 8 && Math.abs(deltaX) > Math.abs(deltaY) * 1.15) {
+        event.preventDefault();
+      }
+    };
+
+    const clearEdgeGesture = () => {
+      edgeGestureStart = null;
+    };
+
     const preventGesture = (event: Event) => event.preventDefault();
     const preventDoubleTap = (event: MouseEvent) => event.preventDefault();
     const refreshForResize = () => refreshVisibleViewport(true);
     const refreshForViewportScroll = () => refreshVisibleViewport(false);
 
-    document.addEventListener("touchstart", preventMultiTouch, { passive: false });
-    document.addEventListener("touchmove", preventMultiTouch, { passive: false });
+    document.addEventListener("touchstart", trackEdgeGestureStart, { passive: false });
+    document.addEventListener("touchmove", preventEdgeHorizontalSwipe, { passive: false });
+    document.addEventListener("touchend", clearEdgeGesture, { passive: true });
+    document.addEventListener("touchcancel", clearEdgeGesture, { passive: true });
     document.addEventListener("gesturestart", preventGesture, { passive: false });
     document.addEventListener("gesturechange", preventGesture, { passive: false });
     document.addEventListener("dblclick", preventDoubleTap, { passive: false });
@@ -129,8 +165,10 @@ export function AppGestureGuard() {
     return () => {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(settleTimer);
-      document.removeEventListener("touchstart", preventMultiTouch);
-      document.removeEventListener("touchmove", preventMultiTouch);
+      document.removeEventListener("touchstart", trackEdgeGestureStart);
+      document.removeEventListener("touchmove", preventEdgeHorizontalSwipe);
+      document.removeEventListener("touchend", clearEdgeGesture);
+      document.removeEventListener("touchcancel", clearEdgeGesture);
       document.removeEventListener("gesturestart", preventGesture);
       document.removeEventListener("gesturechange", preventGesture);
       document.removeEventListener("dblclick", preventDoubleTap);
