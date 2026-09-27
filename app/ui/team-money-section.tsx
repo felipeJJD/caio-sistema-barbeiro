@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { TeamMoneyData, TeamMoneyEntry, TeamMoneyRow } from "../../db/team-money";
 import { showAppToast } from "./app-toast";
 import { AppIcon } from "./app-icon";
@@ -118,6 +118,7 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
   const [editing, setEditing] = useState<TeamMoneyEntry | null>(null);
   const [valeFormOpen, setValeFormOpen] = useState(false);
+  const memberActionsRef = useRef<HTMLDivElement | null>(null);
 
   async function load() {
     try {
@@ -225,6 +226,18 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
     }
   }
 
+  function selectMember(row: TeamMoneyRow) {
+    setSelectedMemberId(row.teamMemberId);
+    setValeFormOpen(false);
+    setEditing(null);
+    showAppToast(`${row.teamMemberName} selecionado. Você já pode registrar um novo vale.`);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        memberActionsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    });
+  }
+
   function openNewVale() {
     setEditing(null);
     setValeFormOpen(true);
@@ -284,7 +297,7 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
     </section>
 
     <nav className="team-money-v2-tabs" aria-label="Escolher profissional">
-      {rows.map((row) => <button type="button" key={row.teamMemberId} className={selectedRow.teamMemberId === row.teamMemberId ? "active" : ""} onClick={() => { setSelectedMemberId(row.teamMemberId); setValeFormOpen(false); setEditing(null); }}>
+      {rows.map((row) => <button type="button" key={row.teamMemberId} className={selectedRow.teamMemberId === row.teamMemberId ? "active" : ""} onClick={() => selectMember(row)}>
         <MemberAvatar row={row} />
         <span><strong>{row.teamMemberName}</strong><small>{money(row.currentBalanceCents)} a receber</small></span>
       </button>)}
@@ -304,7 +317,7 @@ export function TeamMoneySection({ owner, post, pending: outerPending = false }:
         <article><span><AppIcon name="calendar" /></span><div><small>ÚLTIMO FECHAMENTO</small><strong>{selectedRow.lastClosure ? money(selectedRow.lastClosure.settlementCents) : "—"}</strong><em>{selectedRow.lastClosure ? date(selectedRow.lastClosure.periodEndDate) : "Ainda não realizado"}</em></div></article>
       </div>
 
-      <div className="team-money-v2-actions">
+      <div className="team-money-v2-actions" ref={memberActionsRef}>
         <button className="vale-action" type="button" disabled={pending || outerPending} onClick={openNewVale}><AppIcon name="money" /> Novo vale</button>
         <button className="close-action" type="button" disabled={pending || outerPending || !selectedRow.hasOpenActivity} onClick={() => void closeCycle(selectedRow)}><AppIcon name="check" /> Fechar período</button>
       </div>
