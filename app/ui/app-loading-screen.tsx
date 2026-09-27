@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 type AudioWindow = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
@@ -21,15 +21,12 @@ async function playSplashSignature(interactive: boolean) {
         void context.close().catch(() => undefined);
         return false;
       }
-      // Safari only unlocks Web Audio from a direct tap. Its resume promise can
-      // stay pending, so never let it trap the user on the opening screen.
       resumeResult = Promise.race([
         context.resume().then(() => true).catch(() => false),
         new Promise<false>((resolve) => window.setTimeout(() => resolve(false), 900)),
       ]);
     }
 
-    // Schedule the oscillators before the first await, inside the user's tap.
     const now = context.currentTime;
     const master = context.createGain();
     master.gain.setValueAtTime(0.0001, now);
@@ -37,7 +34,6 @@ async function playSplashSignature(interactive: boolean) {
     master.gain.exponentialRampToValueAtTime(0.0001, now + 1.08);
     master.connect(context.destination);
 
-    // Soft rising pulse follows the logo movement without sounding like a game effect.
     const sweep = context.createOscillator();
     const sweepGain = context.createGain();
     sweep.type = "sine";
@@ -50,7 +46,6 @@ async function playSplashSignature(interactive: boolean) {
     sweep.start(now);
     sweep.stop(now + 0.56);
 
-    // Three glassy notes form the Cortou Anotou opening signature.
     const notes = [
       { frequency: 1046.5, start: 0.27, level: 0.62 },
       { frequency: 1318.5, start: 0.39, level: 0.52 },
@@ -69,7 +64,6 @@ async function playSplashSignature(interactive: boolean) {
       tone.stop(now + start + 0.46);
     });
 
-    // A very light high shimmer gives the finish a more premium/futuristic feel.
     const shimmer = context.createOscillator();
     const shimmerGain = context.createGain();
     shimmer.type = "sine";
@@ -95,58 +89,45 @@ async function playSplashSignature(interactive: boolean) {
 }
 
 export function AppLoadingScreen({ intro = false, onComplete }: { intro?: boolean; onComplete?: () => void }) {
-  const [phase, setPhase] = useState<"checking" | "choice" | "playing" | "error">("checking");
   const completionTimer = useRef<number | null>(null);
-  const started = useRef(false);
 
   const finishAfterOpening = useCallback(() => {
     if (completionTimer.current !== null) window.clearTimeout(completionTimer.current);
     completionTimer.current = window.setTimeout(() => onComplete?.(), 2100);
   }, [onComplete]);
 
-  function openWithSound() {
-    if (started.current) return;
-    started.current = true;
-    // This call runs directly inside the button's click handler on iPhone.
-    void playSplashSignature(true).then((played) => {
-      if (played) {
-        setPhase("playing");
-        finishAfterOpening();
-      } else {
-        started.current = false;
-        setPhase("error");
-      }
-    });
-  }
-
-  function openWithoutSound() {
-    started.current = true;
-    onComplete?.();
-  }
-
   useEffect(() => {
     if (!intro) return;
+
     let active = true;
-    const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent)
-      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    if (isIOS) queueMicrotask(() => {
-      if (active) setPhase("choice");
-    });
-    else void playSplashSignature(false).then((played) => {
+    let gestureArmed = false;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const trySoundOnGesture = () => {
       if (!active) return;
-      setPhase(played ? "playing" : "choice");
-      if (played) finishAfterOpening();
-    });
+      gestureArmed = false;
+      void playSplashSignature(true);
+    };
+
+    finishAfterOpening();
+
+    if (!reducedMotion) {
+      void playSplashSignature(false).then((played) => {
+        if (!active || played) return;
+        gestureArmed = true;
+        window.addEventListener("pointerdown", trySoundOnGesture, { once: true, capture: true });
+      });
+    }
 
     return () => {
       active = false;
+      if (gestureArmed) window.removeEventListener("pointerdown", trySoundOnGesture, { capture: true });
       if (completionTimer.current !== null) window.clearTimeout(completionTimer.current);
     };
   }, [intro, finishAfterOpening]);
 
   return (
     <div
-      className={"app-loading-screen" + (intro ? " app-loading-intro" : "") + (intro && phase !== "playing" ? " waiting-for-sound" : "")}
+      className={"app-loading-screen" + (intro ? " app-loading-intro" : "")}
       role="status"
       aria-live="polite"
       aria-label="Carregando o Cortou Anotou"
@@ -157,7 +138,7 @@ export function AppLoadingScreen({ intro = false, onComplete }: { intro?: boolea
         <i className="app-loading-tech-scan" />
       </div>
 
-      <div className="app-loading-content" key={phase === "playing" ? "sound-playing" : "waiting"}>
+      <div className="app-loading-content">
         <div className="app-loading-ca" aria-hidden="true">
           <b className="app-loading-letter-c">C</b>
           <i />
@@ -166,13 +147,7 @@ export function AppLoadingScreen({ intro = false, onComplete }: { intro?: boolea
         <p className="app-loading-name">CORTOU <strong>ANOTOU</strong></p>
         <small>AGENDA E GESTÃO PARA BARBEARIAS</small>
         <div className="app-loading-track" aria-hidden="true"><i /></div>
-        {intro && (phase === "choice" || phase === "error") ? (
-          <div className="app-loading-sound-actions">
-            <button type="button" onClick={openWithSound}>Abrir com som</button>
-            <button type="button" className="quiet" onClick={openWithoutSound}>Entrar sem som</button>
-            {phase === "error" && <small role="alert">O iPhone não liberou o áudio. Você pode tentar novamente ou entrar sem som.</small>}
-          </div>
-        ) : <p className="app-loading-copy">Carregando<span aria-hidden="true">...</span></p>}
+        <p className="app-loading-copy">Carregando<span aria-hidden="true">...</span></p>
       </div>
 
       <div className="app-loading-signature">
