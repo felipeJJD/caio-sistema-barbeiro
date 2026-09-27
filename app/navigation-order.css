@@ -1,0 +1,21 @@
+/* Mantém o menu lateral na mesma sequência das áreas principais do rodapé.
+   Ordem: Painel → Agenda → Registrar → Histórico → Produtos. */
+.app-shell .desktop-navigation > .nav-item,
+.app-shell .mobile-menu-group:not(.management) .mobile-drawer-nav > button {
+  order: 10;
+}
+
+.app-shell .desktop-navigation > .nav-item:nth-child(1),
+.app-shell .mobile-menu-group:not(.management) .mobile-drawer-nav > button:nth-child(1) { order: 1; }
+
+.app-shell .desktop-navigation > .nav-item:nth-child(4),
+.app-shell .mobile-menu-group:not(.management) .mobile-drawer-nav > button:nth-child(4) { order: 2; }
+
+.app-shell .desktop-navigation > .nav-item:nth-child(2),
+.app-shell .mobile-menu-group:not(.management) .mobile-drawer-nav > button:nth-child(2) { order: 3; }
+
+.app-shell .desktop-navigation > .nav-item:nth-child(3),
+.app-shell .mobile-menu-group:not(.management) .mobile-drawer-nav > button:nth-child(3) { order: 4; }
+
+.app-shell .desktop-navigation > .nav-item:nth-child(5),
+.app-shell .mobile-menu-group:not(.management) .mobile-drawer-nav > button:nth-child(5) { order: 5; }

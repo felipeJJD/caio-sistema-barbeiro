@@ -11,6 +11,7 @@ import "./help-chat.css";
 import "./legal.css";
 import "./help-launcher-drag.css";
 import "./mobile-readability.css";
+import "./navigation-order.css";
 import { AppGestureGuard } from "./ui/app-gesture-guard";
 import { AppToastHost } from "./ui/app-toast";
 import { HelpLauncherDragGuard } from "./ui/help-launcher-drag-guard";
