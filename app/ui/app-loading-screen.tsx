@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type AudioWindow = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
@@ -99,10 +99,10 @@ export function AppLoadingScreen({ intro = false, onComplete }: { intro?: boolea
   const completionTimer = useRef<number | null>(null);
   const started = useRef(false);
 
-  function finishAfterOpening() {
+  const finishAfterOpening = useCallback(() => {
     if (completionTimer.current !== null) window.clearTimeout(completionTimer.current);
     completionTimer.current = window.setTimeout(() => onComplete?.(), 2100);
-  }
+  }, [onComplete]);
 
   function openWithSound() {
     if (started.current) return;
@@ -129,7 +129,9 @@ export function AppLoadingScreen({ intro = false, onComplete }: { intro?: boolea
     let active = true;
     const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent)
       || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    if (isIOS) setPhase("choice");
+    if (isIOS) queueMicrotask(() => {
+      if (active) setPhase("choice");
+    });
     else void playSplashSignature(false).then((played) => {
       if (!active) return;
       setPhase(played ? "playing" : "choice");
@@ -140,7 +142,7 @@ export function AppLoadingScreen({ intro = false, onComplete }: { intro?: boolea
       active = false;
       if (completionTimer.current !== null) window.clearTimeout(completionTimer.current);
     };
-  }, [intro]);
+  }, [intro, finishAfterOpening]);
 
   return (
     <div
