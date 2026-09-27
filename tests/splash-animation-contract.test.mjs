@@ -35,17 +35,23 @@ test("assinatura sonora é curta, sintetizada localmente e não fica bloqueada p
   assert.doesNotMatch(component, /https?:\/\//);
 });
 
-test("iPhone libera áudio diretamente no toque e oferece entrada silenciosa", () => {
-  assert.match(component, /onClick=\{openWithSound\}/);
-  assert.match(component, /onClick=\{openWithoutSound\}/);
-  assert.match(component, /context\.resume\(\)/);
-  assert.match(component, /Abrir com som/);
-  assert.match(component, /Entrar sem som/);
-  assert.doesNotMatch(component, /addEventListener\("pointerdown"/);
+test("abertura nunca trava esperando áudio e não mostra escolha de som", () => {
+  assert.match(component, /finishAfterOpening\(\)/);
+  assert.match(component, /setTimeout\(\(\) => onComplete\?\.\(\), 2100\)/);
+  assert.doesNotMatch(component, /Abrir com som/);
+  assert.doesNotMatch(component, /Entrar sem som/);
+  assert.doesNotMatch(component, /app-loading-sound-actions/);
 });
 
-test("movimento reduzido desliga animação e som automático, mas permite escolha explícita", () => {
+test("iPhone pode liberar o som no primeiro toque sem bloquear a entrada", () => {
+  assert.match(component, /window\.addEventListener\("pointerdown", trySoundOnGesture/);
+  assert.match(component, /playSplashSignature\(true\)/);
+  assert.match(component, /context\.resume\(\)/);
+});
+
+test("movimento reduzido preserva uma abertura simples sem tentativa automática de áudio", () => {
   assert.match(component, /prefers-reduced-motion: reduce/);
+  assert.match(component, /if \(!reducedMotion\)/);
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
 });
 
