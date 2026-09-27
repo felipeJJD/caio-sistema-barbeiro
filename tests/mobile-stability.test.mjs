@@ -13,15 +13,19 @@ test("mobile form controls stay at 16px to prevent iPhone focus zoom", () => {
   assert.match(css, /select:focus[\s\S]*\.mobile-bottom-navigation/);
 });
 
-test("visible viewport and keyboard state are restored on iPhone", () => {
+test("visible viewport and keyboard state stay stable on iPhone", () => {
   assert.match(gestureGuard, /data-app-keyboard-open/);
   assert.match(gestureGuard, /--app-keyboard-inset/);
   assert.match(gestureGuard, /resolveMobileViewport/);
   assert.match(gestureGuard, /let layoutViewportHeight = window\.innerHeight/);
   assert.match(gestureGuard, /layoutViewportHeight = Math\.max\(layoutViewportHeight, window\.innerHeight\)/);
-  assert.match(gestureGuard, /visualViewport\?\.addEventListener\("resize", refreshVisibleViewport\)/);
+  assert.match(gestureGuard, /visualViewport\?\.addEventListener\("resize", refreshForResize\)/);
   assert.match(gestureGuard, /closest<HTMLElement>\("\.app-shell > \.content"\)/);
-  assert.match(gestureGuard, /scrollBy\(\{ top: delta, behavior: "smooth" \}\)/);
+  assert.match(gestureGuard, /Math\.abs\(delta\) > 12/);
+  assert.match(gestureGuard, /scrollBy\(\{ top: delta, behavior: "auto" \}\)/);
+  assert.match(gestureGuard, /scheduleFocusedFieldReveal/);
+  assert.match(gestureGuard, /setTimeout\(\(\) => \{[\s\S]*revealFocusedField\(\);[\s\S]*\}, 220\)/);
+  assert.doesNotMatch(gestureGuard, /shortTimer|longTimer|behavior: "smooth"/);
   assert.match(gestureGuard, /document\.addEventListener\("change", refreshAfterFieldInteraction\)/);
   assert.match(gestureGuard, /visibilitychange/);
 });
