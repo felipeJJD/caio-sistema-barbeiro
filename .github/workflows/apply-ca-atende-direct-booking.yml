@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'Repete correção direta do C.A. Atende'
+    if: github.event.head_commit.message == 'Ajusta mocks seguros do C.A. Atende'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +43,36 @@ jobs:
           PY
       - name: Aplicar alterações com contratos exatos
         run: python3 scripts/apply-ca-atende-direct-booking.py
+      - name: Ajustar simuladores para as novas dependências sem permitir escrita
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Qualquer evento sintético (messageRowId 0) continua estritamente sem escrita.
+          p = Path('db/ca-atende.ts')
+          text = p.read_text()
+          old = 'if (event.providerMessageId === "test" && event.messageRowId === 0) {'
+          if text.count(old) != 1:
+              raise SystemExit('Trava de simulação não encontrada exatamente uma vez.')
+          p.write_text(text.replace(old, 'if (event.messageRowId === 0) {', 1))
+
+          stubs = '''\nexport async function getPublicBookingData(){\n  return {payments:{pixEnabled:false,cashEnabled:true,debitEnabled:true,creditEnabled:true}};\n}\nexport async function createPublicBooking(){\n  throw Error("Simulation must never create a real appointment");\n}\n'''
+
+          p = Path('tests/ca-atende-conversations.test.mjs')
+          text = p.read_text()
+          marker = '''  ].filter(slot => !barberId || slot.barberId === barberId);\n}'''
+          if text.count(marker) != 1:
+              raise SystemExit('Fixture de conversations não encontrada exatamente uma vez.')
+          p.write_text(text.replace(marker, marker + stubs, 1))
+
+          p = Path('tests/ca-atende-master-scenarios.test.mjs')
+          text = p.read_text()
+          marker = '''    .filter(slot => !barberId || slot.barberId === barberId);\n}'''
+          if text.count(marker) != 1:
+              raise SystemExit('Fixture master não encontrada exatamente uma vez.')
+          p.write_text(text.replace(marker, marker + stubs, 1))
+          PY
       - name: Instalar dependências
         run: npm ci --no-audit --no-fund
       - name: Verificar tipos
