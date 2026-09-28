@@ -1,0 +1,193 @@
+name: Aplicar entitlement administrativo do WhatsApp
+
+on:
+  push:
+    branches:
+      - fix/platform-admin-whatsapp-entitlement
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Prepara aplicação segura do entitlement do WhatsApp'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - name: Aplicar alterações com contratos exatos
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: esperado 1 trecho, encontrado {count}: {old[:100]!r}")
+              file.write_text(text.replace(old, new, 1))
+
+          # db/whatsapp.ts
+          replace_once(
+              "db/whatsapp.ts",
+              'import { getDb } from "./index";\n',
+              'import { getDb } from "./index";\nimport { getWhatsappEntitlementForOrganization, type WhatsappEntitlement } from "./whatsapp-entitlement";\n',
+          )
+          replace_once(
+              "db/whatsapp.ts",
+              '  settings: {\n    enabled: boolean;\n',
+              '  entitlement: WhatsappEntitlement;\n  settings: {\n    enabled: boolean;\n',
+          )
+          replace_once(
+              "db/whatsapp.ts",
+              '  const monthlyMessageLimit = Math.max(0, Number(settings.monthlyMessageLimit ?? 0));\n  return {\n',
+              '  const monthlyMessageLimit = Math.max(0, Number(settings.monthlyMessageLimit ?? 0));\n  const entitlement = await getWhatsappEntitlementForOrganization(access.organizationId, monthlyMessageLimit);\n  return {\n',
+          )
+          replace_once(
+              "db/whatsapp.ts",
+              '    },\n    settings: {\n      enabled: Boolean(settings.enabled),\n',
+              '    },\n    entitlement,\n    settings: {\n      enabled: Boolean(settings.enabled),\n',
+          )
+          replace_once(
+              "db/whatsapp.ts",
+              '  if (!settings.enabled || !connection || connection.status !== "connected" || Number(settings.monthlyMessageLimit) <= 0) {\n    return { queued: false, reason: "automation_inactive" as const };\n  }\n\n  const now = new Date().toISOString();\n',
+              '  const entitlement = await getWhatsappEntitlementForOrganization(appointment.organizationId, Number(settings.monthlyMessageLimit));\n  if (!settings.enabled || !connection || connection.status !== "connected" || !entitlement.hasAccess) {\n    return { queued: false, reason: "automation_inactive" as const };\n  }\n\n  const now = new Date().toISOString();\n',
+          )
+          replace_once(
+              "db/whatsapp.ts",
+              '  if (!settings.enabled || !settings.botEnabled || !connection || connection.status !== "connected" || Number(settings.monthlyMessageLimit) <= 0) {\n    return { queued:false, reason:"automation_inactive" as const };\n  }\n  const db = await getDb();\n',
+              '  const entitlement = await getWhatsappEntitlementForOrganization(input.organizationId, Number(settings.monthlyMessageLimit));\n  if (!settings.enabled || !settings.botEnabled || !connection || connection.status !== "connected" || !entitlement.hasAccess) {\n    return { queued:false, reason:"automation_inactive" as const };\n  }\n  const db = await getDb();\n',
+          )
+          replace_once(
+              "db/whatsapp.ts",
+              '  if (!settings.enabled || !connection || connection.status !== "connected" || !connection.encryptedAccessToken || !connection.accessTokenIv) {\n    throw new Error("A conexão do WhatsApp desta barbearia não está ativa.");\n  }\n  const sentThisMonth = await sentCountThisMonth(message.organizationId);\n  if (sentThisMonth >= Number(settings.monthlyMessageLimit)) throw new Error("O limite mensal de mensagens desta barbearia foi atingido.");\n',
+              '  const entitlement = await getWhatsappEntitlementForOrganization(message.organizationId, Number(settings.monthlyMessageLimit));\n  if (!settings.enabled || !entitlement.hasAccess || !connection || connection.status !== "connected" || !connection.encryptedAccessToken || !connection.accessTokenIv) {\n    throw new Error("A conexão do WhatsApp desta barbearia não está ativa.");\n  }\n  if (!entitlement.unlimited) {\n    const sentThisMonth = await sentCountThisMonth(message.organizationId);\n    if (sentThisMonth >= entitlement.monthlyMessageLimit) throw new Error("O limite mensal de mensagens desta barbearia foi atingido.");\n  }\n',
+          )
+
+          # db/evolution-whatsapp.ts
+          replace_once(
+              "db/evolution-whatsapp.ts",
+              'import { getDb } from "./index";\n',
+              'import { getDb } from "./index";\nimport { getWhatsappEntitlementForOrganization } from "./whatsapp-entitlement";\n',
+          )
+          replace_once(
+              "db/evolution-whatsapp.ts",
+              '    const settings = (await db.select().from(whatsappAutomationSettings).where(eq(whatsappAutomationSettings.organizationId, message.organizationId)).limit(1))[0];\n    if (!settings?.enabled || Number(settings.monthlyMessageLimit) <= 0) continue;\n',
+              '    const settings = (await db.select().from(whatsappAutomationSettings).where(eq(whatsappAutomationSettings.organizationId, message.organizationId)).limit(1))[0];\n    if (!settings?.enabled) continue;\n    const entitlement = await getWhatsappEntitlementForOrganization(message.organizationId, Number(settings.monthlyMessageLimit));\n    if (!entitlement.hasAccess) continue;\n',
+          )
+
+          # db/ca-atende.ts
+          replace_once(
+              "db/ca-atende.ts",
+              'import { getDb } from "./index";\n',
+              'import { getDb } from "./index";\nimport { getWhatsappEntitlementForOrganization } from "./whatsapp-entitlement";\n',
+          )
+          replace_once(
+              "db/ca-atende.ts",
+              '  if (!context.settings.enabled || !context.settings.botEnabled || !context.connected || context.settings.monthlyMessageLimit <= 0) {\n    return { handled:false, reason:"bot_inactive" as const };\n  }\n',
+              '  const entitlement = await getWhatsappEntitlementForOrganization(event.organizationId, context.settings.monthlyMessageLimit);\n  if (!context.settings.enabled || !context.settings.botEnabled || !context.connected || !entitlement.hasAccess) {\n    return { handled:false, reason:"bot_inactive" as const };\n  }\n',
+          )
+
+          # app/ui/whatsapp-automation.tsx
+          replace_once(
+              "app/ui/whatsapp-automation.tsx",
+              '  settings: {\n    enabled: boolean;\n',
+              '  entitlement: {\n    hasAccess: boolean;\n    unlimited: boolean;\n    source: "platform_admin" | "package" | "none";\n    monthlyMessageLimit: number;\n  };\n  settings: {\n    enabled: boolean;\n',
+          )
+          replace_once(
+              "app/ui/whatsapp-automation.tsx",
+              '  const hasPackage = Boolean(data && data.settings.monthlyMessageLimit > 0 && data.settings.planCode !== "off");\n  const canEnable = Boolean(connected && hasPackage);\n  const usagePercent = useMemo(() => {\n    if (!data?.settings.monthlyMessageLimit) return 0;\n    return Math.min(100, Math.round(data.usage.sentThisMonth / data.settings.monthlyMessageLimit * 100));\n  }, [data]);\n',
+              '  const hasMessageAccess = Boolean(data?.entitlement.hasAccess);\n  const hasPackage = data?.entitlement.source === "package";\n  const isPlatformAdminAccess = data?.entitlement.source === "platform_admin";\n  const canEnable = Boolean(connected && hasMessageAccess);\n  const usagePercent = useMemo(() => {\n    if (!data?.settings.monthlyMessageLimit || data.entitlement.unlimited) return 0;\n    return Math.min(100, Math.round(data.usage.sentThisMonth / data.settings.monthlyMessageLimit * 100));\n  }, [data]);\n',
+          )
+          replace_once(
+              "app/ui/whatsapp-automation.tsx",
+              '        <strong>{planLabel(data.settings.planCode, data.settings.monthlyMessageLimit)}</strong>\n        <small>{hasPackage ? `${data.settings.monthlyMessageLimit.toLocaleString("pt-BR")} mensagens disponíveis por mês` : "Ative um pacote para liberar os envios automáticos"}</small>\n',
+              '        <strong>{isPlatformAdminAccess ? "Acesso administrativo completo" : planLabel(data.settings.planCode, data.settings.monthlyMessageLimit)}</strong>\n        <small>{isPlatformAdminAccess ? "WhatsApp liberado sem pacote ou limite para a administração da plataforma" : hasPackage ? `${data.settings.monthlyMessageLimit.toLocaleString("pt-BR")} mensagens disponíveis por mês` : "Ative um pacote para liberar os envios automáticos"}</small>\n',
+          )
+          replace_once(
+              "app/ui/whatsapp-automation.tsx",
+              '        <div className="whatsapp-usage-bar" aria-label={`${usagePercent}% do pacote utilizado`}><i style={{ width: `${usagePercent}%` }} /></div>\n        <small>{hasPackage ? `${data.usage.remainingThisMonth.toLocaleString("pt-BR")} restantes` : "Nenhuma mensagem será enviada sem pacote"}</small>\n',
+              '        <div className="whatsapp-usage-bar" aria-label={isPlatformAdminAccess ? "Acesso administrativo sem limite de pacote" : `${usagePercent}% do pacote utilizado`}><i style={{ width: `${usagePercent}%` }} /></div>\n        <small>{isPlatformAdminAccess ? "Acesso administrativo sem limite de pacote" : hasPackage ? `${data.usage.remainingThisMonth.toLocaleString("pt-BR")} restantes` : "Nenhuma mensagem será enviada sem pacote"}</small>\n',
+          )
+          replace_once(
+              "app/ui/whatsapp-automation.tsx",
+              '<div><span>AUTOMAÇÕES</span><h3>O que o Cortou Anotou pode enviar sozinho</h3><p>Você escolhe cada automação. Nada é enviado sem conexão e pacote ativos.</p></div>\n',
+              '<div><span>AUTOMAÇÕES</span><h3>O que o Cortou Anotou pode enviar sozinho</h3><p>Você escolhe cada automação. Nada é enviado sem conexão e acesso ativos.</p></div>\n',
+          )
+          replace_once(
+              "app/ui/whatsapp-automation.tsx",
+              '<span><strong>{data.settings.enabled ? "Automações ligadas" : "Automações desligadas"}</strong><small>{canEnable ? "Controle geral dos envios" : !connected ? "Conecte o WhatsApp primeiro" : "Ative um pacote de mensagens primeiro"}</small></span>\n',
+              '<span><strong>{data.settings.enabled ? "Automações ligadas" : "Automações desligadas"}</strong><small>{canEnable ? "Controle geral dos envios" : !connected ? "Conecte o WhatsApp primeiro" : "Ative um pacote de mensagens primeiro"}</small></span>\n',
+          )
+          replace_once(
+              "app/ui/whatsapp-automation.tsx",
+              '<span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasPackage ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "IA conversa; o sistema valida e executa"}</small></span>\n',
+              '<span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasMessageAccess ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "IA conversa; o sistema valida e executa"}</small></span>\n',
+          )
+
+          # The master-switch wording already follows canEnable; keep its customer-facing package hint.
+
+          Path("tests/whatsapp-platform-entitlement-contract.test.mjs").write_text(r'''import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const entitlement = await readFile(new URL("../db/whatsapp-entitlement.ts", import.meta.url), "utf8");
+const whatsapp = await readFile(new URL("../db/whatsapp.ts", import.meta.url), "utf8");
+const evolution = await readFile(new URL("../db/evolution-whatsapp.ts", import.meta.url), "utf8");
+const caAtende = await readFile(new URL("../db/ca-atende.ts", import.meta.url), "utf8");
+const ui = await readFile(new URL("../app/ui/whatsapp-automation.tsx", import.meta.url), "utf8");
+
+test("WhatsApp centralizes platform-admin entitlement without a fake package", () => {
+  assert.match(entitlement, /eq\(team\.platformAdmin, true\)/);
+  assert.match(entitlement, /source: "platform_admin"/);
+  assert.match(entitlement, /if \(limit > 0\)/);
+  assert.match(entitlement, /source: "none"/);
+  assert.doesNotMatch(entitlement, /organizationId\s*===\s*1/);
+});
+
+test("C.A. Atende and both outbound queues use the same entitlement", () => {
+  assert.match(caAtende, /getWhatsappEntitlementForOrganization\(event\.organizationId/);
+  assert.match(caAtende, /!entitlement\.hasAccess/);
+  assert.match(whatsapp, /getWhatsappEntitlementForOrganization\(appointment\.organizationId/);
+  assert.match(whatsapp, /getWhatsappEntitlementForOrganization\(input\.organizationId/);
+  assert.match(evolution, /getWhatsappEntitlementForOrganization\(message\.organizationId/);
+  assert.match(evolution, /!entitlement\.hasAccess/);
+});
+
+test("Platform admin bypasses only the package limit while customer package rules remain", () => {
+  assert.match(whatsapp, /if \(!entitlement\.unlimited\)/);
+  assert.match(whatsapp, /sentThisMonth >= entitlement\.monthlyMessageLimit/);
+  assert.match(ui, /Acesso administrativo completo/);
+  assert.match(ui, /data\?\.entitlement\.hasAccess/);
+  assert.match(ui, /source === "package"/);
+});
+''')
+
+          # Remove this one-shot workflow from the final branch contents.
+          Path(".github/workflows/apply-whatsapp-entitlement.yml").unlink()
+          PY
+      - name: Instalar dependências
+        run: npm ci --no-audit --no-fund
+      - name: Verificar tipos
+        run: npm run typecheck
+      - name: Verificar lint
+        run: npm run lint
+      - name: Rodar testes
+        run: npm test
+      - name: Validar build de produção
+        run: npm run build
+      - name: Publicar alterações validadas na branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/whatsapp-entitlement.ts db/whatsapp.ts db/evolution-whatsapp.ts db/ca-atende.ts app/ui/whatsapp-automation.tsx tests/whatsapp-platform-entitlement-contract.test.mjs .github/workflows/apply-whatsapp-entitlement.yml
+          git commit -m "Libera WhatsApp para administrador da plataforma"
+          git push origin HEAD:fix/platform-admin-whatsapp-entitlement
