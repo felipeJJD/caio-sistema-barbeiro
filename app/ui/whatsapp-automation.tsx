@@ -18,6 +18,12 @@ type WhatsappStatusPayload = {
     connectedAt: string | null;
     updatedAt: string | null;
   };
+  entitlement: {
+    hasAccess: boolean;
+    unlimited: boolean;
+    source: "platform_admin" | "package" | "none";
+    monthlyMessageLimit: number;
+  };
   settings: {
     enabled: boolean;
     confirmationEnabled: boolean;
@@ -257,10 +263,12 @@ export function WhatsappAutomation() {
   }
 
   const connected = Boolean(data && data.connection.provider === "evolution" && data.connection.status === "connected");
-  const hasPackage = Boolean(data && data.settings.monthlyMessageLimit > 0 && data.settings.planCode !== "off");
-  const canEnable = Boolean(connected && hasPackage);
+  const hasMessageAccess = Boolean(data?.entitlement.hasAccess);
+  const hasPackage = data?.entitlement.source === "package";
+  const isPlatformAdminAccess = data?.entitlement.source === "platform_admin";
+  const canEnable = Boolean(connected && hasMessageAccess);
   const usagePercent = useMemo(() => {
-    if (!data?.settings.monthlyMessageLimit) return 0;
+    if (!data?.settings.monthlyMessageLimit || data.entitlement.unlimited) return 0;
     return Math.min(100, Math.round(data.usage.sentThisMonth / data.settings.monthlyMessageLimit * 100));
   }, [data]);
   const codeGroups = pairingCode.replace(/\s/g, "").match(/.{1,4}/g)?.join(" ") ?? pairingCode;
@@ -296,16 +304,16 @@ export function WhatsappAutomation() {
       <article className="panel whatsapp-status-card">
         <div className="whatsapp-card-icon">✦</div>
         <span>PACOTE DE MENSAGENS</span>
-        <strong>{planLabel(data.settings.planCode, data.settings.monthlyMessageLimit)}</strong>
-        <small>{hasPackage ? `${data.settings.monthlyMessageLimit.toLocaleString("pt-BR")} mensagens disponíveis por mês` : "Ative um pacote para liberar os envios automáticos"}</small>
+        <strong>{isPlatformAdminAccess ? "Acesso administrativo completo" : planLabel(data.settings.planCode, data.settings.monthlyMessageLimit)}</strong>
+        <small>{isPlatformAdminAccess ? "WhatsApp liberado sem pacote ou limite para a administração da plataforma" : hasPackage ? `${data.settings.monthlyMessageLimit.toLocaleString("pt-BR")} mensagens disponíveis por mês` : "Ative um pacote para liberar os envios automáticos"}</small>
       </article>
 
       <article className="panel whatsapp-status-card usage">
         <div className="whatsapp-card-icon">↗</div>
         <span>USO NESTE MÊS</span>
         <strong>{data.usage.sentThisMonth.toLocaleString("pt-BR")} <small>enviadas</small></strong>
-        <div className="whatsapp-usage-bar" aria-label={`${usagePercent}% do pacote utilizado`}><i style={{ width: `${usagePercent}%` }} /></div>
-        <small>{hasPackage ? `${data.usage.remainingThisMonth.toLocaleString("pt-BR")} restantes` : "Nenhuma mensagem será enviada sem pacote"}</small>
+        <div className="whatsapp-usage-bar" aria-label={isPlatformAdminAccess ? "Acesso administrativo sem limite de pacote" : `${usagePercent}% do pacote utilizado`}><i style={{ width: `${usagePercent}%` }} /></div>
+        <small>{isPlatformAdminAccess ? "Acesso administrativo sem limite de pacote" : hasPackage ? `${data.usage.remainingThisMonth.toLocaleString("pt-BR")} restantes` : "Nenhuma mensagem será enviada sem pacote"}</small>
       </article>
     </div>
 
@@ -331,7 +339,7 @@ export function WhatsappAutomation() {
 
     <section className="panel whatsapp-automation-panel">
       <div className="whatsapp-panel-heading">
-        <div><span>AUTOMAÇÕES</span><h3>O que o Cortou Anotou pode enviar sozinho</h3><p>Você escolhe cada automação. Nada é enviado sem conexão e pacote ativos.</p></div>
+        <div><span>AUTOMAÇÕES</span><h3>O que o Cortou Anotou pode enviar sozinho</h3><p>Você escolhe cada automação. Nada é enviado sem conexão e acesso ativos.</p></div>
         <label className={canEnable ? "whatsapp-master-switch" : "whatsapp-master-switch disabled"}>
           <span><strong>{data.settings.enabled ? "Automações ligadas" : "Automações desligadas"}</strong><small>{canEnable ? "Controle geral dos envios" : !connected ? "Conecte o WhatsApp primeiro" : "Ative um pacote de mensagens primeiro"}</small></span>
           <input type="checkbox" checked={data.settings.enabled} disabled={!canEnable || saving} onChange={(event) => void saveSettings({ enabled: event.target.checked }, event.target.checked ? "Automações do WhatsApp ligadas." : "Automações do WhatsApp pausadas.")} />
@@ -382,7 +390,7 @@ export function WhatsappAutomation() {
         <div className="whatsapp-assistant-tags"><small>LINK PRIMEIRO</small><small>FILTRO DE OFERTAS</small><small>IA PRINCIPAL</small><small>TRANSFERÊNCIA HUMANA</small></div>
       </div>
       <label className={canEnable && data.settings.enabled ? "whatsapp-bot-switch" : "whatsapp-bot-switch disabled"}>
-        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasPackage ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "IA conversa; o sistema valida e executa"}</small></span>
+        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasMessageAccess ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "IA conversa; o sistema valida e executa"}</small></span>
         <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled: event.target.checked }, event.target.checked ? "C.A. Atende com IA ligado." : "C.A. Atende desligado.")} />
         <i />
       </label>
