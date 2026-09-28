@@ -111,8 +111,9 @@ export function WhatsappAutomation() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  async function load() {
-    setLoading(true);
+  async function load(options: { background?: boolean } = {}) {
+    const background = Boolean(options.background);
+    if (!background) setLoading(true);
     try {
       const response = await fetch("/api/whatsapp/evolution", { cache: "no-store" });
       const payload = await response.json() as EvolutionPayload;
@@ -135,7 +136,7 @@ export function WhatsappAutomation() {
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Não foi possível carregar o WhatsApp.");
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }
 
@@ -168,7 +169,7 @@ export function WhatsappAutomation() {
       if (payload.whatsapp) setData(payload.whatsapp);
       if (code) {
         if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = setInterval(() => void load(), 3000);
+        pollRef.current = setInterval(() => void load({ background: true }), 3000);
         showAppToast("Código gerado. Termine a conexão no WhatsApp.");
       } else {
         await load();
