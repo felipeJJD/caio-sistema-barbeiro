@@ -25,12 +25,21 @@ test("aba mostra conexão, pacote, uso mensal e automações", () => {
   assert.match(whatsappUi, /Aviso de remarcação/);
 });
 
-test("conexão Meta usa Embedded Signup sem expor campos técnicos ao proprietário", () => {
-  assert.match(whatsappUi, /CONEXÃO OFICIAL META/);
-  assert.match(whatsappUi, /Conectar meu WhatsApp atual/);
-  assert.match(whatsappUi, /Conectar outro número/);
+test("conexão Evolution acontece dentro do próprio menu sem campos técnicos", () => {
+  assert.match(whatsappUi, /CONEXÃO EVOLUTION/);
+  assert.match(whatsappUi, /Conectar meu WhatsApp/);
+  assert.match(whatsappUi, /\/api\/whatsapp\/evolution/);
+  assert.match(whatsappUi, /Código para vincular/);
+  assert.doesNotMatch(whatsappUi, /CONEXÃO OFICIAL META/);
+  assert.doesNotMatch(whatsappUi, /connect\.facebook\.net/);
   assert.doesNotMatch(whatsappUi, /name="accessToken"/);
   assert.doesNotMatch(whatsappUi, /name="wabaId"/);
+});
+
+test("laboratório antigo não aparece na experiência do cliente", () => {
+  assert.doesNotMatch(whatsappUi, /Testar atendente/);
+  assert.doesNotMatch(whatsappUi, /LABORATÓRIO DO C\.A\. ATENDE/);
+  assert.doesNotMatch(whatsappUi, /\/api\/whatsapp\/test/);
 });
 
 test("chave geral só pode ser ligada com conexão e pacote ativos", () => {
