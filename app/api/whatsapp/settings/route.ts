@@ -1,5 +1,6 @@
 import { getSessionAccess } from "../../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../../db/access";
+import { disconnectEvolutionWhatsapp } from "../../../../db/evolution-whatsapp";
 import {
   disconnectWhatsapp,
   getWhatsappAutomationStatus,
@@ -49,7 +50,9 @@ export async function POST(request: Request) {
         humanTakeoverMinutes: data.humanTakeoverMinutes === undefined ? undefined : Number(data.humanTakeoverMinutes),
       });
     } else if (action === "disconnect") {
-      await disconnectWhatsapp(access);
+      const current = await getWhatsappAutomationStatus(access);
+      if (current.connection.provider === "evolution") await disconnectEvolutionWhatsapp(access);
+      else await disconnectWhatsapp(access);
     } else if (action === "pause-conversation") {
       const pausedUntil = await pauseWhatsappConversation(access, String(data.phone ?? ""), data.minutes === undefined ? undefined : Number(data.minutes));
       return Response.json({ ok: true, pausedUntil, whatsapp: await getWhatsappAutomationStatus(access) });
