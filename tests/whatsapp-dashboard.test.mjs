@@ -42,17 +42,20 @@ test("laboratório antigo não aparece na experiência do cliente", () => {
   assert.doesNotMatch(whatsappUi, /\/api\/whatsapp\/test/);
 });
 
-test("chave geral só pode ser ligada com conexão e pacote ativos", () => {
-  assert.match(whatsappUi, /const canEnable = Boolean\(connected && hasPackage\)/);
+test("chave geral exige conexão e direito de uso do WhatsApp", () => {
+  assert.match(whatsappUi, /const hasMessageAccess = Boolean\(data\?\.entitlement\.hasAccess\)/);
+  assert.match(whatsappUi, /const hasPackage = data\?\.entitlement\.source === "package"/);
+  assert.match(whatsappUi, /const canEnable = Boolean\(connected && hasMessageAccess\)/);
   assert.match(whatsappUi, /disabled=\{!canEnable \|\| saving\}/);
 });
 
-test("C.A. Atende aparece como IA principal e só liga com conexão, pacote e automações", () => {
+test("C.A. Atende só liga com conexão, direito de uso e automações", () => {
   assert.match(whatsappUi, /Atendimento inteligente por IA/);
   assert.match(whatsappUi, /LINK PRIMEIRO/);
   assert.match(whatsappUi, /FILTRO DE OFERTAS/);
   assert.match(whatsappUi, /IA PRINCIPAL/);
   assert.match(whatsappUi, /checked=\{data\.settings\.botEnabled\}/);
+  assert.match(whatsappUi, /!hasMessageAccess \? "Ative um pacote primeiro"/);
   assert.match(whatsappUi, /disabled=\{!canEnable \|\| !data\.settings\.enabled \|\| saving\}/);
 });
 
