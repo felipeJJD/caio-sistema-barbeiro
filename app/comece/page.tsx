@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getPlatformBillingOffer } from "../../db/platform-billing";
 import { SUPPORT_PHONE_DISPLAY, SUPPORT_WHATSAPP_URL } from "../../lib/support";
-import { BrandLogo } from "../ui/brand-logo";
-import { PublicSignupForm } from "../ui/public-signup-form";
 import { AppIcon } from "../ui/app-icon";
+import { BrandLogo } from "../ui/brand-logo";
+import { PublicLandingMotion } from "../ui/public-landing-motion";
+import { PublicSignupForm } from "../ui/public-signup-form";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
   const [params, billingOffer] = await Promise.all([searchParams, getPlatformBillingOffer()]);
   const pixPrice = price(billingOffer.pixPriceCents);
   const referralCode = (first(params.ref) ?? "").slice(0, 70);
+  const initialAccountType = first(params.perfil) === "barbeiro" ? "individual" as const : "barbershop" as const;
   const sourceParts = [
     ["origem", first(params.utm_source)],
     ["meio", first(params.utm_medium)],
@@ -36,6 +38,8 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
 
   return (
     <main className="public-landing">
+      <PublicLandingMotion />
+
       <header className="public-nav">
         <Link className="public-nav-brand" href="/comece" aria-label="Cortou Anotou — início"><BrandLogo /></Link>
         <nav aria-label="Navegação principal">
@@ -56,7 +60,8 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
           <p>Agenda, atendimentos, produtos, mensalistas, equipe e financeiro em um aplicativo simples de usar — até nos dias mais corridos.</p>
           <div className="public-hero-actions">
             <a className="public-primary-cta" href="#cadastro">Começar 14 dias grátis <b>→</b></a>
-            <a className="public-secondary-cta" href="#recursos">Conhecer o aplicativo</a>
+            <Link className="public-login-cta" href="/">Entrar</Link>
+            <a className="public-learn-link" href="#recursos">Conhecer o aplicativo ↓</a>
           </div>
           <div className="public-trust-row">
             <span><b>✓</b> Sem cartão no teste</span>
@@ -95,6 +100,37 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
         <span>AJUDA NA ROTINA</span>
       </section>
 
+      <section className="public-signup-section public-signup-priority" id="cadastro">
+        <div className="public-signup-copy">
+          <span>14 DIAS GRÁTIS</span>
+          <h2>Entre, teste na rotina<br />e decida depois.</h2>
+          <p>Crie sua conta em poucos passos e use o Cortou Anotou durante 14 dias sem cartão e sem cobrança automática.</p>
+          <ul>
+            <li><b>✓</b><span>Barbearia criada automaticamente</span></li>
+            <li><b>✓</b><span>Acesso completo durante o teste</span></li>
+            <li><b>✓</b><span>Você continua com o mesmo login se decidir assinar</span></li>
+          </ul>
+          <div className="public-price"><small>DEPOIS DO TESTE</small><strong><sup>R$</sup> {pixPrice}</strong><span>/ mês</span></div>
+        </div>
+        <PublicSignupForm signupSource={signupSource} referralCode={referralCode} initialAccountType={initialAccountType} />
+      </section>
+
+      <section className="public-secondary-access" aria-label="Outras formas de acesso">
+        <div className="public-secondary-access-heading">
+          <span>OUTRAS FORMAS DE USAR</span>
+          <h2>Não é dono de barbearia?</h2>
+          <p>Esses caminhos continuam disponíveis sem atrapalhar quem só quer começar o teste da barbearia.</p>
+        </div>
+        <div className="public-secondary-access-grid">
+          <Link href="/comece?perfil=barbeiro#cadastro">
+            <div><strong>Sou barbeiro</strong><span>Quero controlar meus próprios atendimentos e ganhos.</span></div><b>→</b>
+          </Link>
+          <Link href="/afiliado">
+            <div><strong>Quero ser afiliado</strong><span>Quero indicar o Cortou Anotou e acompanhar minhas indicações.</span></div><b>→</b>
+          </Link>
+        </div>
+      </section>
+
       <section className="public-section public-features" id="recursos">
         <div className="public-section-heading">
           <span>DO PRIMEIRO HORÁRIO AO FECHAMENTO</span>
@@ -120,28 +156,6 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
           <article><b>2</b><span>Deixe com a sua cara</span><p>Ajuste serviços, preços, formas de pagamento, comissões e metas quando quiser.</p></article>
           <article><b>3</b><span>Convide a equipe</span><p>Gere os acessos dos barbeiros e comece a registrar a operação no mesmo dia.</p></article>
         </div>
-      </section>
-
-      <section className="public-signup-section" id="cadastro">
-        <div className="public-signup-copy">
-          <span>PREÇO DE LANÇAMENTO</span>
-          <h2>Organize primeiro.<br />Decida depois.</h2>
-          <p>Use todas as funções durante 14 dias. Depois, escolha o período que combina com sua barbearia e pague pelo Pix. O plano mensal começa em <strong>R$ {pixPrice}</strong>.</p>
-          <ul>
-            <li><b>✓</b><span>Barbearia criada automaticamente</span></li>
-            <li><b>✓</b><span>Acesso completo durante o teste</span></li>
-            <li><b>✓</b><span>Planos Pix de 1, 3, 6 ou 12 meses</span></li>
-            <li><b>✓</b><span>Desconto progressivo nos períodos maiores</span></li>
-            <li><b>✓</b><span>Você pode continuar usando o mesmo login</span></li>
-          </ul>
-          <div className="public-price"><small>PLANOS SOMENTE POR PIX</small><strong><sup>R$</sup> {pixPrice}</strong><span>/ mês</span></div>
-          <div className="public-plan-grid">{billingOffer.pixPlans.map((plan) => <article className={plan.code === "quarterly" ? "popular" : ""} key={plan.code}>
-            {plan.code === "quarterly" && <em>MAIS ESCOLHIDO</em>}
-            <span>{plan.label}</span><strong>R$ {price(plan.priceCents)}</strong>
-            <small>{plan.discountBps ? `${plan.discountBps / 100}% de desconto · R$ ${price(Math.round(plan.priceCents / plan.months))}/mês` : `${plan.periodDays} dias de acesso`}</small>
-          </article>)}</div>
-        </div>
-        <PublicSignupForm signupSource={signupSource} referralCode={referralCode} />
       </section>
 
       <section className="public-faq public-section" id="duvidas">

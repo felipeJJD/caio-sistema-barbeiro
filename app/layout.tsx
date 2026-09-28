@@ -12,6 +12,7 @@ import "./legal.css";
 import "./help-launcher-drag.css";
 import "./mobile-readability.css";
 import "./navigation-order.css";
+import "./public-landing-polish.css";
 import { AppGestureGuard } from "./ui/app-gesture-guard";
 import { AppToastHost } from "./ui/app-toast";
 import { AppointmentCompletionAutoScroll } from "./ui/appointment-completion-auto-scroll";
