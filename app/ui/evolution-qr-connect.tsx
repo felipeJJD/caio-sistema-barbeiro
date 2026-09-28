@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
@@ -135,7 +136,7 @@ export function EvolutionQrConnect() {
 
         {qrCode && <section style={{ marginTop:18, background:"#fff", border:"2px solid #dba92e", borderRadius:22, padding:22, textAlign:"center" }}>
           <div style={{ fontSize:12, letterSpacing:1.5, color:"#846514", fontWeight:900 }}>ESCANEIE PELO WHATSAPP BUSINESS</div>
-          <img src={qrCode} alt="QR Code para conectar o WhatsApp" style={{ display:"block", width:"min(100%, 330px)", aspectRatio:"1 / 1", objectFit:"contain", margin:"16px auto", borderRadius:12 }} />
+          <Image src={qrCode} alt="QR Code para conectar o WhatsApp" width={330} height={330} unoptimized style={{ display:"block", width:"min(100%, 330px)", height:"auto", margin:"16px auto", borderRadius:12 }} />
           <p style={{ margin:0, color:"#5e685f", lineHeight:1.5 }}>No celular principal: WhatsApp Business → Configurações → Aparelhos conectados → Conectar um aparelho. Escaneie este QR.</p>
           <small style={{ display:"block", marginTop:12, color:"#7b817a" }}>O QR muda com o tempo. Se expirar, gere outro nesta tela.</small>
         </section>}
