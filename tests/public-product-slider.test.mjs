@@ -9,21 +9,30 @@ const [component, page, css, layout] = await Promise.all([
   readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
 ]);
 
-test("landing apresenta sete áreas do aplicativo em um slider lateral", () => {
+test("landing mostra cinco telas reais do aplicativo no slider principal", () => {
   const keys = [...component.matchAll(/key: "([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(keys, ["painel", "agenda", "registro", "historico", "mensalistas", "financeiro", "whatsapp"]);
-  assert.match(page, /<PublicProductSlider \/>/);
+  assert.deepEqual(keys, ["painel", "agenda", "registrar", "historico", "financeiro"]);
+  assert.match(component, /PAINEL_SCREEN/);
+  assert.match(component, /AGENDA_SCREEN/);
+  assert.match(component, /REGISTRAR_SCREEN/);
+  assert.match(component, /HISTORICO_SCREEN/);
+  assert.match(component, /FINANCEIRO_SCREEN/);
   assert.match(component, /Arraste para o lado/);
   assert.match(css, /scroll-snap-type:x mandatory/);
 });
 
-test("prévia pública usa dados demonstrativos e não expõe a equipe real", () => {
-  assert.match(component, /dados demonstrativos/i);
-  assert.doesNotMatch(component, /Davi|Eduardo|Kaio/);
+test("slider fica na primeira dobra e substitui o mockup antigo", () => {
+  assert.equal((page.match(/<PublicProductSlider \/>/g) ?? []).length, 1);
+  assert.ok(page.indexOf("<PublicProductSlider />") < page.indexOf("public-proof-strip"));
+  assert.ok(page.indexOf("<PublicProductSlider />") < page.indexOf("public-signup-section"));
+  assert.doesNotMatch(page, /public-product-stage/);
+  assert.doesNotMatch(page, /Dados separados por barbearia/);
+  assert.match(page, /public-learn-link" href="#produto"/);
 });
 
-test("slider é carregado globalmente e respeita movimento reduzido", () => {
+test("slider real continua leve e respeita movimento reduzido", () => {
   assert.match(layout, /public-product-slider\.css/);
   assert.match(css, /prefers-reduced-motion:reduce/);
   assert.doesNotMatch(component, /setInterval|autoplay/i);
+  assert.doesNotMatch(component, /A barbearia inteira em uma visão|Terminou o corte\?|dados demonstrativos/i);
 });
