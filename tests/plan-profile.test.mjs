@@ -11,17 +11,20 @@ const [signup, route, auth, schema, migration, dashboard] = await Promise.all([
   readFile(new URL("../app/ui/dashboard-app.tsx", import.meta.url), "utf8"),
 ]);
 
-test("questionário pede números livres e não fixa quantidade de clientes", () => {
-  assert.match(signup, /Quantos clientes vocês atendem por mês/);
+test("cadastro público começa direto e não exige questionário de perfil", () => {
+  assert.doesNotMatch(signup, /Quantos clientes vocês atendem por mês/);
+  assert.doesNotMatch(signup, /Digite uma média mensal/);
+  assert.doesNotMatch(signup, /PERFIL DA BARBEARIA/);
+  assert.doesNotMatch(signup, /Recebi convite da barbearia/);
+  assert.match(signup, /initialAccountType/);
   assert.match(signup, /estimatedMonthlyClients/);
   assert.match(signup, /estimatedMonthlyWhatsappContacts/);
   assert.match(signup, /estimatedProfessionals/);
-  assert.match(signup, /Digite uma média mensal/);
-  assert.doesNotMatch(signup, /defaultValue=["']300["']/);
 });
 
-test("cadastro envia e valida o perfil da barbearia", () => {
+test("cadastro continua enviando um perfil compatível com a validação existente", () => {
   for (const field of ["estimatedMonthlyClients","estimatedMonthlyWhatsappContacts","estimatedProfessionals","serviceMode","automationGoal"]) {
+    assert.match(signup, new RegExp(field));
     assert.match(route, new RegExp(field));
     assert.match(auth, new RegExp(field));
   }
