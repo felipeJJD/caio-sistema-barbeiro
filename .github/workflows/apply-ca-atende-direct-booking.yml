@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'Executa correção direta do C.A. Atende'
+    if: github.event.head_commit.message == 'Repete correção direta do C.A. Atende'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +20,27 @@ jobs:
         with:
           node-version: 24.13.0
           cache: npm
+      - name: Tornar o contrato do evento inbound específico
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/apply-ca-atende-direct-booking.py')
+          text = p.read_text()
+          old = '''replace_once(
+              "db/whatsapp.ts",
+              '  phone: string;\\n  text: string;\\n',
+              '  phone: string;\\n  senderName?: string;\\n  text: string;\\n',
+          )'''
+          new = '''replace_once(
+              "db/whatsapp.ts",
+              'export type WhatsappInboundTextEvent = {\\n  organizationId: number;\\n  messageRowId: number;\\n  providerMessageId: string;\\n  phone: string;\\n  text: string;\\n',
+              'export type WhatsappInboundTextEvent = {\\n  organizationId: number;\\n  messageRowId: number;\\n  providerMessageId: string;\\n  phone: string;\\n  senderName?: string;\\n  text: string;\\n',
+          )'''
+          if text.count(old) != 1:
+              raise SystemExit('Não encontrei exatamente o contrato antigo do evento inbound.')
+          p.write_text(text.replace(old, new, 1))
+          PY
       - name: Aplicar alterações com contratos exatos
         run: python3 scripts/apply-ca-atende-direct-booking.py
       - name: Instalar dependências
