@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'Executa aplicação segura do entitlement do WhatsApp'
+    if: github.event.head_commit.message == 'Repete entitlement com build antes dos testes'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,10 +28,10 @@ jobs:
         run: npm run typecheck
       - name: Verificar lint
         run: npm run lint
-      - name: Rodar testes automatizados
-        run: npm test
       - name: Validar build de produção
         run: npm run build
+      - name: Rodar testes automatizados
+        run: npm test
       - name: Teste de carga local
         run: npm run test:load
       - name: Publicar somente alterações validadas
