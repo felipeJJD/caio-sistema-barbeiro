@@ -1,0 +1,38 @@
+import { getSessionAccess } from "../../../../db/auth";
+import { isOrganizationAccessExpired } from "../../../../db/access";
+import {
+  beginEvolutionPairing,
+  getEvolutionClientConfig,
+  refreshEvolutionStatus,
+} from "../../../../db/evolution-whatsapp";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    const access = await getSessionAccess();
+    if (!access) return Response.json({ error:"Sua sessão terminou. Entre novamente." }, { status:401 });
+    if (!access.isOwner) return Response.json({ error:"Somente o proprietário pode conectar o WhatsApp." }, { status:403 });
+    const status = await refreshEvolutionStatus(access);
+    return Response.json({ evolution:getEvolutionClientConfig(), ...status }, { headers:{ "Cache-Control":"no-store" } });
+  } catch (error) {
+    return Response.json({ error:error instanceof Error ? error.message : "Não foi possível consultar o WhatsApp." }, { status:400, headers:{ "Cache-Control":"no-store" } });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const access = await getSessionAccess();
+    if (!access) return Response.json({ error:"Sua sessão terminou. Entre novamente." }, { status:401 });
+    if (!access.isOwner) return Response.json({ error:"Somente o proprietário pode conectar o WhatsApp." }, { status:403 });
+    if (isOrganizationAccessExpired(access)) return Response.json({ error:"O período da barbearia terminou. Renove o plano antes de conectar o WhatsApp." }, { status:402 });
+    const contentLength = Number(request.headers.get("content-length") ?? 0);
+    if (contentLength > 4_000) return Response.json({ error:"Solicitação muito grande." }, { status:413 });
+    const data = await request.json() as Record<string, unknown>;
+    const phone = String(data.phone ?? "").slice(0,40);
+    const result = await beginEvolutionPairing(access, phone);
+    return Response.json({ ok:true, ...result }, { headers:{ "Cache-Control":"no-store" } });
+  } catch (error) {
+    return Response.json({ error:error instanceof Error ? error.message : "Não foi possível gerar o código do WhatsApp." }, { status:400, headers:{ "Cache-Control":"no-store" } });
+  }
+}

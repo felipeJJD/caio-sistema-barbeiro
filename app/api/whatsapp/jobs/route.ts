@@ -1,4 +1,5 @@
 import { processWhatsappQueue } from "../../../../db/whatsapp";
+import { processEvolutionWhatsappQueue } from "../../../../db/evolution-whatsapp";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,17 @@ function authorized(request: Request) {
 async function run(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Não autorizado." }, { status: 401 });
   try {
-    return Response.json({ ok: true, ...(await processWhatsappQueue({ limit: 40 })) });
+    // Mantemos a Cloud API intacta. Conexões Evolution que passaram pelo
+    // processador legado são recuperadas em seguida sem reenviar falhas reais.
+    const meta = await processWhatsappQueue({ limit: 40 });
+    const evolution = await processEvolutionWhatsappQueue({ limit: 40 });
+    return Response.json({
+      ok: true,
+      processed: meta.processed + evolution.processed,
+      sent: meta.sent + evolution.sent,
+      failed: meta.failed + evolution.failed,
+      providers: { meta, evolution },
+    });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível processar a fila." }, { status: 500 });
   }
