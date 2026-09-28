@@ -28,6 +28,8 @@ export type CaAtendeContextMemory = {
   time?: string;
   service?: string;
   barber?: string;
+  clientName?: string;
+  paymentChoice?: string;
   // The customer's explicit selection is kept separate from the last displayed options.
   afterTime?: string;
   beforeTime?: string;
@@ -194,6 +196,8 @@ export function mergeCaAtendeMemory(memory: CaAtendeContextMemory, next: Partial
     time: next.time || memory.time || "",
     service: next.service || memory.service || "",
     barber: next.barber || memory.barber || "",
+    clientName: next.clientName || memory.clientName || "",
+    paymentChoice: next.paymentChoice || memory.paymentChoice || "",
     afterTime: next.afterTime || memory.afterTime || "",
     beforeTime: next.beforeTime || memory.beforeTime || "",
   };

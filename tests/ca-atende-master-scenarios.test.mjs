@@ -20,7 +20,14 @@ export async function getPublicBookingSlotsExpanded(slug,date,serviceId,barberId
   globalThis.__caSlots.push({slug,date,serviceId,barberId});
   return BARBERS.flatMap(barber => TIMES.map(time => ({time,barberId:barber.id,barberName:barber.name})))
     .filter(slot => !barberId || slot.barberId === barberId);
-}`;
+}
+export async function getPublicBookingData(){
+  return {payments:{pixEnabled:false,cashEnabled:true,debitEnabled:true,creditEnabled:true}};
+}
+export async function createPublicBooking(){
+  throw Error("Simulation must never create a real appointment");
+}
+`;
 
 const fakeModules = {
   "drizzle-orm": "export const and=()=>{},eq=()=>{},isNull=()=>{};",
