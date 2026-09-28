@@ -10,7 +10,7 @@ import { validClientName } from "../lib/client-name";
 import { parseBookingWeekdays } from "../lib/booking-weekdays";
 import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWindowAllows, parseTeamWeeklyBookingHours, parseWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
 import { availableMembershipUses, membershipNameMatches, membershipNameNeedsPhone, normalizeMembershipIdentity, phoneDigits, resolveMembershipService } from "../lib/membership-service";
-import { processWhatsappQueueSafely, queueAppointmentWhatsappSafely } from "./whatsapp";
+import { processWhatsappQueueSafely, queueAppointmentReminderOnlySafely, queueAppointmentWhatsappSafely } from "./whatsapp";
 
 export type PublicBookingData = {
   organization: {
@@ -315,7 +315,7 @@ export async function getPublicBookingSlotsExpanded(slug: string, date: string, 
   return slots;
 }
 
-export async function createPublicBooking(slug: string, input: { date: string; time: string; serviceId: number; barberId: number; clientName: string; phone: string; paymentChoice: string; isMembership?: boolean; membershipClientId?: number }) {
+export async function createPublicBooking(slug: string, input: { date: string; time: string; serviceId: number; barberId: number; clientName: string; phone: string; paymentChoice: string; isMembership?: boolean; membershipClientId?: number }, options: { source?: "public" | "ca_atende"; skipImmediateWhatsappConfirmation?: boolean } = {}) {
   const clientName = validClientName(input.clientName);
   const phone = input.phone.replace(/[^0-9+()\-\s]/g, "").trim().slice(0, 30);
   if (phone.replace(/\D/g, "").length < 8) throw new Error("Informe um telefone ou WhatsApp válido.");
@@ -441,7 +441,7 @@ export async function createPublicBooking(slug: string, input: { date: string; t
       phone,
       service.id,
       selected.barberId,
-      "Solicitado pelo link público",
+      options.source === "ca_atende" ? "Solicitado pelo C.A. Atende" : "Solicitado pelo link público",
       status,
       paymentChoice,
       paymentToken,
@@ -466,7 +466,9 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     status,
   });
   if (status === "Agendado") {
-    const queued = await queueAppointmentWhatsappSafely("confirmation", appointmentId);
+    const queued = options.skipImmediateWhatsappConfirmation
+      ? await queueAppointmentReminderOnlySafely(appointmentId)
+      : await queueAppointmentWhatsappSafely("confirmation", appointmentId);
     if (queued.queued) await processWhatsappQueueSafely(data.organization.id, 3);
   }
   return {

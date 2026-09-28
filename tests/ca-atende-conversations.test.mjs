@@ -13,7 +13,14 @@ export async function getPublicBookingSlotsExpanded(slug,date,serviceId,barberId
     {time:"17:30",barberId:1,barberName:"Eduardo"},
     {time:"18:00",barberId:2,barberName:"Davi"},
   ].filter(slot => !barberId || slot.barberId === barberId);
-}`;
+}
+export async function getPublicBookingData(){
+  return {payments:{pixEnabled:false,cashEnabled:true,debitEnabled:true,creditEnabled:true}};
+}
+export async function createPublicBooking(){
+  throw Error("Simulation must never create a real appointment");
+}
+`;
 const noopModules = {
   "drizzle-orm": "export const and=()=>{},eq=()=>{},isNull=()=>{};",
   "./index": "export const getDb=()=>{throw Error('No database in conversation tests')};",

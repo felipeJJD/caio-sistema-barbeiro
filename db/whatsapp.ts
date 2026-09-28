@@ -707,6 +707,32 @@ export async function queueAppointmentWhatsappSafely(kind: Exclude<WhatsappAutom
   }
 }
 
+export async function queueAppointmentReminderOnly(appointmentId: number) {
+  const appointment = await appointmentContext(appointmentId);
+  if (!appointment) return { queued:false, reason:"appointment_not_found" as const };
+  const [settings, connection] = await Promise.all([
+    settingsForOrganization(appointment.organizationId),
+    connectionForOrganization(appointment.organizationId),
+  ]);
+  const entitlement = await getWhatsappEntitlementForOrganization(appointment.organizationId, Number(settings.monthlyMessageLimit));
+  if (!settings.enabled || !settings.reminderEnabled || !connection || connection.status !== "connected" || !entitlement.hasAccess) {
+    return { queued:false, reason:"automation_inactive" as const };
+  }
+  const reminderAt = whatsappReminderAt(appointment.appointmentDate, appointment.appointmentTime, Number(settings.reminderHoursBefore));
+  if (!reminderAt) return { queued:false, reason:"invalid_schedule" as const };
+  const queued = await enqueueMessage("reminder", appointment, settings, reminderAt);
+  return { queued, reason:queued ? "queued" as const : "duplicate_or_disabled" as const };
+}
+
+export async function queueAppointmentReminderOnlySafely(appointmentId: number) {
+  try {
+    return await queueAppointmentReminderOnly(appointmentId);
+  } catch (error) {
+    console.error("WhatsApp reminder queue failed", error);
+    return { queued:false, reason:"queue_error" as const };
+  }
+}
+
 export async function queueWhatsappTextReply(input: {
   organizationId: number;
   phone: string;
@@ -941,6 +967,7 @@ export type WhatsappInboundTextEvent = {
   messageRowId: number;
   providerMessageId: string;
   phone: string;
+  senderName?: string;
   text: string;
   receivedAt: string;
 };

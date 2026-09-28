@@ -389,6 +389,7 @@ export async function handleEvolutionWebhook(payload: unknown): Promise<Evolutio
   const providerMessageId = String(key.id ?? data.id ?? "").trim();
   const text = inboundText(data).slice(0, 3500);
   if (!phone || !providerMessageId) return { received:0, statuses:0, inboundTextEvents:[] };
+  const senderName = String(data.pushName ?? data.notifyName ?? "").trim().slice(0, 120);
   const receivedAt = evolutionTimestamp(data.messageTimestamp ?? body.date_time ?? body.dateTime);
   const inserted = await db.insert(whatsappMessages).values({
     organizationId:connection.organizationId,
@@ -410,7 +411,7 @@ export async function handleEvolutionWebhook(payload: unknown): Promise<Evolutio
     target:[whatsappConversations.organizationId, whatsappConversations.phone],
     set:{ lastInboundAt:receivedAt, lastInboundPreview:preview, updatedAt:receivedAt },
   });
-  const inboundTextEvents: WhatsappInboundTextEvent[] = text ? [{ organizationId:connection.organizationId, messageRowId:inserted[0].id, providerMessageId, phone, text, receivedAt }] : [];
+  const inboundTextEvents: WhatsappInboundTextEvent[] = text ? [{ organizationId:connection.organizationId, messageRowId:inserted[0].id, providerMessageId, phone, senderName:senderName || undefined, text, receivedAt }] : [];
   return { received:1, statuses:0, inboundTextEvents };
 }
 
