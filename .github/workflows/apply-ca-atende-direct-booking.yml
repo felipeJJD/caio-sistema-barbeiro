@@ -1,0 +1,46 @@
+name: Aplicar agendamento direto do C.A. Atende
+
+on:
+  push:
+    branches:
+      - fix/ca-atende-direct-booking-v4
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Executa correção direta do C.A. Atende'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - name: Aplicar alterações com contratos exatos
+        run: python3 scripts/apply-ca-atende-direct-booking.py
+      - name: Instalar dependências
+        run: npm ci --no-audit --no-fund
+      - name: Verificar tipos
+        run: npm run typecheck
+      - name: Verificar lint
+        run: npm run lint
+      - name: Validar build de produção
+        run: npm run build
+      - name: Rodar testes automatizados
+        run: npm test
+      - name: Teste de carga local
+        run: npm run test:load
+      - name: Publicar somente alterações validadas
+        shell: bash
+        run: |
+          rm scripts/apply-ca-atende-direct-booking.py
+          rm .github/workflows/apply-ca-atende-direct-booking.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "C.A. Atende conclui agendamentos no WhatsApp"
+          git push origin HEAD:fix/ca-atende-direct-booking-v4
