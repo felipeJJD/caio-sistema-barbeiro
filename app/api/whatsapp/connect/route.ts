@@ -1,25 +1,31 @@
 import { getSessionAccess } from "../../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../../db/access";
+import { getWhatsappAutomationStatus } from "../../../../db/whatsapp";
 import {
-  completeWhatsappEmbeddedSignup,
-  getWhatsappAutomationStatus,
-  getWhatsappEmbeddedSignupClientConfig,
-} from "../../../../db/whatsapp";
+  getEvolutionClientConfig,
+  refreshEvolutionConnection,
+  startEvolutionConnection,
+} from "../../../../db/whatsapp-evolution";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const access = await getSessionAccess();
     if (!access) return Response.json({ error: "Sua sessão terminou. Entre novamente." }, { status: 401 });
     if (!access.isOwner) return Response.json({ error: "Somente o proprietário pode conectar o WhatsApp." }, { status: 403 });
+    const origin = new URL(request.url).origin;
+    const current = await getWhatsappAutomationStatus(access);
+    const whatsapp = current.connection.provider === "evolution"
+      ? await refreshEvolutionConnection(access, origin)
+      : current;
     return Response.json(
-      { config: getWhatsappEmbeddedSignupClientConfig(), whatsapp: await getWhatsappAutomationStatus(access) },
+      { config: getEvolutionClientConfig(), whatsapp },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Não foi possível preparar a conexão com a Meta." },
+      { error: error instanceof Error ? error.message : "Não foi possível preparar a conexão com a Evolution." },
       { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -31,21 +37,13 @@ export async function POST(request: Request) {
     if (!access) return Response.json({ error: "Sua sessão terminou. Entre novamente." }, { status: 401 });
     if (!access.isOwner) return Response.json({ error: "Somente o proprietário pode conectar o WhatsApp." }, { status: 403 });
     if (isOrganizationAccessExpired(access)) return Response.json({ error: "O período da barbearia terminou. Renove o plano antes de conectar o WhatsApp." }, { status: 402 });
+    if (Number(request.headers.get("content-length") ?? 0) > 4_000) return Response.json({ error: "Solicitação muito grande." }, { status: 413 });
 
-    const contentLength = Number(request.headers.get("content-length") ?? 0);
-    if (contentLength > 12_000) return Response.json({ error: "Solicitação muito grande." }, { status: 413 });
-    const data = await request.json() as Record<string, unknown>;
-    const mode = String(data.mode ?? "cloud") === "coexistence" ? "coexistence" : "cloud";
-    const whatsapp = await completeWhatsappEmbeddedSignup(access, {
-      code: String(data.code ?? ""),
-      wabaId: String(data.wabaId ?? ""),
-      phoneNumberId: String(data.phoneNumberId ?? ""),
-      mode,
-    });
-    return Response.json({ ok: true, whatsapp }, { headers: { "Cache-Control": "no-store" } });
+    const result = await startEvolutionConnection(access, new URL(request.url).origin);
+    return Response.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Não foi possível concluir a conexão com a Meta." },
+      { error: error instanceof Error ? error.message : "Não foi possível iniciar a conexão com a Evolution." },
       { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }
