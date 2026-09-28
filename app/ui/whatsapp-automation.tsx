@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { showAppToast } from "./app-toast";
 
 type WhatsappStatusPayload = {
@@ -49,83 +49,25 @@ type WhatsappStatusPayload = {
   }>;
 };
 
+type EvolutionPayload = {
+  evolution?: { ready: boolean; missing: string[] };
+  state?: string;
+  pairingCode?: string;
+  whatsapp?: WhatsappStatusPayload;
+  error?: string;
+};
+
 type WhatsappApiPayload = {
   whatsapp?: WhatsappStatusPayload;
   error?: string;
 };
 
-type WhatsappSignupConfig = {
-  ready: boolean;
-  appId: string;
-  configId: string;
-  graphVersion: string;
-  missing: string[];
-  supportsCoexistence: boolean;
-};
-
-type WhatsappConnectPayload = WhatsappApiPayload & {
-  config?: WhatsappSignupConfig;
-};
-
-type CaAtendeTestState = {
-  botState: string;
-  memory: { intent?: string; date?: string; time?: string; service?: string; barber?: string; afterTime?: string };
-  paused: boolean;
-  unresolvedTurns: number;
-};
-
-type CaAtendeTestResult = {
-  reply: string;
-  intent: string;
-  source: "rule" | "ai";
-  dataSource: "agenda" | "services" | null;
-  handoff: boolean;
-  silent: boolean;
-  silentReason: "commercial_offer" | "human_takeover" | null;
-  choices: string[];
-  guided: boolean;
-  state: CaAtendeTestState;
-};
-
-type CaAtendeTestMessage = {
-  id: number;
-  role: "user" | "bot" | "system";
-  text: string;
-  badges?: string[];
-  choices?: string[];
-};
-
-type EmbeddedSignupMode = "cloud" | "coexistence";
-
-type MetaLoginResponse = {
-  status?: string;
-  authResponse?: { code?: string };
-};
-
-type MetaSignupEvent = {
-  type?: string;
-  event?: string;
-  data?: {
-    waba_id?: string;
-    phone_number_id?: string;
-    error_message?: string;
-  };
-};
-
-declare global {
-  interface Window {
-    FB?: {
-      init: (options: { appId: string; cookie?: boolean; xfbml?: boolean; version: string }) => void;
-      login: (callback: (response: MetaLoginResponse) => void, options: Record<string, unknown>) => void;
-    };
-    fbAsyncInit?: () => void;
-  }
-}
-
 const reminderOptions = [1, 2, 3, 6, 12, 24];
 
 function statusLabel(status: string) {
-  return status === "connected" ? "Conectado" : "Desconectado";
+  if (status === "connected" || status === "open") return "Conectado";
+  if (status === "connecting") return "Conectando";
+  return "Desconectado";
 }
 
 function planLabel(code: string, limit: number) {
@@ -141,200 +83,101 @@ function formatDate(value: string | null) {
   return parsed.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
+function phoneDigits(value: string) {
+  return value.replace(/\D/g, "").slice(0, 13);
+}
+
+function formatPhone(value: string) {
+  const raw = phoneDigits(value);
+  const local = raw.startsWith("55") ? raw.slice(2) : raw;
+  const ddd = local.slice(0, 2);
+  const first = local.slice(2, 7);
+  const last = local.slice(7, 11);
+  if (!ddd) return "";
+  if (local.length <= 2) return `(${ddd}`;
+  if (local.length <= 7) return `(${ddd}) ${first}`;
+  return `(${ddd}) ${first}-${last}`;
+}
+
 export function WhatsappAutomation() {
   const [data, setData] = useState<WhatsappStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [sdkReady, setSdkReady] = useState(false);
-  const [signupConfig, setSignupConfig] = useState<WhatsappSignupConfig | null>(null);
+  const [evolutionReady, setEvolutionReady] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [pairingCode, setPairingCode] = useState("");
+  const [connectionState, setConnectionState] = useState("disconnected");
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [testOpen, setTestOpen] = useState(false);
-  const [testInput, setTestInput] = useState("");
-  const [testSending, setTestSending] = useState(false);
-  const [testState, setTestState] = useState<CaAtendeTestState>({ botState:"", memory:{}, paused:false, unresolvedTurns:0 });
-  const [testMessages, setTestMessages] = useState<CaAtendeTestMessage[]>([
-    { id:1, role:"system", text:"Modo teste interno. Nenhuma mensagem é enviada para a Meta ou para clientes reais." },
-  ]);
-  const signupCodeRef = useRef<string | null>(null);
-  const signupSessionRef = useRef<{ wabaId: string; phoneNumberId: string } | null>(null);
-  const signupModeRef = useRef<EmbeddedSignupMode>("coexistence");
-  const completingSignupRef = useRef(false);
-  const testChatRef = useRef<HTMLDivElement | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    if (testOpen) testChatRef.current?.scrollTo({ top:testChatRef.current.scrollHeight, behavior:"smooth" });
-  }, [testMessages, testOpen]);
-
-  async function load(signal?: AbortSignal) {
+  async function load() {
     setLoading(true);
     try {
-      const response = await fetch("/api/whatsapp/connect", { cache: "no-store", signal });
-      const payload = await response.json() as WhatsappConnectPayload;
-      if (!response.ok || !payload.whatsapp || !payload.config) throw new Error(payload.error ?? "Não foi possível carregar o WhatsApp.");
+      const response = await fetch("/api/whatsapp/evolution", { cache: "no-store" });
+      const payload = await response.json() as EvolutionPayload;
+      if (!response.ok || !payload.whatsapp) throw new Error(payload.error ?? "Não foi possível carregar o WhatsApp.");
       setData(payload.whatsapp);
-      setSignupConfig(payload.config);
+      setEvolutionReady(Boolean(payload.evolution?.ready));
+      const state = String(payload.state ?? payload.whatsapp.connection.status ?? "disconnected");
+      setConnectionState(state);
+      const providerIsEvolution = payload.whatsapp.connection.provider === "evolution";
+      const connected = providerIsEvolution && (state === "open" || state === "connected" || payload.whatsapp.connection.status === "connected");
+      if (connected) {
+        setPairingCode("");
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      if (!phone && providerIsEvolution && payload.whatsapp.connection.displayPhoneNumber) {
+        setPhone(formatPhone(payload.whatsapp.connection.displayPhoneNumber));
+      }
       setFeedback(null);
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return;
       setFeedback(error instanceof Error ? error.message : "Não foi possível carregar o WhatsApp.");
     } finally {
-      if (!signal?.aborted) setLoading(false);
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
+    const initial = window.setTimeout(() => void load(), 0);
+    return () => {
+      window.clearTimeout(initial);
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+    // A carga inicial deve acontecer apenas uma vez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const completeEmbeddedSignup = useCallback(async () => {
-    const code = signupCodeRef.current;
-    const session = signupSessionRef.current;
-    if (!code || !session || completingSignupRef.current) return;
-    completingSignupRef.current = true;
+  async function connectEvolution(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (connecting) return;
     setConnecting(true);
     setFeedback(null);
     try {
-      const response = await fetch("/api/whatsapp/connect", {
+      const response = await fetch("/api/whatsapp/evolution", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          code,
-          wabaId: session.wabaId,
-          phoneNumberId: session.phoneNumberId,
-          mode: signupModeRef.current,
-        }),
+        body: JSON.stringify({ phone }),
       });
-      const payload = await response.json() as WhatsappApiPayload;
-      if (!response.ok || !payload.whatsapp) throw new Error(payload.error ?? "Não foi possível concluir a conexão com a Meta.");
-      setData(payload.whatsapp);
-      showAppToast("WhatsApp conectado ao Cortou Anotou.");
+      const payload = await response.json() as EvolutionPayload;
+      if (!response.ok) throw new Error(payload.error ?? "Não foi possível gerar o código de conexão.");
+      const code = String(payload.pairingCode ?? "").trim();
+      setPairingCode(code);
+      setConnectionState(String(payload.state ?? "connecting"));
+      if (payload.whatsapp) setData(payload.whatsapp);
+      if (code) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = setInterval(() => void load(), 3000);
+        showAppToast("Código gerado. Termine a conexão no WhatsApp.");
+      } else {
+        await load();
+      }
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "Não foi possível concluir a conexão com a Meta.");
+      setFeedback(error instanceof Error ? error.message : "Não foi possível conectar o WhatsApp.");
     } finally {
-      signupCodeRef.current = null;
-      signupSessionRef.current = null;
-      completingSignupRef.current = false;
       setConnecting(false);
     }
-  }, []);
-
-  useEffect(() => {
-    function receiveMetaSignupEvent(event: MessageEvent) {
-      try {
-        const origin = new URL(event.origin);
-        if (origin.protocol !== "https:" || !(origin.hostname === "facebook.com" || origin.hostname.endsWith(".facebook.com"))) return;
-      } catch {
-        return;
-      }
-
-      let message: MetaSignupEvent | null = null;
-      try {
-        message = typeof event.data === "string" ? JSON.parse(event.data) as MetaSignupEvent : event.data as MetaSignupEvent;
-      } catch {
-        return;
-      }
-      if (!message || message.type !== "WA_EMBEDDED_SIGNUP") return;
-
-      if (String(message.event ?? "").startsWith("FINISH")) {
-        const wabaId = String(message.data?.waba_id ?? "");
-        const phoneNumberId = String(message.data?.phone_number_id ?? "");
-        if (wabaId && phoneNumberId) {
-          signupSessionRef.current = { wabaId, phoneNumberId };
-          void completeEmbeddedSignup();
-        }
-        return;
-      }
-
-      if (message.event === "CANCEL") {
-        signupCodeRef.current = null;
-        signupSessionRef.current = null;
-        setConnecting(false);
-        setFeedback("A conexão com a Meta foi cancelada antes de terminar.");
-      }
-      if (message.event === "ERROR") {
-        signupCodeRef.current = null;
-        signupSessionRef.current = null;
-        setConnecting(false);
-        setFeedback(message.data?.error_message || "A Meta não conseguiu concluir a conexão. Tente novamente.");
-      }
-    }
-    window.addEventListener("message", receiveMetaSignupEvent);
-    return () => window.removeEventListener("message", receiveMetaSignupEvent);
-  }, [completeEmbeddedSignup]);
-
-  useEffect(() => {
-    if (!signupConfig?.ready || data?.connection.status === "connected") return;
-
-    function initializeSdk() {
-      if (!window.FB || !signupConfig) return;
-      window.FB.init({
-        appId: signupConfig.appId,
-        cookie: true,
-        xfbml: false,
-        version: signupConfig.graphVersion,
-      });
-      setSdkReady(true);
-    }
-
-    if (window.FB) {
-      initializeSdk();
-      return;
-    }
-
-    window.fbAsyncInit = initializeSdk;
-    if (document.getElementById("facebook-jssdk")) return;
-    const script = document.createElement("script");
-    script.id = "facebook-jssdk";
-    script.async = true;
-    script.defer = true;
-    script.crossOrigin = "anonymous";
-    script.src = "https://connect.facebook.net/pt_BR/sdk.js";
-    script.onerror = () => {
-      setSdkReady(false);
-      setFeedback("Não foi possível carregar a conexão da Meta. Verifique a internet e tente novamente.");
-    };
-    document.head.appendChild(script);
-  }, [signupConfig, data?.connection.status]);
-
-  function launchEmbeddedSignup(mode: EmbeddedSignupMode) {
-    if (!signupConfig?.ready) {
-      setFeedback("A conta Meta do Cortou Anotou ainda precisa ser finalizada antes da primeira conexão.");
-      return;
-    }
-    if (!sdkReady || !window.FB) {
-      setFeedback("A conexão da Meta ainda está carregando. Aguarde alguns segundos e tente novamente.");
-      return;
-    }
-
-    signupModeRef.current = mode;
-    signupCodeRef.current = null;
-    signupSessionRef.current = null;
-    setFeedback(null);
-    setConnecting(true);
-
-    const extras: Record<string, unknown> = { setup: {}, sessionInfoVersion: "3" };
-    if (mode === "coexistence") extras.featureType = "whatsapp_business_app_onboarding";
-
-    window.FB.login((response) => {
-      const code = String(response.authResponse?.code ?? "");
-      if (!code) {
-        setConnecting(false);
-        setFeedback(response.status === "unknown"
-          ? "A conexão foi fechada ou cancelada antes de terminar."
-          : "A Meta não devolveu a autorização necessária. Tente novamente.");
-        return;
-      }
-      signupCodeRef.current = code;
-      void completeEmbeddedSignup();
-    }, {
-      config_id: signupConfig.configId,
-      response_type: "code",
-      override_default_response_type: true,
-      extras,
-    });
   }
 
   async function saveSettings(next: Partial<WhatsappStatusPayload["settings"]>, toast = "Automação do WhatsApp atualizada.") {
@@ -361,7 +204,7 @@ export function WhatsappAutomation() {
   }
 
   async function disconnect() {
-    if (!data || data.connection.status !== "connected" || saving) return;
+    if (!data || data.connection.provider !== "evolution" || data.connection.status !== "connected" || saving) return;
     if (!window.confirm("Desconectar este WhatsApp do Cortou Anotou? As automações serão desligadas, mas o histórico continuará salvo.")) return;
     setSaving(true);
     setFeedback(null);
@@ -374,6 +217,9 @@ export function WhatsappAutomation() {
       const payload = await response.json() as WhatsappApiPayload;
       if (!response.ok || !payload.whatsapp) throw new Error(payload.error ?? "Não foi possível desconectar o WhatsApp.");
       setData(payload.whatsapp);
+      setPairingCode("");
+      setConnectionState("disconnected");
+      setPhone("");
       showAppToast("WhatsApp desconectado e automações pausadas.");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Não foi possível desconectar o WhatsApp.");
@@ -382,7 +228,7 @@ export function WhatsappAutomation() {
     }
   }
 
-  async function resumeHandoff(phone: string) {
+  async function resumeHandoff(phoneValue: string) {
     if (!data || saving) return;
     setSaving(true);
     setFeedback(null);
@@ -390,7 +236,7 @@ export function WhatsappAutomation() {
       const response = await fetch("/api/whatsapp/settings", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "resume-conversation", phone }),
+        body: JSON.stringify({ action: "resume-conversation", phone: phoneValue }),
       });
       const payload = await response.json() as WhatsappApiPayload;
       if (!response.ok || !payload.whatsapp) throw new Error(payload.error ?? "Não foi possível encerrar o atendimento humano.");
@@ -403,79 +249,20 @@ export function WhatsappAutomation() {
     }
   }
 
-  function resetCaAtendeTest() {
-    setTestInput("");
-    setTestState({ botState:"", memory:{}, paused:false, unresolvedTurns:0 });
-    setTestMessages([
-      { id:Date.now(), role:"system", text:"Conversa reiniciada. O próximo texto será tratado como um cliente novo." },
-    ]);
-  }
-
-  async function sendCaAtendeTest(value: string) {
-    const message = value.trim();
-    if (!message || testSending) return;
-    const userId = Date.now();
-    setTestMessages((current) => [...current, { id:userId, role:"user", text:message }]);
-    setTestInput("");
-    setTestSending(true);
-    try {
-      const response = await fetch("/api/whatsapp/test", {
-        method:"POST",
-        headers:{ "content-type":"application/json" },
-        body:JSON.stringify({ message, state:testState }),
-      });
-      const payload = await response.json() as { result?:CaAtendeTestResult; error?:string };
-      if (!response.ok || !payload.result) throw new Error(payload.error ?? "Não foi possível testar o C.A. Atende.");
-      const result = payload.result;
-      setTestState(result.state);
-      const badges = [
-        result.source === "ai" ? "IA" : "REGRA",
-        result.dataSource === "agenda" ? "AGENDA REAL" : result.dataSource === "services" ? "SERVIÇOS REAIS" : "",
-        result.handoff ? "HUMANO" : "",
-        result.silent ? "SILÊNCIO" : "",
-        result.guided ? "FLUXO GUIADO" : "",
-      ].filter(Boolean);
-      const text = result.silent
-        ? result.silentReason === "commercial_offer"
-          ? "O C.A. Atende identificaria uma possível oferta comercial e não responderia."
-          : "O C.A. Atende permaneceria em silêncio porque essa conversa já foi transferida para atendimento humano."
-        : result.reply;
-      setTestMessages((current) => [...current, {
-        id:userId + 1,
-        role:result.silent ? "system" : "bot",
-        text,
-        badges,
-        choices:result.choices,
-      }]);
-    } catch (error) {
-      setTestMessages((current) => [...current, {
-        id:Date.now() + 2,
-        role:"system",
-        text:error instanceof Error ? error.message : "Não foi possível testar agora.",
-      }]);
-    } finally {
-      setTestSending(false);
-    }
-  }
-
-  function submitCaAtendeTest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void sendCaAtendeTest(testInput);
-  }
-
-    async function submitReminder(event: FormEvent<HTMLFormElement>) {
+  async function submitReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     await saveSettings({ reminderHoursBefore: Number(form.get("reminderHoursBefore") ?? 3) }, "Horário do lembrete atualizado.");
   }
 
-  const connected = data?.connection.status === "connected";
+  const connected = Boolean(data && data.connection.provider === "evolution" && data.connection.status === "connected");
   const hasPackage = Boolean(data && data.settings.monthlyMessageLimit > 0 && data.settings.planCode !== "off");
   const canEnable = Boolean(connected && hasPackage);
   const usagePercent = useMemo(() => {
     if (!data?.settings.monthlyMessageLimit) return 0;
     return Math.min(100, Math.round(data.usage.sentThisMonth / data.settings.monthlyMessageLimit * 100));
   }, [data]);
+  const codeGroups = pairingCode.replace(/\s/g, "").match(/.{1,4}/g)?.join(" ") ?? pairingCode;
 
   if (loading) return <section className="whatsapp-page"><div className="panel whatsapp-loading"><span className="whatsapp-brand-mark">WA</span><div><strong>Carregando WhatsApp...</strong><small>Consultando conexão e automações da sua barbearia.</small></div></div></section>;
 
@@ -490,7 +277,7 @@ export function WhatsappAutomation() {
       </div>
       <div className={connected ? "whatsapp-connection-badge connected" : "whatsapp-connection-badge"}>
         <i />
-        <span>{connected ? "META CONECTADA" : "META AINDA NÃO CONECTADA"}</span>
+        <span>{connected ? "WHATSAPP CONECTADO" : "WHATSAPP AINDA NÃO CONECTADO"}</span>
       </div>
     </div>
 
@@ -500,10 +287,9 @@ export function WhatsappAutomation() {
       <article className="panel whatsapp-status-card">
         <div className="whatsapp-card-icon">☏</div>
         <span>CONEXÃO</span>
-        <strong>{statusLabel(data.connection.status)}</strong>
-        <small>{connected ? data.connection.displayPhoneNumber || "Número conectado à Meta" : "Nenhuma conta WhatsApp Business vinculada"}</small>
-        {connected && data.connection.verifiedName && <small className="whatsapp-verified-name">{data.connection.verifiedName}</small>}
-        {connected && data.connection.connectedAt && <em>{data.connection.onboardingMode === "coexistence" ? "WhatsApp Business + Cortou Anotou" : "Cloud API"} · conectado em {formatDate(data.connection.connectedAt)}</em>}
+        <strong>{connected ? "Conectado" : statusLabel(connectionState)}</strong>
+        <small>{connected ? data.connection.displayPhoneNumber || "WhatsApp conectado" : "Conecte o número da barbearia abaixo"}</small>
+        {connected && data.connection.connectedAt && <em>Evolution · conectado em {formatDate(data.connection.connectedAt)}</em>}
       </article>
 
       <article className="panel whatsapp-status-card">
@@ -525,17 +311,20 @@ export function WhatsappAutomation() {
     {!connected && <section className="panel whatsapp-connect-card whatsapp-connect-live">
       <div className="whatsapp-connect-icon">◎</div>
       <div className="whatsapp-connect-copy">
-        <span>CONEXÃO OFICIAL META</span>
-        <h3>Conectar o WhatsApp Business da barbearia</h3>
-        <p>Você entra pela própria Meta e escolhe o número. O Cortou Anotou recebe somente a autorização necessária para cuidar das mensagens da sua barbearia.</p>
-        {!signupConfig?.ready && <div className="whatsapp-meta-pending"><strong>Preparação da Meta pendente</strong><small>A integração já está pronta no Cortou Anotou. Falta ativar as credenciais oficiais da plataforma para liberar este botão.</small></div>}
+        <span>CONEXÃO EVOLUTION</span>
+        <h3>Conectar o WhatsApp da barbearia</h3>
+        <p>Informe o número usado no WhatsApp ou WhatsApp Business. O Cortou Anotou gera um código para vincular o aparelho sem sair desta área.</p>
       </div>
       <div className="whatsapp-connect-actions">
-        <button type="button" className="whatsapp-connect-primary" disabled={!signupConfig?.ready || !sdkReady || connecting} onClick={() => launchEmbeddedSignup("coexistence")}>
-          {connecting ? "Conectando..." : !signupConfig?.ready ? "Aguardando ativação da Meta" : !sdkReady ? "Carregando Meta..." : "Conectar meu WhatsApp atual"}
-        </button>
-        <button type="button" className="whatsapp-connect-secondary" disabled={!signupConfig?.ready || !sdkReady || connecting} onClick={() => launchEmbeddedSignup("cloud")}>Conectar outro número</button>
-        <small><strong>Já usa WhatsApp Business no celular?</strong> Use a primeira opção. A Meta verifica a elegibilidade para manter o aplicativo funcionando junto com o Cortou Anotou.</small>
+        <form onSubmit={connectEvolution} className="app-form">
+          <label className="field"><span>NÚMERO DO WHATSAPP</span><input inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="(41) 99999-9999" /></label>
+          <button type="submit" className="whatsapp-connect-primary" disabled={!evolutionReady || connecting || phoneDigits(phone).length < 10}>{connecting ? "Gerando código..." : "Conectar meu WhatsApp"}</button>
+          {!evolutionReady && <small>A conexão está sendo preparada no servidor. Tente novamente em alguns instantes.</small>}
+        </form>
+        {pairingCode && <div className="whatsapp-meta-pending">
+          <strong>Código para vincular: {codeGroups}</strong>
+          <small>No WhatsApp, abra Configurações → Aparelhos conectados → Conectar um aparelho → Conectar usando número de telefone e digite este código.</small>
+        </div>}
       </div>
     </section>}
 
@@ -590,46 +379,15 @@ export function WhatsappAutomation() {
         <h3>Atendimento inteligente por IA</h3>
         <p>O link da agenda continua primeiro. Se o cliente preferir conversar, a IA entende o pedido e usa serviços, profissionais e horários reais do Cortou Anotou. Se não conseguir resolver com segurança, chama uma pessoa da barbearia.</p>
         <div className="whatsapp-assistant-tags"><small>LINK PRIMEIRO</small><small>FILTRO DE OFERTAS</small><small>IA PRINCIPAL</small><small>TRANSFERÊNCIA HUMANA</small></div>
-        <button type="button" className="whatsapp-test-launch" onClick={() => setTestOpen((open) => !open)}>{testOpen ? "Fechar teste" : "Testar atendente"}</button>
       </div>
       <label className={canEnable && data.settings.enabled ? "whatsapp-bot-switch" : "whatsapp-bot-switch disabled"}>
-        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte a Meta primeiro" : !hasPackage ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "IA conversa; o sistema valida e executa"}</small></span>
-        <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled:event.target.checked }, event.target.checked ? "C.A. Atende com IA ligado." : "C.A. Atende desligado.")} />
+        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasPackage ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "IA conversa; o sistema valida e executa"}</small></span>
+        <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled: event.target.checked }, event.target.checked ? "C.A. Atende com IA ligado." : "C.A. Atende desligado.")} />
         <i />
       </label>
     </section>
 
-    {testOpen && <section className="panel whatsapp-test-panel">
-      <div className="whatsapp-test-heading">
-        <div><span>LABORATÓRIO DO C.A. ATENDE</span><h3>Converse como se fosse um cliente</h3><p>Usa o mesmo motor que vai atender no WhatsApp. O teste pode consultar preços e agenda reais, mas não envia nada para a Meta e não altera agendamentos.</p></div>
-        <button type="button" onClick={resetCaAtendeTest} disabled={testSending}>Reiniciar conversa</button>
-      </div>
-      <div className="whatsapp-test-chat" aria-live="polite" ref={testChatRef}>
-        {testMessages.map((message, index) => <div className={`whatsapp-test-message ${message.role}`} key={message.id}>
-          <div className="whatsapp-test-bubble">{message.text}</div>
-          {index === testMessages.length - 1 && !testSending && !testState.paused && Boolean(message.choices?.length) && <div className="whatsapp-test-choices">{message.choices?.map((choice) => <button type="button" key={choice} onClick={() => void sendCaAtendeTest(choice)}>{choice}</button>)}</div>}
-          {message.badges && message.badges.length > 0 && <div className="whatsapp-test-badges">{message.badges.map((badge) => <small key={badge}>{badge}</small>)}</div>}
-        </div>)}
-        {testSending && <div className="whatsapp-test-message bot"><div className="whatsapp-test-bubble thinking">C.A. Atende está analisando...</div></div>}
-      </div>
-      <form className="whatsapp-test-form" onSubmit={submitCaAtendeTest}>
-        <input
-          value={testInput}
-          onChange={(event) => setTestInput(event.target.value)}
-          maxLength={1200}
-          placeholder={testState.paused ? "O bot está em handoff. Reinicie para testar outro cliente." : "Ex.: oi boa tarde, tem horário hoje para corte?"}
-          disabled={testSending}
-          enterKeyHint="send"
-        />
-        <button type="submit" disabled={testSending || !testInput.trim()}>Enviar</button>
-      </form>
-      <div className="whatsapp-test-suggestions">
-        <span>Experimente:</span>
-        {["oi boa tarde","quanto custa o corte?","tem horário hoje para corte?","quero falar com o dono","sou consultor da Claro e tenho uma oferta comercial"].map((sample) => <button type="button" key={sample} onClick={() => setTestInput(sample)} disabled={testSending}>{sample}</button>)}
-      </div>
-    </section>}
-
-        {data.humanHandoffs.length > 0 && <section className="panel whatsapp-human-queue">
+    {data.humanHandoffs.length > 0 && <section className="panel whatsapp-human-queue">
       <div className="whatsapp-human-queue-heading"><span>ATENDIMENTO HUMANO</span><h3>Clientes esperando uma pessoa</h3><p>O bot fica em silêncio nesses contatos até você encerrar o atendimento aqui.</p></div>
       <div className="whatsapp-human-list">
         {data.humanHandoffs.map((item) => {

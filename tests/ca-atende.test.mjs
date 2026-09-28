@@ -16,11 +16,10 @@ async function load(entry) {
 }
 
 const helper = await load("../lib/ca-atende.ts");
-const [botDb, whatsappDb, webhookRoute, testRoute, ui, migration, aiMigration, aiUsageDb] = await Promise.all([
+const [botDb, whatsappDb, webhookRoute, ui, migration, aiMigration, aiUsageDb] = await Promise.all([
   readFile(new URL("../db/ca-atende.ts", import.meta.url), "utf8"),
   readFile(new URL("../db/whatsapp.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/webhook/route.ts", import.meta.url), "utf8"),
-  readFile(new URL("../app/api/whatsapp/test/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/ui/whatsapp-automation.tsx", import.meta.url), "utf8"),
   readFile(new URL("../drizzle/0045_ca_atende_economy.sql", import.meta.url), "utf8"),
   readFile(new URL("../drizzle/0046_ai_first_usage.sql", import.meta.url), "utf8"),
@@ -114,7 +113,7 @@ test("fila reivindica mensagem antes da chamada externa para reduzir envio dupli
   assert.match(whatsappDb, /eq\(whatsappMessages\.status, "sending"\)/);
 });
 
-test("webhook responde à Meta antes de iniciar interpretação mais lenta", () => {
+test("webhook oficial responde antes de iniciar interpretação mais lenta", () => {
   assert.match(webhookRoute, /import \{ after \} from "next\/server"/);
   assert.match(webhookRoute, /after\(async \(\) =>/);
   assert.match(webhookRoute, /processCaAtendeInboundSafely/);
@@ -134,8 +133,7 @@ test("estado curto da conversa é persistido sem depender de histórico inteiro 
   assert.match(botDb, /Contexto curto da conversa|botContextJson/);
 });
 
-
-test("laboratório reutiliza o mesmo composeReply sem enviar nada para a Meta", () => {
+test("simulador interno reutiliza o composeReply sem alterar dados reais", () => {
   assert.match(botDb, /export async function simulateCaAtende/);
   assert.match(botDb, /const rawDecision = await composeReply/);
   const simulation = botDb.slice(botDb.indexOf("export async function simulateCaAtende"), botDb.indexOf("export async function processCaAtendeInbound"));
@@ -144,24 +142,11 @@ test("laboratório reutiliza o mesmo composeReply sem enviar nada para a Meta", 
   assert.doesNotMatch(simulation, /updateConversation/);
 });
 
-test("rota de teste é exclusiva do proprietário, limitada e não depende de conexão Meta", () => {
-  assert.match(testRoute, /getSessionAccess/);
-  assert.match(testRoute, /!access\.isOwner/);
-  assert.match(testRoute, /enforceRateLimit/);
-  assert.match(testRoute, /simulateCaAtende/);
-  assert.doesNotMatch(testRoute, /WHATSAPP_APP_SECRET|graph\.facebook\.com|queueWhatsappTextReply/);
+test("laboratório antigo não é mais exposto na interface do proprietário", () => {
+  assert.doesNotMatch(ui, /Testar atendente/);
+  assert.doesNotMatch(ui, /LABORATÓRIO DO C\.A\. ATENDE/);
+  assert.doesNotMatch(ui, /\/api\/whatsapp\/test/);
 });
-
-test("interface oferece laboratório antes da conexão Meta e mostra como a resposta foi resolvida", () => {
-  assert.match(ui, /Testar atendente/);
-  assert.match(ui, /LABORATÓRIO DO C\.A\. ATENDE/);
-  assert.match(ui, /Nenhuma mensagem é enviada para a Meta/);
-  assert.match(ui, /AGENDA REAL/);
-  assert.match(ui, /SERVIÇOS REAIS/);
-  assert.match(ui, /SILÊNCIO/);
-  assert.match(ui, /Reiniciar conversa/);
-});
-
 
 test("resposta de preço específico não despeja a tabela inteira", () => {
   assert.match(botDb, /selectedService\.name} custa/);
@@ -192,7 +177,6 @@ test("link público nunca expõe domínio técnico do Railway", () => {
   assert.ok(botDb.includes("https://cortouanotou.com.br"));
   assert.doesNotMatch(botDb, /PUBLIC_BOOKING_BASE_URL/);
 });
-
 
 test("regressão do vídeo: entende 'às10' e horário curto '10'", () => {
   assert.equal(helper.extractCaAtendeTime("amanhã às10"), "10:00");
