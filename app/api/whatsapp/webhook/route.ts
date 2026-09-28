@@ -1,7 +1,11 @@
 import { after } from "next/server";
 import { handleWhatsappWebhook } from "../../../../db/whatsapp";
 import { processCaAtendeInboundSafely } from "../../../../db/ca-atende";
-import { handleEvolutionWebhook, validEvolutionWebhookSecret } from "../../../../db/whatsapp-evolution";
+import {
+  handleEvolutionWebhook,
+  processEvolutionWhatsappQueueSafely,
+  validEvolutionWebhookSecret,
+} from "../../../../db/whatsapp-evolution";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +41,13 @@ async function validMetaSignature(rawBody: string, signatureHeader: string) {
 async function dispatchInbound(result: Awaited<ReturnType<typeof handleWhatsappWebhook>>) {
   if (!result.inboundTextEvents.length) return;
   after(async () => {
-    for (const event of result.inboundTextEvents) await processCaAtendeInboundSafely(event);
+    for (const event of result.inboundTextEvents) {
+      await processCaAtendeInboundSafely(event);
+      // The legacy C.A. Atende queue call targets Meta. When this barbershop is
+      // connected through Evolution, immediately flush the queued reply here so
+      // the customer does not have to wait for the periodic jobs endpoint.
+      await processEvolutionWhatsappQueueSafely(event.organizationId, 3);
+    }
   });
 }
 
