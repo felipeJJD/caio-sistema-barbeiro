@@ -7,15 +7,20 @@ import {
   resumeWhatsappConversation,
   saveWhatsappAutomationSettings,
 } from "../../../../db/whatsapp";
+import { disconnectEvolutionWhatsapp, refreshEvolutionConnection } from "../../../../db/whatsapp-evolution";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const access = await getSessionAccess();
     if (!access) return Response.json({ error: "Sua sessão terminou. Entre novamente." }, { status: 401 });
     if (!access.isOwner) return Response.json({ error: "Somente o proprietário pode configurar o WhatsApp." }, { status: 403 });
-    return Response.json({ whatsapp: await getWhatsappAutomationStatus(access) }, { headers: { "Cache-Control": "no-store" } });
+    const current = await getWhatsappAutomationStatus(access);
+    const whatsapp = current.connection.provider === "evolution"
+      ? await refreshEvolutionConnection(access, new URL(request.url).origin)
+      : current;
+    return Response.json({ whatsapp }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar o WhatsApp." }, { status: 400 });
   }
@@ -49,7 +54,9 @@ export async function POST(request: Request) {
         humanTakeoverMinutes: data.humanTakeoverMinutes === undefined ? undefined : Number(data.humanTakeoverMinutes),
       });
     } else if (action === "disconnect") {
-      await disconnectWhatsapp(access);
+      const current = await getWhatsappAutomationStatus(access);
+      if (current.connection.provider === "evolution") await disconnectEvolutionWhatsapp(access);
+      else await disconnectWhatsapp(access);
     } else if (action === "pause-conversation") {
       const pausedUntil = await pauseWhatsappConversation(access, String(data.phone ?? ""), data.minutes === undefined ? undefined : Number(data.minutes));
       return Response.json({ ok: true, pausedUntil, whatsapp: await getWhatsappAutomationStatus(access) });

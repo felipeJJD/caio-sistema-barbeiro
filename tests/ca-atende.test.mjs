@@ -98,7 +98,7 @@ test("handoff humano envia uma despedida curta, notifica dono e pausa até encer
   assert.match(botDb, /indefiniteHandoff:Boolean\(decision\.handoff\)/);
   assert.match(botDb, /notifyOwnersOfWhatsappHandoff/);
   assert.match(whatsappDb, /pauseReason === "human_takeover" && !conversation\.automationPausedUntil/);
-  assert.match(ui, /Encerrar atendimento/);
+  assert.match(ui, /Liberar automação/);
 });
 
 test("resposta de bot é texto de sessão e tem deduplicação por mensagem recebida", () => {
@@ -114,7 +114,7 @@ test("fila reivindica mensagem antes da chamada externa para reduzir envio dupli
   assert.match(whatsappDb, /eq\(whatsappMessages\.status, "sending"\)/);
 });
 
-test("webhook responde à Meta antes de iniciar interpretação mais lenta", () => {
+test("webhook despacha interpretação lenta depois de responder ao provedor", () => {
   assert.match(webhookRoute, /import \{ after \} from "next\/server"/);
   assert.match(webhookRoute, /after\(async \(\) =>/);
   assert.match(webhookRoute, /processCaAtendeInboundSafely/);
@@ -134,8 +134,7 @@ test("estado curto da conversa é persistido sem depender de histórico inteiro 
   assert.match(botDb, /Contexto curto da conversa|botContextJson/);
 });
 
-
-test("laboratório reutiliza o mesmo composeReply sem enviar nada para a Meta", () => {
+test("laboratório reutiliza o mesmo composeReply sem enviar mensagem real", () => {
   assert.match(botDb, /export async function simulateCaAtende/);
   assert.match(botDb, /const rawDecision = await composeReply/);
   const simulation = botDb.slice(botDb.indexOf("export async function simulateCaAtende"), botDb.indexOf("export async function processCaAtendeInbound"));
@@ -144,24 +143,23 @@ test("laboratório reutiliza o mesmo composeReply sem enviar nada para a Meta", 
   assert.doesNotMatch(simulation, /updateConversation/);
 });
 
-test("rota de teste é exclusiva do proprietário, limitada e não depende de conexão Meta", () => {
+test("rota de teste é exclusiva do proprietário, limitada e não depende do provedor conectado", () => {
   assert.match(testRoute, /getSessionAccess/);
   assert.match(testRoute, /!access\.isOwner/);
   assert.match(testRoute, /enforceRateLimit/);
   assert.match(testRoute, /simulateCaAtende/);
-  assert.doesNotMatch(testRoute, /WHATSAPP_APP_SECRET|graph\.facebook\.com|queueWhatsappTextReply/);
+  assert.doesNotMatch(testRoute, /WHATSAPP_APP_SECRET|EVOLUTION_API_KEY|graph\.facebook\.com|queueWhatsappTextReply/);
 });
 
-test("interface oferece laboratório antes da conexão Meta e mostra como a resposta foi resolvida", () => {
+test("interface oferece laboratório antes da conexão e mostra como a resposta foi resolvida", () => {
   assert.match(ui, /Testar atendente/);
   assert.match(ui, /LABORATÓRIO DO C\.A\. ATENDE/);
-  assert.match(ui, /Nenhuma mensagem é enviada para a Meta/);
+  assert.match(ui, /Nenhuma mensagem é enviada para clientes reais/);
   assert.match(ui, /AGENDA REAL/);
   assert.match(ui, /SERVIÇOS REAIS/);
   assert.match(ui, /SILÊNCIO/);
   assert.match(ui, /Reiniciar conversa/);
 });
-
 
 test("resposta de preço específico não despeja a tabela inteira", () => {
   assert.match(botDb, /selectedService\.name} custa/);
@@ -192,7 +190,6 @@ test("link público nunca expõe domínio técnico do Railway", () => {
   assert.ok(botDb.includes("https://cortouanotou.com.br"));
   assert.doesNotMatch(botDb, /PUBLIC_BOOKING_BASE_URL/);
 });
-
 
 test("regressão do vídeo: entende 'às10' e horário curto '10'", () => {
   assert.equal(helper.extractCaAtendeTime("amanhã às10"), "10:00");

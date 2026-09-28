@@ -2,99 +2,112 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [dbWhatsapp, connectRoute, settingsRoute, ui, migration, envExample] = await Promise.all([
+const [evolutionDb, legacyDb, connectRoute, settingsRoute, webhookRoute, jobsRoute, ui, envExample] = await Promise.all([
+  readFile(new URL("../db/whatsapp-evolution.ts", import.meta.url), "utf8"),
   readFile(new URL("../db/whatsapp.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/connect/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/settings/route.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/api/whatsapp/webhook/route.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/api/whatsapp/jobs/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/ui/whatsapp-automation.tsx", import.meta.url), "utf8"),
-  readFile(new URL("../drizzle/0044_whatsapp_embedded_signup.sql", import.meta.url), "utf8"),
   readFile(new URL("../.env.example", import.meta.url), "utf8"),
 ]);
 
-test("Embedded Signup só fica disponível com configuração oficial completa da Meta", () => {
-  assert.match(dbWhatsapp, /WHATSAPP_APP_ID/);
-  assert.match(dbWhatsapp, /WHATSAPP_APP_SECRET/);
-  assert.match(dbWhatsapp, /WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID/);
-  assert.match(dbWhatsapp, /WHATSAPP_GRAPH_VERSION/);
-  assert.match(dbWhatsapp, /ready,/);
-  assert.match(envExample, /WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID=/);
+test("Evolution só fica disponível com URL, chave e segredo de webhook configurados", () => {
+  assert.match(evolutionDb, /EVOLUTION_API_URL/);
+  assert.match(evolutionDb, /EVOLUTION_API_KEY/);
+  assert.match(evolutionDb, /EVOLUTION_WEBHOOK_SECRET/);
+  assert.match(evolutionDb, /missing\.length === 0/);
+  assert.match(envExample, /EVOLUTION_API_URL=/);
+  assert.match(envExample, /EVOLUTION_API_KEY=/);
+  assert.match(envExample, /EVOLUTION_WEBHOOK_SECRET=/);
 });
 
-test("App Secret nunca é enviado para o navegador", () => {
-  assert.doesNotMatch(ui, /WHATSAPP_APP_SECRET/);
-  assert.doesNotMatch(connectRoute, /appSecret:/);
-  assert.match(dbWhatsapp, /appSecret: String\(process\.env\.WHATSAPP_APP_SECRET/);
+test("chave global da Evolution nunca é enviada para o navegador", () => {
+  assert.doesNotMatch(ui, /EVOLUTION_API_KEY/);
+  assert.doesNotMatch(connectRoute, /apiKey:/);
+  assert.match(evolutionDb, /apiKey: String\(process\.env\.EVOLUTION_API_KEY/);
+  assert.match(evolutionDb, /apikey: config\.apiKey/);
 });
 
-test("navegador usa Login for Business com código de autorização", () => {
-  assert.match(ui, /config_id: signupConfig\.configId/);
-  assert.match(ui, /response_type: "code"/);
-  assert.match(ui, /override_default_response_type: true/);
-  assert.match(ui, /WA_EMBEDDED_SIGNUP/);
-  assert.match(ui, /authResponse\?\.code/);
+test("cada barbearia recebe uma instância própria e conexão por QR Code", () => {
+  assert.match(evolutionDb, /`cortou-anotou-\$\{organizationId\}`/);
+  assert.match(evolutionDb, /\/instance\/create/);
+  assert.match(evolutionDb, /integration: "WHATSAPP-BAILEYS"/);
+  assert.match(evolutionDb, /qrcode: true/);
+  assert.match(evolutionDb, /\/instance\/connect\//);
+  assert.match(ui, /QR Code do WhatsApp/);
+  assert.match(ui, /Aparelhos conectados/);
 });
 
-test("modo coexistência preserva caminho para quem já usa WhatsApp Business no celular", () => {
-  assert.match(ui, /featureType = "whatsapp_business_app_onboarding"/);
-  assert.match(ui, /launchEmbeddedSignup\("coexistence"\)/);
-  assert.match(ui, /Conectar meu WhatsApp atual/);
-  assert.match(dbWhatsapp, /mode === "coexistence"/);
+test("servidor consulta estado da sessão e a interface acompanha até conectar", () => {
+  assert.match(evolutionDb, /\/instance\/connectionState\//);
+  assert.match(connectRoute, /refreshEvolutionConnection/);
+  assert.match(ui, /window\.setInterval/);
+  assert.match(ui, /data\.connection\.status !== "connecting"/);
 });
 
-test("servidor troca o código sem expor token ao cliente e valida o app", () => {
-  assert.match(dbWhatsapp, /oauth\/access_token/);
-  assert.match(dbWhatsapp, /debug_token/);
-  assert.match(dbWhatsapp, /String\(debug\.app_id/);
-  assert.match(dbWhatsapp, /whatsapp_business_management/);
-  assert.match(dbWhatsapp, /whatsapp_business_messaging/);
-  assert.doesNotMatch(connectRoute, /accessToken/);
+test("webhook Evolution é autenticado por segredo e não confia em payload público", () => {
+  assert.match(evolutionDb, /x-ca-evolution-secret/);
+  assert.match(evolutionDb, /validEvolutionWebhookSecret/);
+  assert.match(webhookRoute, /x-ca-evolution-secret/);
+  assert.match(webhookRoute, /validEvolutionWebhookSecret/);
+  assert.match(webhookRoute, /Webhook Evolution não autorizado/);
 });
 
-test("WABA e telefone enviados pelo navegador são revalidados na Meta", () => {
-  assert.match(dbWhatsapp, /phone_numbers/);
-  assert.match(dbWhatsapp, /const phone = \(body\.data \?\? \[\]\)\.find/);
-  assert.match(dbWhatsapp, /O número selecionado não pertence à conta do WhatsApp autorizada/);
+test("instância assina eventos necessários para conexão e mensagens", () => {
+  assert.match(evolutionDb, /MESSAGES_UPSERT/);
+  assert.match(evolutionDb, /MESSAGES_UPDATE/);
+  assert.match(evolutionDb, /CONNECTION_UPDATE/);
+  assert.match(evolutionDb, /\/webhook\/set\//);
 });
 
-test("aplicativo assina os webhooks da WABA após autorização", () => {
-  assert.match(dbWhatsapp, /subscribed_apps/);
-  assert.match(dbWhatsapp, /subscribeWhatsappWebhook/);
-  assert.match(dbWhatsapp, /webhookSubscribedAt: now/);
+test("envio de texto usa a instância da própria barbearia", () => {
+  assert.match(evolutionDb, /\/message\/sendText\//);
+  assert.match(evolutionDb, /number: phone/);
+  assert.match(evolutionDb, /eq\(whatsappConnections\.organizationId, whatsappMessages\.organizationId\)/);
+  assert.match(evolutionDb, /eq\(whatsappConnections\.provider, EVOLUTION_PROVIDER\)/);
 });
 
-test("Cloud API registra o número com PIN protegido e coexistência não força registro", () => {
-  assert.match(dbWhatsapp, /registerWhatsappPhone/);
-  assert.match(dbWhatsapp, /messaging_product: "whatsapp", pin/);
-  assert.match(dbWhatsapp, /if \(mode === "cloud"\)/);
-  assert.match(dbWhatsapp, /encryptSecret\(pin\)/);
-  assert.match(migration, /encrypted_registration_pin/);
-  assert.match(migration, /registration_pin_iv/);
-});
-
-test("token do cliente é criptografado antes de persistir", () => {
-  assert.match(dbWhatsapp, /encryptSecret\(exchanged\.accessToken\)/);
-  assert.match(dbWhatsapp, /encryptedAccessToken: protectedToken\.encryptedValue/);
-  assert.match(migration, /token_expires_at/);
-});
-
-test("um número não pode ser conectado a duas barbearias", () => {
-  assert.match(dbWhatsapp, /occupied\.organizationId !== access\.organizationId/);
-  assert.match(dbWhatsapp, /já está conectado a outra barbearia/);
+test("mensagens recebidas ignoram grupos, broadcast e mensagens do próprio número", () => {
+  assert.match(evolutionDb, /Boolean\(key\.fromMe\)/);
+  assert.match(evolutionDb, /jid\.includes\("@g\.us"\)/);
+  assert.match(evolutionDb, /jid\.includes\("@broadcast"\)/);
+  assert.match(evolutionDb, /handleWhatsappWebhook/);
 });
 
 test("rota de conexão exige sessão de proprietário e acesso ativo", () => {
   assert.match(connectRoute, /getSessionAccess/);
   assert.match(connectRoute, /!access\.isOwner/);
   assert.match(connectRoute, /isOrganizationAccessExpired/);
+  assert.match(connectRoute, /startEvolutionConnection/);
 });
 
-test("conexão manual por token foi removida da API do proprietário", () => {
+test("uma conexão Meta já ativa não é substituída silenciosamente", () => {
+  assert.match(evolutionDb, /current\?\.provider === "meta_cloud" && current\.status === "connected"/);
+  assert.match(evolutionDb, /Desconecte a integração da Meta antes de conectar/);
+});
+
+test("desconectar Evolution encerra a sessão e pausa automações", () => {
+  assert.match(evolutionDb, /\/instance\/logout\//);
+  assert.match(evolutionDb, /enabled: false/);
+  assert.match(settingsRoute, /disconnectEvolutionWhatsapp/);
+});
+
+test("fila periódica separa Evolution de integrações Meta legadas", () => {
+  assert.match(jobsRoute, /processEvolutionWhatsappQueue/);
+  assert.match(jobsRoute, /provider, "meta_cloud"/);
+  assert.match(jobsRoute, /processWhatsappQueue/);
+});
+
+test("compatibilidade Meta permanece no servidor para clientes legados", () => {
+  assert.match(legacyDb, /WHATSAPP_APP_SECRET/);
+  assert.match(legacyDb, /graph\.facebook\.com/);
+  assert.match(envExample, /WHATSAPP_APP_SECRET=/);
+  assert.match(webhookRoute, /x-hub-signature-256/);
+});
+
+test("conexão manual por token continua fora da API do proprietário", () => {
   assert.doesNotMatch(settingsRoute, /connect-manual/);
   assert.doesNotMatch(settingsRoute, /accessToken/);
-});
-
-test("ao desconectar o sistema tenta cancelar a assinatura de webhook e apaga segredos locais", () => {
-  assert.match(dbWhatsapp, /method: "DELETE"/);
-  assert.match(dbWhatsapp, /encryptedAccessToken: ""/);
-  assert.match(dbWhatsapp, /encryptedRegistrationPin: ""/);
 });

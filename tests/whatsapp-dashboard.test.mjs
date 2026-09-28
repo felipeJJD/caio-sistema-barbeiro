@@ -25,12 +25,21 @@ test("aba mostra conexão, pacote, uso mensal e automações", () => {
   assert.match(whatsappUi, /Aviso de remarcação/);
 });
 
-test("conexão Meta usa Embedded Signup sem expor campos técnicos ao proprietário", () => {
-  assert.match(whatsappUi, /CONEXÃO OFICIAL META/);
-  assert.match(whatsappUi, /Conectar meu WhatsApp atual/);
-  assert.match(whatsappUi, /Conectar outro número/);
+test("conexão Evolution usa QR Code sem expor credenciais técnicas ao proprietário", () => {
+  assert.match(whatsappUi, /CONEXÃO POR EVOLUTION API/);
+  assert.match(whatsappUi, /Conectar meu WhatsApp/);
+  assert.match(whatsappUi, /QR Code do WhatsApp/);
+  assert.match(whatsappUi, /Aparelhos conectados/);
+  assert.match(whatsappUi, /connectEvolution/);
+  assert.doesNotMatch(whatsappUi, /EVOLUTION_API_KEY/);
   assert.doesNotMatch(whatsappUi, /name="accessToken"/);
   assert.doesNotMatch(whatsappUi, /name="wabaId"/);
+});
+
+test("tela acompanha automaticamente a leitura do QR Code", () => {
+  assert.match(whatsappUi, /data\.connection\.status !== "connecting"/);
+  assert.match(whatsappUi, /window\.setInterval\(\(\) => void load\(undefined, true\), 3000\)/);
+  assert.match(whatsappUi, /setQr\(null\)/);
 });
 
 test("chave geral só pode ser ligada com conexão e pacote ativos", () => {
@@ -40,18 +49,18 @@ test("chave geral só pode ser ligada com conexão e pacote ativos", () => {
 
 test("C.A. Atende aparece como IA principal e só liga com conexão, pacote e automações", () => {
   assert.match(whatsappUi, /Atendimento inteligente por IA/);
-  assert.match(whatsappUi, /LINK PRIMEIRO/);
+  assert.match(whatsappUi, /AGENDA REAL/);
   assert.match(whatsappUi, /FILTRO DE OFERTAS/);
-  assert.match(whatsappUi, /IA PRINCIPAL/);
+  assert.match(whatsappUi, /TRANSFERÊNCIA HUMANA/);
   assert.match(whatsappUi, /checked=\{data\.settings\.botEnabled\}/);
   assert.match(whatsappUi, /disabled=\{!canEnable \|\| !data\.settings\.enabled \|\| saving\}/);
 });
 
-test("fila humana mantém o bot em silêncio até o proprietário encerrar", () => {
+test("fila humana mantém o bot em silêncio até o proprietário liberar a automação", () => {
   assert.match(whatsappUi, /Clientes esperando uma pessoa/);
   assert.match(whatsappUi, /O bot fica em silêncio/);
   assert.match(whatsappUi, /resume-conversation/);
-  assert.match(whatsappUi, /Encerrar atendimento/);
+  assert.match(whatsappUi, /Liberar automação/);
 });
 
 test("painel possui ajustes responsivos específicos para iPhone/mobile", () => {
