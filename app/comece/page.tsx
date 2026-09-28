@@ -5,6 +5,7 @@ import { SUPPORT_PHONE_DISPLAY, SUPPORT_WHATSAPP_URL } from "../../lib/support";
 import { AppIcon } from "../ui/app-icon";
 import { BrandLogo } from "../ui/brand-logo";
 import { PublicLandingMotion } from "../ui/public-landing-motion";
+import { PublicProductSlider } from "../ui/public-product-slider";
 import { PublicSignupForm } from "../ui/public-signup-form";
 
 export const dynamic = "force-dynamic";
@@ -114,6 +115,8 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
         </div>
         <PublicSignupForm signupSource={signupSource} referralCode={referralCode} initialAccountType={initialAccountType} />
       </section>
+
+      <PublicProductSlider />
 
       <section className="public-secondary-access" aria-label="Outras formas de acesso">
         <div className="public-secondary-access-heading">
