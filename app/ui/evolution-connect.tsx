@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 type WhatsappStatus = {
@@ -66,8 +67,9 @@ export function EvolutionConnect() {
   }
 
   useEffect(() => {
-    void loadStatus();
+    const initial = setTimeout(() => void loadStatus(), 0);
     return () => {
+      clearTimeout(initial);
       if (pollRef.current) clearInterval(pollRef.current);
     };
     // A leitura inicial não deve reiniciar só porque o usuário digitou o telefone.
@@ -108,7 +110,7 @@ export function EvolutionConnect() {
 
   return <main style={{ minHeight:"100dvh", background:"#f5f3eb", color:"#182019", padding:"24px 18px 48px", fontFamily:"system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
     <div style={{ width:"min(100%, 560px)", margin:"0 auto" }}>
-      <a href="/" style={{ display:"inline-flex", alignItems:"center", gap:8, color:"#66511c", textDecoration:"none", fontWeight:800, marginBottom:20 }}>← Cortou, Anotou</a>
+      <Link href="/" style={{ display:"inline-flex", alignItems:"center", gap:8, color:"#66511c", textDecoration:"none", fontWeight:800, marginBottom:20 }}>← Cortou, Anotou</Link>
 
       <section style={{ background:"#182019", color:"#fff", borderRadius:24, padding:"24px 22px", boxShadow:"0 18px 40px rgba(24,32,25,.14)" }}>
         <div style={{ color:"#dfad35", letterSpacing:2, fontSize:12, fontWeight:900, textTransform:"uppercase" }}>Conexão rápida</div>
@@ -120,7 +122,7 @@ export function EvolutionConnect() {
         <div style={{ width:48, height:48, borderRadius:16, background:"#e5f5e9", display:"grid", placeItems:"center", fontSize:28, marginBottom:12 }}>✓</div>
         <h2 style={{ margin:"0 0 8px", fontSize:24 }}>WhatsApp conectado</h2>
         <p style={{ margin:0, color:"#657066", lineHeight:1.5 }}>A sessão está ativa no Cortou Anotou. Agora as automações podem usar esta conexão quando o pacote de WhatsApp estiver habilitado.</p>
-        <a href="/" style={{ marginTop:18, display:"block", textAlign:"center", background:"#dba92e", color:"#182019", padding:"15px 18px", borderRadius:14, textDecoration:"none", fontWeight:900 }}>Voltar ao aplicativo</a>
+        <Link href="/" style={{ marginTop:18, display:"block", textAlign:"center", background:"#dba92e", color:"#182019", padding:"15px 18px", borderRadius:14, textDecoration:"none", fontWeight:900 }}>Voltar ao aplicativo</Link>
       </section> : <>
         <form onSubmit={connect} style={{ marginTop:18, background:"#fff", border:"1px solid #deddd5", borderRadius:22, padding:22 }}>
           <label htmlFor="evolution-phone" style={{ display:"block", fontWeight:900, marginBottom:8 }}>Número do WhatsApp</label>
