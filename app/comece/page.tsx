@@ -62,36 +62,15 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
           <div className="public-hero-actions">
             <a className="public-primary-cta" href="#cadastro">Começar 14 dias grátis <b>→</b></a>
             <Link className="public-login-cta" href="/">Entrar</Link>
-            <a className="public-learn-link" href="#recursos">Conhecer o aplicativo ↓</a>
+            <a className="public-learn-link" href="#produto">Conhecer o aplicativo ↓</a>
           </div>
           <div className="public-trust-row">
             <span><b>✓</b> Sem cartão no teste</span>
             <span><b>✓</b> Login próprio</span>
-            <span><b>✓</b> Dados separados por barbearia</span>
           </div>
         </div>
 
-        <div className="public-product-stage" aria-label="Prévia do painel Cortou Anotou">
-          <div className="public-stage-glow" />
-          <div className="public-phone">
-            <div className="public-phone-top"><span>9:41</span><i /><b>100%</b></div>
-            <div className="public-phone-brand"><span>C</span><i /><b>A</b><strong>CORTOU <em>ANOTOU</em></strong></div>
-            <div className="public-phone-body">
-              <small>BOM DIA, WILLIAM</small>
-              <h2>Sua barbearia hoje.</h2>
-              <div className="public-mini-period"><span>Período da análise</span><b>Hoje⌄</b></div>
-              <div className="public-mini-stats">
-                <article><i>↗</i><span>Faturamento</span><strong>R$ 480,00</strong><small>meta em andamento</small></article>
-                <article><i>$</i><span>Lucro líquido</span><strong>R$ 342,00</strong><small>depois dos custos</small></article>
-                <article><i><AppIcon name="scissors" /></i><span>Atendimentos</span><strong>12</strong><small>registrados hoje</small></article>
-                <article><i>◈</i><span>Mensalistas</span><strong>18</strong><small>clientes ativos</small></article>
-              </div>
-            </div>
-            <div className="public-assistant-chip"><i><AppIcon name="help" /></i><span>Central de ajuda</span></div>
-          </div>
-          <div className="public-floating-card appointment"><span>17:40</span><div><b>Horário confirmado</b><small>com Eduardo</small></div><i>✓</i></div>
-          <div className="public-floating-card voice"><i><AppIcon name="help" /></i><div><b>“Registrar atendimento”</b><small>Preparado pela Central de ajuda</small></div></div>
-        </div>
+        <PublicProductSlider />
       </section>
 
       <section className="public-proof-strip" aria-label="Principais benefícios">
@@ -115,8 +94,6 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
         </div>
         <PublicSignupForm signupSource={signupSource} referralCode={referralCode} initialAccountType={initialAccountType} />
       </section>
-
-      <PublicProductSlider />
 
       <section className="public-secondary-access" aria-label="Outras formas de acesso">
         <div className="public-secondary-access-heading">
