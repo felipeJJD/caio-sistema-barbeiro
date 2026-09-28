@@ -2,6 +2,7 @@ import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import type { AccessContext } from "./access";
 import { requireOwner, requirePlatformAdmin } from "./access";
 import { getDb } from "./index";
+import { getWhatsappEntitlementForOrganization, type WhatsappEntitlement } from "./whatsapp-entitlement";
 import { decryptSecret, encryptSecret } from "./platform-secrets";
 import { normalizeWhatsappPhone, whatsappReminderAt } from "../lib/whatsapp";
 import {
@@ -32,6 +33,7 @@ export type WhatsappAutomationStatus = {
     connectedAt: string | null;
     updatedAt: string | null;
   };
+  entitlement: WhatsappEntitlement;
   settings: {
     enabled: boolean;
     confirmationEnabled: boolean;
@@ -148,6 +150,7 @@ export async function getWhatsappAutomationStatus(access: AccessContext): Promis
     humanHandoffsForOrganization(access.organizationId),
   ]);
   const monthlyMessageLimit = Math.max(0, Number(settings.monthlyMessageLimit ?? 0));
+  const entitlement = await getWhatsappEntitlementForOrganization(access.organizationId, monthlyMessageLimit);
   return {
     connection: {
       status: connection?.status ?? "disconnected",
@@ -163,6 +166,7 @@ export async function getWhatsappAutomationStatus(access: AccessContext): Promis
       connectedAt: connection?.connectedAt ?? null,
       updatedAt: connection?.updatedAt ?? null,
     },
+    entitlement,
     settings: {
       enabled: Boolean(settings.enabled),
       confirmationEnabled: Boolean(settings.confirmationEnabled),
@@ -678,7 +682,8 @@ export async function queueAppointmentWhatsapp(kind: Exclude<WhatsappAutomationK
     await cancelPendingAppointmentMessages(appointment.organizationId, appointment.id, ["reminder", "rescheduled"]);
   }
 
-  if (!settings.enabled || !connection || connection.status !== "connected" || Number(settings.monthlyMessageLimit) <= 0) {
+  const entitlement = await getWhatsappEntitlementForOrganization(appointment.organizationId, Number(settings.monthlyMessageLimit));
+  if (!settings.enabled || !connection || connection.status !== "connected" || !entitlement.hasAccess) {
     return { queued: false, reason: "automation_inactive" as const };
   }
 
@@ -715,7 +720,8 @@ export async function queueWhatsappTextReply(input: {
     settingsForOrganization(input.organizationId),
     connectionForOrganization(input.organizationId),
   ]);
-  if (!settings.enabled || !settings.botEnabled || !connection || connection.status !== "connected" || Number(settings.monthlyMessageLimit) <= 0) {
+  const entitlement = await getWhatsappEntitlementForOrganization(input.organizationId, Number(settings.monthlyMessageLimit));
+  if (!settings.enabled || !settings.botEnabled || !connection || connection.status !== "connected" || !entitlement.hasAccess) {
     return { queued:false, reason:"automation_inactive" as const };
   }
   const db = await getDb();
@@ -754,11 +760,14 @@ async function sendQueuedMessage(message: typeof whatsappMessages.$inferSelect) 
     connectionForOrganization(message.organizationId),
     settingsForOrganization(message.organizationId),
   ]);
-  if (!settings.enabled || !connection || connection.status !== "connected" || !connection.encryptedAccessToken || !connection.accessTokenIv) {
+  const entitlement = await getWhatsappEntitlementForOrganization(message.organizationId, Number(settings.monthlyMessageLimit));
+  if (!settings.enabled || !entitlement.hasAccess || !connection || connection.status !== "connected" || !connection.encryptedAccessToken || !connection.accessTokenIv) {
     throw new Error("A conexão do WhatsApp desta barbearia não está ativa.");
   }
-  const sentThisMonth = await sentCountThisMonth(message.organizationId);
-  if (sentThisMonth >= Number(settings.monthlyMessageLimit)) throw new Error("O limite mensal de mensagens desta barbearia foi atingido.");
+  if (!entitlement.unlimited) {
+    const sentThisMonth = await sentCountThisMonth(message.organizationId);
+    if (sentThisMonth >= entitlement.monthlyMessageLimit) throw new Error("O limite mensal de mensagens desta barbearia foi atingido.");
+  }
 
   const token = await decryptSecret(connection.encryptedAccessToken, connection.accessTokenIv);
   const payload = JSON.parse(message.payloadJson || "{}") as Record<string, string>;

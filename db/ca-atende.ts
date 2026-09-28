@@ -16,6 +16,7 @@ import { interpretCaAtendeWithAi } from "../lib/ca-atende-model";
 import { getPublicBookingSlotsExpanded } from "./public-booking";
 import { recordAiUsageSafely } from "./ai-usage";
 import { getDb } from "./index";
+import { getWhatsappEntitlementForOrganization } from "./whatsapp-entitlement";
 import { notifyOwnersOfWhatsappHandoff } from "./notifications";
 import {
   organizations,
@@ -754,7 +755,8 @@ export async function simulateCaAtende(input: {
 export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
   const context = await runtimeContext(event.organizationId);
   if (!context) return { handled:false, reason:"organization_not_found" as const };
-  if (!context.settings.enabled || !context.settings.botEnabled || !context.connected || context.settings.monthlyMessageLimit <= 0) {
+  const entitlement = await getWhatsappEntitlementForOrganization(event.organizationId, context.settings.monthlyMessageLimit);
+  if (!context.settings.enabled || !context.settings.botEnabled || !context.connected || !entitlement.hasAccess) {
     return { handled:false, reason:"bot_inactive" as const };
   }
 

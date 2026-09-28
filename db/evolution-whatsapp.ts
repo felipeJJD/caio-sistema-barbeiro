@@ -2,6 +2,7 @@ import { and, eq, lte, or } from "drizzle-orm";
 import type { AccessContext } from "./access";
 import { requireOwner } from "./access";
 import { getDb } from "./index";
+import { getWhatsappEntitlementForOrganization } from "./whatsapp-entitlement";
 import { decryptSecret } from "./platform-secrets";
 import {
   whatsappAutomationSettings,
@@ -308,7 +309,9 @@ export async function processEvolutionWhatsappQueue(options: { organizationId?: 
     const connection = (await db.select().from(whatsappConnections).where(eq(whatsappConnections.organizationId, message.organizationId)).limit(1))[0];
     if (!connection || connection.provider !== "evolution" || connection.status !== "connected" || !connection.phoneNumberId) continue;
     const settings = (await db.select().from(whatsappAutomationSettings).where(eq(whatsappAutomationSettings.organizationId, message.organizationId)).limit(1))[0];
-    if (!settings?.enabled || Number(settings.monthlyMessageLimit) <= 0) continue;
+    if (!settings?.enabled) continue;
+    const entitlement = await getWhatsappEntitlementForOrganization(message.organizationId, Number(settings.monthlyMessageLimit));
+    if (!entitlement.hasAccess) continue;
 
     const claimedAt = new Date().toISOString();
     const claimed = await db.update(whatsappMessages).set({ status:"sending", errorText:"", updatedAt:claimedAt }).where(and(
