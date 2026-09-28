@@ -67,7 +67,10 @@ function resultArray(value: unknown) {
 }
 
 function instanceRecordName(value: Record<string, unknown>) {
-  return String(value.name ?? value.instanceName ?? value.instance?.name ?? "").trim();
+  const nested = value.instance && typeof value.instance === "object"
+    ? value.instance as Record<string, unknown>
+    : {};
+  return String(value.name ?? value.instanceName ?? nested.name ?? "").trim();
 }
 
 async function findEvolutionInstance(name: string) {
