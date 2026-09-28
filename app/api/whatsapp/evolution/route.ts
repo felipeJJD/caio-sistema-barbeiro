@@ -1,10 +1,10 @@
 import { getSessionAccess } from "../../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../../db/access";
 import {
-  beginEvolutionPairing,
   getEvolutionClientConfig,
   refreshEvolutionStatus,
 } from "../../../../db/evolution-whatsapp";
+import { beginEvolutionPairingSafe } from "../../../../db/evolution-pairing";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     if (contentLength > 4_000) return Response.json({ error:"Solicitação muito grande." }, { status:413 });
     const data = await request.json() as Record<string, unknown>;
     const phone = String(data.phone ?? "").slice(0,40);
-    const result = await beginEvolutionPairing(access, phone);
+    const result = await beginEvolutionPairingSafe(access, phone);
     return Response.json({ ok:true, ...result }, { headers:{ "Cache-Control":"no-store" } });
   } catch (error) {
     return Response.json({ error:error instanceof Error ? error.message : "Não foi possível gerar o código do WhatsApp." }, { status:400, headers:{ "Cache-Control":"no-store" } });
