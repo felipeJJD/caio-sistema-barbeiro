@@ -74,8 +74,6 @@ function instanceRecordName(value: Record<string, unknown>) {
 }
 
 async function findEvolutionInstance(name: string) {
-  // Não filtre por instanceName aqui: no Evolution 2.3.7 o middleware pode
-  // responder 404 quando a instância ainda não existe, impedindo o primeiro cadastro.
   const result = await evolutionRequest<unknown>("/instance/fetchInstances");
   return resultArray(result).find((item) => instanceRecordName(item) === name);
 }
@@ -91,6 +89,17 @@ function pairingCodeFrom(value: unknown) {
     return String(nested.pairingCode ?? nested.pairing_code ?? "").trim();
   }
   return "";
+}
+
+function qrCodeFrom(value: unknown) {
+  if (!value || typeof value !== "object") return "";
+  const body = value as Record<string, unknown>;
+  const qrcode = body.qrcode;
+  const nested = qrcode && typeof qrcode === "object" ? qrcode as Record<string, unknown> : {};
+  const raw = String(body.base64 ?? nested.base64 ?? body.Qrcode ?? nested.Qrcode ?? "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("data:image/")) return raw;
+  return `data:image/png;base64,${raw}`;
 }
 
 async function createEvolutionInstance(name: string, phone: string) {
@@ -121,8 +130,9 @@ async function createEvolutionInstance(name: string, phone: string) {
   });
 }
 
-async function connectEvolutionInstance(name: string, phone: string) {
-  return evolutionRequest<Record<string, unknown>>(`/instance/connect/${encodeURIComponent(name)}?number=${encodeURIComponent(phone)}`);
+async function connectEvolutionInstance(name: string, phone?: string) {
+  const suffix = phone ? `?number=${encodeURIComponent(phone)}` : "";
+  return evolutionRequest<Record<string, unknown>>(`/instance/connect/${encodeURIComponent(name)}${suffix}`);
 }
 
 async function readEvolutionState(name: string) {
@@ -198,20 +208,34 @@ export async function beginEvolutionPairingSafe(access: AccessContext, phoneValu
   const stateBefore = await readEvolutionState(name);
   if (stateBefore === "open" || stateBefore === "connected") {
     await persistConnection(access, phone, name, "connected");
-    return { pairingCode:"", state:"open", whatsapp:await getWhatsappAutomationStatus(access) };
+    return { pairingCode:"", qrCode:"", state:"open", whatsapp:await getWhatsappAutomationStatus(access) };
   }
 
   let connectResult = created ?? {};
   let pairingCode = pairingCodeFrom(connectResult);
-  if (!pairingCode) {
-    for (let attempt = 0; attempt < 3 && !pairingCode; attempt += 1) {
+  let qrCode = qrCodeFrom(connectResult);
+
+  if (!pairingCode && !qrCode) {
+    for (let attempt = 0; attempt < 3 && !pairingCode && !qrCode; attempt += 1) {
       connectResult = await connectEvolutionInstance(name, phone);
       pairingCode = pairingCodeFrom(connectResult);
-      if (!pairingCode && attempt < 2) await new Promise((resolve) => setTimeout(resolve, 700));
+      qrCode = qrCodeFrom(connectResult);
+      if (!pairingCode && !qrCode && attempt < 2) await new Promise((resolve) => setTimeout(resolve, 900));
     }
   }
-  if (!pairingCode) throw new Error("O WhatsApp não gerou o código de conexão. Tente novamente em alguns segundos.");
+
+  if (!pairingCode && !qrCode) {
+    // Algumas versões do Baileys recusam o pairing code, mas continuam
+    // oferecendo QR normalmente. Pedimos explicitamente uma sessão sem número.
+    connectResult = await connectEvolutionInstance(name);
+    pairingCode = pairingCodeFrom(connectResult);
+    qrCode = qrCodeFrom(connectResult);
+  }
+
+  if (!pairingCode && !qrCode) {
+    throw new Error("O WhatsApp ainda não liberou um método de conexão. Tente novamente em alguns segundos.");
+  }
 
   await persistConnection(access, phone, name, "connecting");
-  return { pairingCode, state:"connecting", whatsapp:await getWhatsappAutomationStatus(access) };
+  return { pairingCode, qrCode, state:"connecting", whatsapp:await getWhatsappAutomationStatus(access) };
 }
