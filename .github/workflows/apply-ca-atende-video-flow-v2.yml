@@ -1,0 +1,47 @@
+name: Aplicar correções do vídeo C.A. Atende
+
+on:
+  push:
+    branches:
+      - fix/ca-atende-video-flow-v2
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Baixar branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/ca-atende-video-flow-v2
+          fetch-depth: 0
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - name: Aplicar correções focadas
+        run: python3 scripts/apply-ca-atende-video-flow-v2.py
+      - name: Instalar dependências
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Testes
+        run: npm test
+      - name: Carga
+        run: npm run test:load
+      - name: Remover aplicador temporário
+        run: rm -f scripts/apply-ca-atende-video-flow-v2.py .github/workflows/apply-ca-atende-video-flow-v2.yml
+      - name: Publicar resultado validado na branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Corrige fluxo real do C.A. Atende mostrado no vídeo"
+          git push origin fix/ca-atende-video-flow-v2
