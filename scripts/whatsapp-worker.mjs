@@ -27,6 +27,5 @@ if (secret.length < 24) {
 } else {
   await wait(initialDelayMs);
   await runWhatsappJobs();
-  setInterval(runWhatsappJobs, intervalMs).unref?.();
-  await new Promise(() => {});
+  setInterval(runWhatsappJobs, intervalMs);
 }
