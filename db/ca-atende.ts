@@ -44,7 +44,6 @@ type CaAtendeRuntimeContext = {
     aiFallbackEnabled: boolean;
     greetingText: string;
     handoffText: string;
-    monthlyMessageLimit: number;
   };
   connected: boolean;
 };
@@ -181,7 +180,6 @@ async function runtimeContext(organizationId: number): Promise<CaAtendeRuntimeCo
       aiFallbackEnabled: current?.aiFallbackEnabled === undefined ? true : Boolean(current.aiFallbackEnabled),
       greetingText: String(current?.greetingText ?? ""),
       handoffText: String(current?.handoffText ?? ""),
-      monthlyMessageLimit: Number(current?.monthlyMessageLimit ?? 0),
     },
   };
 }
@@ -261,13 +259,22 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
   const rule = classifyCaAtendeByRule(message);
   if (context.settings.spamFilterEnabled && highConfidenceCommercialOffer(message)) return { ...rule, intent:"spam" as const };
 
-  // Greeting + link is intentionally local and free. For the rest of natural
-  // conversation, AI is the primary interpreter; rules remain a safe fallback.
-  if (rule.intent === "greeting") return rule;
-
   const normalized = normalizeCaAtendeText(message);
   if (normalized === "qualquer profissional") return { ...rule, intent:memory.intent === "availability" ? "availability" as const : "booking" as const };
   if (normalized === "precos e servicos") return { ...rule, intent:"prices" as const };
+
+  // Clear requests and known entities are answered with organization data; AI
+  // is reserved for ambiguous language, reducing latency and model calls.
+  if (rule.intent !== "unknown") return rule;
+  const knownService = context.services.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
+  const knownBarber = context.barbers.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
+  const bookingContinuation = (memory.intent === "booking" || memory.intent === "availability")
+    && (knownService || knownBarber || Boolean(extractCaAtendeDate(message)) || Boolean(extractCaAtendeTime(message)) || Boolean(extractCaAtendeTimeWindow(message).afterTime) || Boolean(extractCaAtendeTimeWindow(message).beforeTime) || wantsAssistedBooking(message) || wantsAnotherProfessional(message) || wantsBookingConfirmation(message));
+  if (bookingContinuation) return { ...rule, intent:memory.intent as "booking" | "availability" };
+  if ([...context.services.map(item => item.name), ...context.barbers.map(item => item.name)]
+    .some(name => normalized === normalizeCaAtendeText(name) || normalized === `quero o ${normalizeCaAtendeText(name)}`)) {
+    return { ...rule, intent:memory.intent === "prices" ? "prices" as const : "booking" as const };
+  }
 
   let interpretation: CaAtendeInterpretation = rule;
   if (context.settings.aiFallbackEnabled) {
@@ -285,13 +292,6 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
     }
   }
 
-  const knownService = context.services.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
-  const knownBarber = context.barbers.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
-  const bookingContinuation = (memory.intent === "booking" || memory.intent === "availability")
-    && (knownService || knownBarber || Boolean(extractCaAtendeDate(message)) || Boolean(extractCaAtendeTime(message)) || Boolean(extractCaAtendeTimeWindow(message).afterTime) || Boolean(extractCaAtendeTimeWindow(message).beforeTime) || wantsAssistedBooking(message) || wantsAnotherProfessional(message) || wantsBookingConfirmation(message));
-  if (interpretation.intent === "unknown" && bookingContinuation) {
-    return { ...interpretation, intent: memory.intent as "booking" | "availability" };
-  }
   return interpretation.intent === "unknown" && rule.intent !== "unknown" ? rule : interpretation;
 }
 
@@ -958,7 +958,7 @@ export async function simulateCaAtende(input: {
 export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
   const context = await runtimeContext(event.organizationId);
   if (!context) return { handled:false, reason:"organization_not_found" as const };
-  const entitlement = await getWhatsappEntitlementForOrganization(event.organizationId, context.settings.monthlyMessageLimit);
+  const entitlement = await getWhatsappEntitlementForOrganization(event.organizationId);
   if (!context.settings.enabled || !context.settings.botEnabled || !context.connected || !entitlement.hasAccess) {
     return { handled:false, reason:"bot_inactive" as const };
   }

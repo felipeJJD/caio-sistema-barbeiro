@@ -93,7 +93,7 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
     db.select({ id: services.id, name: services.name, priceCents: services.priceCents, durationMinutes: services.durationMinutes }).from(services).where(and(eq(services.organizationId, organization.id), eq(services.active, true), isNull(services.deletedAt))).orderBy(services.name),
     db.select({ id: plans.id, name: plans.name, planKind: plans.planKind, serviceId: plans.serviceId, monthlyValueCents: plans.monthlyValueCents, maxUses: plans.maxUses }).from(plans).where(and(eq(plans.organizationId, organization.id), eq(plans.active, true))).orderBy(plans.name),
     db.select({ id: clients.id, planId: clients.planId }).from(clients).where(and(eq(clients.organizationId, organization.id), eq(clients.status, "Ativo"), isNull(clients.deletedAt))),
-    db.select({ id: team.id, name: team.name, weeklyBookingHours: team.weeklyBookingHours }).from(team).where(and(eq(team.organizationId, organization.id), eq(team.active, true))).orderBy(team.name),
+    db.select({ id: team.id, name: team.name, weeklyBookingHours: team.weeklyBookingHours, platformAdmin: team.platformAdmin }).from(team).where(and(eq(team.organizationId, organization.id), eq(team.active, true))).orderBy(team.name),
     listPublicGalleryImages(organization.id),
     getBookingPaymentSettings(organization.id),
   ]);
@@ -110,7 +110,7 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
       id: organization.id,
       name: organization.name,
       slug: organization.slug,
-      enabled: organization.publicBookingEnabled && !accessPeriodHasEnded(organization.trialEndsAt) && !organization.deletedAt && !organization.statusBeforeBlock && organization.status !== "blocked" && organization.status !== "deleted",
+      enabled: organization.publicBookingEnabled && (barberList.some(barber => barber.platformAdmin) || !accessPeriodHasEnded(organization.trialEndsAt)) && !organization.deletedAt && !organization.statusBeforeBlock && organization.status !== "blocked" && organization.status !== "deleted",
       requiresApproval: organization.publicBookingRequiresApproval,
       openingTime: organization.openingTime,
       closingTime: organization.closingTime,

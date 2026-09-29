@@ -42,10 +42,8 @@ test("calcula lembrete usando o horário local da agenda", () => {
   assert.equal(helper.whatsappReminderAt("invalido", "14:00", 3, now), null);
 });
 
-test("integração nasce desligada e sem pacote para impedir envio acidental", () => {
+test("integração nasce desligada para impedir envio acidental", () => {
   assert.match(migration, /enabled[^\n]*DEFAULT false NOT NULL/);
-  assert.match(migration, /plan_code[^\n]*DEFAULT 'off' NOT NULL/);
-  assert.match(migration, /monthly_message_limit[^\n]*DEFAULT 0 NOT NULL/);
 });
 
 test("cada barbearia possui conexão, configurações, fila e conversa próprias", () => {
@@ -71,10 +69,11 @@ test("webhook exige token na verificação e assinatura HMAC no recebimento", ()
   assert.match(webhookRoute, /HMAC/);
 });
 
-test("proprietário não pode aumentar o próprio pacote de mensagens", () => {
+test("pacotes antigos não podem ser reativados por API", () => {
   assert.doesNotMatch(ownerSettingsRoute, /action === "plan"/);
   assert.match(platformRoute, /access\.isPlatformAdmin/);
-  assert.match(dbWhatsapp, /requirePlatformAdmin\(access\)/);
+  assert.match(platformRoute, /status: 410/);
+  assert.doesNotMatch(dbWhatsapp, /export async function saveWhatsappPlanForOrganization/);
 });
 
 test("confirmação e cancelamento internos alimentam a automação", () => {

@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { showAppToast } from "./app-toast";
 
 type WhatsappStatusPayload = {
+  bookingUrl: string;
   connection: {
     status: string;
     provider: string;
@@ -21,8 +22,7 @@ type WhatsappStatusPayload = {
   entitlement: {
     hasAccess: boolean;
     unlimited: boolean;
-    source: "platform_admin" | "package" | "none";
-    monthlyMessageLimit: number;
+    source: "platform_admin" | "subscription" | "trial" | "none";
   };
   settings: {
     enabled: boolean;
@@ -39,13 +39,10 @@ type WhatsappStatusPayload = {
     greetingText: string;
     handoffText: string;
     humanTakeoverMinutes: number;
-    planCode: string;
-    monthlyMessageLimit: number;
     templateLanguage: string;
   };
   usage: {
     sentThisMonth: number;
-    remainingThisMonth: number;
   };
   humanHandoffs: Array<{
     phone: string;
@@ -74,12 +71,6 @@ function statusLabel(status: string) {
   if (status === "connected" || status === "open") return "Conectado";
   if (status === "connecting") return "Conectando";
   return "Desconectado";
-}
-
-function planLabel(code: string, limit: number) {
-  if (!limit || code === "off") return "Sem pacote ativo";
-  const normalized = code.replaceAll("_", " ").trim();
-  return normalized ? normalized.replace(/\b\w/g, (letter) => letter.toUpperCase()) : `${limit.toLocaleString("pt-BR")} mensagens`;
 }
 
 function formatDate(value: string | null) {
@@ -264,13 +255,8 @@ export function WhatsappAutomation() {
 
   const connected = Boolean(data && data.connection.provider === "evolution" && data.connection.status === "connected");
   const hasMessageAccess = Boolean(data?.entitlement.hasAccess);
-  const hasPackage = data?.entitlement.source === "package";
   const isPlatformAdminAccess = data?.entitlement.source === "platform_admin";
   const canEnable = Boolean(connected && hasMessageAccess);
-  const usagePercent = useMemo(() => {
-    if (!data?.settings.monthlyMessageLimit || data.entitlement.unlimited) return 0;
-    return Math.min(100, Math.round(data.usage.sentThisMonth / data.settings.monthlyMessageLimit * 100));
-  }, [data]);
   const codeGroups = pairingCode.replace(/\s/g, "").match(/.{1,4}/g)?.join(" ") ?? pairingCode;
 
   if (loading) return <section className="whatsapp-page"><div className="panel whatsapp-loading"><span className="whatsapp-brand-mark">WA</span><div><strong>Carregando WhatsApp...</strong><small>Consultando conexão e automações da sua barbearia.</small></div></div></section>;
@@ -281,58 +267,44 @@ export function WhatsappAutomation() {
     <div className="whatsapp-hero panel">
       <div className="whatsapp-hero-copy">
         <span className="whatsapp-kicker">C.A. ATENDE · WHATSAPP</span>
-        <h2>Seu atendimento automático começa aqui.</h2>
-        <p>Confirmações, lembretes, cancelamentos e remarcações ligados à agenda real do Cortou Anotou.</p>
+        <h2>WhatsApp da sua barbearia</h2>
+        <p>Conecte o número e escolha quais mensagens o C.A. Atende pode enviar.</p>
       </div>
       <div className={connected ? "whatsapp-connection-badge connected" : "whatsapp-connection-badge"}>
         <i />
-        <span>{connected ? "WHATSAPP CONECTADO" : "WHATSAPP AINDA NÃO CONECTADO"}</span>
+        <span>{connected ? "CONECTADO" : statusLabel(connectionState).toUpperCase()}</span>
       </div>
     </div>
 
     {feedback && <div className="notice error whatsapp-feedback" role="alert">{feedback}</div>}
 
-    <div className="whatsapp-status-grid">
-      <article className="panel whatsapp-status-card">
-        <div className="whatsapp-card-icon">☏</div>
-        <span>CONEXÃO</span>
-        <strong>{connected ? "Conectado" : statusLabel(connectionState)}</strong>
-        <small>{connected ? data.connection.displayPhoneNumber || "WhatsApp conectado" : "Conecte o número da barbearia abaixo"}</small>
-        {connected && data.connection.connectedAt && <em>Evolution · conectado em {formatDate(data.connection.connectedAt)}</em>}
-      </article>
+    {connected && <section className="panel whatsapp-simple-status">
+      <div><strong>WhatsApp conectado</strong><span>{formatPhone(data.connection.displayPhoneNumber)} · {isPlatformAdminAccess ? "Acesso administrativo completo" : hasMessageAccess ? "Incluído na assinatura" : "Assinatura encerrada"}</span></div>
+      <small>{data.usage.sentThisMonth.toLocaleString("pt-BR")} mensagens enviadas neste mês</small>
+    </section>}
 
-      <article className="panel whatsapp-status-card">
-        <div className="whatsapp-card-icon">✦</div>
-        <span>PACOTE DE MENSAGENS</span>
-        <strong>{isPlatformAdminAccess ? "Acesso administrativo completo" : planLabel(data.settings.planCode, data.settings.monthlyMessageLimit)}</strong>
-        <small>{isPlatformAdminAccess ? "WhatsApp liberado sem pacote ou limite para a administração da plataforma" : hasPackage ? `${data.settings.monthlyMessageLimit.toLocaleString("pt-BR")} mensagens disponíveis por mês` : "Ative um pacote para liberar os envios automáticos"}</small>
-      </article>
-
-      <article className="panel whatsapp-status-card usage">
-        <div className="whatsapp-card-icon">↗</div>
-        <span>USO NESTE MÊS</span>
-        <strong>{data.usage.sentThisMonth.toLocaleString("pt-BR")} <small>enviadas</small></strong>
-        <div className="whatsapp-usage-bar" aria-label={isPlatformAdminAccess ? "Acesso administrativo sem limite de pacote" : `${usagePercent}% do pacote utilizado`}><i style={{ width: `${usagePercent}%` }} /></div>
-        <small>{isPlatformAdminAccess ? "Acesso administrativo sem limite de pacote" : hasPackage ? `${data.usage.remainingThisMonth.toLocaleString("pt-BR")} restantes` : "Nenhuma mensagem será enviada sem pacote"}</small>
-      </article>
-    </div>
+    {data.bookingUrl && <section className="panel whatsapp-booking-link">
+      <div><strong>Link para clientes agendarem</strong><a href={data.bookingUrl} target="_blank" rel="noreferrer">{data.bookingUrl}</a></div>
+      <button type="button" onClick={() => void navigator.clipboard.writeText(data.bookingUrl).then(() => showAppToast("Link copiado.")).catch(() => setFeedback("Não foi possível copiar o link."))}>Copiar link</button>
+    </section>}
 
     {!connected && <section className="panel whatsapp-connect-card whatsapp-connect-live">
       <div className="whatsapp-connect-icon">◎</div>
       <div className="whatsapp-connect-copy">
-        <span>CONEXÃO EVOLUTION</span>
-        <h3>Conectar o WhatsApp da barbearia</h3>
-        <p>Informe o número usado no WhatsApp ou WhatsApp Business. O Cortou Anotou gera um código para vincular o aparelho sem sair desta área.</p>
+        <span>CONECTAR WHATSAPP</span>
+        <h3>Use o seu próprio número</h3>
+        <p>Digite o número e gere um código. Depois coloque esse código no WhatsApp desse mesmo celular.</p>
       </div>
       <div className="whatsapp-connect-actions">
         <form onSubmit={connectEvolution} className="app-form">
           <label className="field"><span>NÚMERO DO WHATSAPP</span><input inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="(41) 99999-9999" /></label>
-          <button type="submit" className="whatsapp-connect-primary" disabled={!evolutionReady || connecting || phoneDigits(phone).length < 10}>{connecting ? "Gerando código..." : "Conectar meu WhatsApp"}</button>
+          <button type="submit" className="whatsapp-connect-primary" disabled={!evolutionReady || connecting || phoneDigits(phone).length < 10}>{connecting ? "Gerando código..." : "Gerar código"}</button>
           {!evolutionReady && <small>A conexão está sendo preparada no servidor. Tente novamente em alguns instantes.</small>}
         </form>
-        {pairingCode && <div className="whatsapp-meta-pending">
-          <strong>Código para vincular: {codeGroups}</strong>
-          <small>No WhatsApp, abra Configurações → Aparelhos conectados → Conectar um aparelho → Conectar usando número de telefone e digite este código.</small>
+        {pairingCode && <div className="whatsapp-pairing-code" role="status" aria-live="polite">
+          <strong>Seu código de conexão</strong>
+          <code>{codeGroups}</code>
+          <p>No WhatsApp: Configurações → Aparelhos conectados → Conectar aparelho → Conectar usando número de telefone. Digite o código acima.</p>
         </div>}
       </div>
     </section>}
@@ -341,7 +313,7 @@ export function WhatsappAutomation() {
       <div className="whatsapp-panel-heading">
         <div><span>AUTOMAÇÕES</span><h3>O que o Cortou Anotou pode enviar sozinho</h3><p>Você escolhe cada automação. Nada é enviado sem conexão e acesso ativos.</p></div>
         <label className={canEnable ? "whatsapp-master-switch" : "whatsapp-master-switch disabled"}>
-          <span><strong>{data.settings.enabled ? "Automações ligadas" : "Automações desligadas"}</strong><small>{canEnable ? "Controle geral dos envios" : !connected ? "Conecte o WhatsApp primeiro" : "Ative um pacote de mensagens primeiro"}</small></span>
+          <span><strong>{data.settings.enabled ? "Automações ligadas" : "Automações desligadas"}</strong><small>{canEnable ? "Controle geral dos envios" : !connected ? "Conecte o WhatsApp primeiro" : "Renove sua assinatura para ligar"}</small></span>
           <input type="checkbox" checked={data.settings.enabled} disabled={!canEnable || saving} onChange={(event) => void saveSettings({ enabled: event.target.checked }, event.target.checked ? "Automações do WhatsApp ligadas." : "Automações do WhatsApp pausadas.")} />
           <i />
         </label>
@@ -386,11 +358,10 @@ export function WhatsappAutomation() {
       <div className="whatsapp-assistant-copy">
         <span>C.A. ATENDE</span>
         <h3>Atendimento inteligente por IA</h3>
-        <p>O link da agenda continua primeiro. Se o cliente preferir conversar, a IA entende o pedido e usa serviços, profissionais e horários reais do Cortou Anotou. Se não conseguir resolver com segurança, chama uma pessoa da barbearia.</p>
-        <div className="whatsapp-assistant-tags"><small>LINK PRIMEIRO</small><small>FILTRO DE OFERTAS</small><small>IA PRINCIPAL</small><small>TRANSFERÊNCIA HUMANA</small></div>
+        <p>Responde perguntas de forma objetiva, consulta serviços e horários reais e encaminha para você quando necessário.</p>
       </div>
       <label className={canEnable && data.settings.enabled ? "whatsapp-bot-switch" : "whatsapp-bot-switch disabled"}>
-        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasMessageAccess ? "Ative um pacote primeiro" : !data.settings.enabled ? "Ligue as automações primeiro" : "IA conversa; o sistema valida e executa"}</small></span>
+        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasMessageAccess ? "Renove a assinatura" : !data.settings.enabled ? "Ligue as automações primeiro" : "Respostas rápidas com seus dados reais"}</small></span>
         <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled: event.target.checked }, event.target.checked ? "C.A. Atende com IA ligado." : "C.A. Atende desligado.")} />
         <i />
       </label>

@@ -210,7 +210,7 @@ for(const service of serviceNames) for(const prefix of pricePrefixes) scenario("
   assert.equal(answer.dataSource,"services");
   assert.match(answer.reply,new RegExp(service.replace(/[+]/g,"\\+"),"i"));
   assert.doesNotMatch(answer.reply,/Valores da Barbearia Cenários:/);
-  assert.ok(globalThis.__caAiCalls>=1);
+  assert.equal(globalThis.__caAiCalls,0);
 });
 
 const menuCases=[
@@ -297,7 +297,7 @@ for(const [phrase,time] of shortTimes) scenario("contexto","hora curta: "+phrase
   assert.equal(answer.memory.barber,"Eduardo");
   assert.equal(answer.memory.time,time);
   assert.equal(answer.state,"awaiting_confirmation");
-  assert.ok(globalThis.__caAiCalls>=1);
+  assert.equal(globalThis.__caAiCalls,0);
 });
 
 const switchPhrases=[
@@ -315,7 +315,7 @@ for(const phrase of switchPhrases) scenario("contexto","troca profissional prese
   assert.equal(answer.memory.time,"10:00");
   assert.equal(answer.memory.barber,"");
   assert.ok((answer.choices||[]).every(choice=>!choice.startsWith("Eduardo ·")));
-  assert.ok(globalThis.__caAiCalls>=1);
+  assert.equal(globalThis.__caAiCalls,0);
 });
 
 const confirmPhrases=[
@@ -365,7 +365,7 @@ for(const [phrase,accept] of windowConversation) scenario("contexto","faixa na c
   assert.ok(times.length>0,`sem horários em ${phrase}`);
   assert.ok(times.every(accept),`horários fora da faixa em ${phrase}: ${times.join(",")}`);
   assert.equal(answer.dataSource,"agenda");
-  assert.ok(globalThis.__caAiCalls>=1);
+  assert.equal(globalThis.__caAiCalls,0);
 });
 
 // 281-320: linguagem livre que deve cair na IA, sem deixar a IA inventar dados fora do cadastro.

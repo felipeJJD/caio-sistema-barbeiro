@@ -22,8 +22,8 @@ export async function POST(request: Request) {
       after(async () => {
         for (const event of result.inboundTextEvents) {
           await processCaAtendeInboundSafely(event);
-          // O fluxo legado tenta primeiro a Cloud API. Para conexões Evolution,
-          // recuperamos apenas a mensagem que falhou por ausência do token Meta.
+          // A fila filtra o provedor antes do envio; apenas a Evolution pode
+          // processar as respostas desta conexão.
           await processEvolutionWhatsappQueue({ organizationId:event.organizationId, limit:2 });
         }
       });

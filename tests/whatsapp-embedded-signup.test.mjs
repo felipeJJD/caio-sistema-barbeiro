@@ -14,10 +14,10 @@ const [dbWhatsapp, dbEvolution, connectRoute, evolutionRoute, settingsRoute, ui,
 ]);
 
 test("experiência ativa do proprietário usa Evolution dentro do menu", () => {
-  assert.match(ui, /CONEXÃO EVOLUTION/);
+  assert.match(ui, /CONECTAR WHATSAPP/);
   assert.match(ui, /fetch\("\/api\/whatsapp\/evolution"/);
-  assert.match(ui, /Conectar meu WhatsApp/);
-  assert.match(ui, /Código para vincular/);
+  assert.match(ui, /Gerar código/);
+  assert.match(ui, /Seu código de conexão/);
   assert.doesNotMatch(ui, /CONEXÃO OFICIAL META/);
   assert.doesNotMatch(ui, /window\.FB|connect\.facebook\.net|WA_EMBEDDED_SIGNUP/);
 });

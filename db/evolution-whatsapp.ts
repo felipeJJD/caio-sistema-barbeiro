@@ -1,4 +1,4 @@
-import { and, eq, lte, or } from "drizzle-orm";
+import { and, eq, lte, or, sql } from "drizzle-orm";
 import type { AccessContext } from "./access";
 import { requireOwner } from "./access";
 import { getDb } from "./index";
@@ -11,6 +11,7 @@ import {
   whatsappMessages,
 } from "./schema";
 import { normalizeWhatsappPhone } from "../lib/whatsapp";
+import { evolutionDeliveryStatus, evolutionRetryDelay } from "../lib/evolution-status";
 import { getWhatsappAutomationStatus, type WhatsappInboundTextEvent } from "./whatsapp";
 
 const META_FALLTHROUGH_ERROR = "A conexão do WhatsApp desta barbearia não está ativa.";
@@ -54,11 +55,16 @@ type EvolutionError = {
   response?: { message?: string | string[] };
 };
 
+class EvolutionHttpError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
 async function evolutionRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const config = requiredEvolutionEnvironment();
   const response = await fetch(`${config.url}${path}`, {
     ...init,
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
     headers: {
       apikey: config.apiKey,
       ...(init.body ? { "content-type": "application/json" } : {}),
@@ -69,7 +75,7 @@ async function evolutionRequest<T>(path: string, init: RequestInit = {}): Promis
   if (!response.ok) {
     const raw = body.response?.message ?? body.message ?? body.error ?? `Evolution respondeu HTTP ${response.status}`;
     const details = Array.isArray(raw) ? raw.join(" · ") : String(raw);
-    throw new Error(details.slice(0, 500));
+    throw new EvolutionHttpError(details.slice(0, 500), response.status);
   }
   return body;
 }
@@ -294,13 +300,21 @@ export async function processEvolutionWhatsappQueue(options: { organizationId?: 
   const db = await getDb();
   const limit = Math.max(1, Math.min(50, Math.round(Number(options.limit ?? 20))));
   const now = new Date().toISOString();
+  // An interrupted send cannot be replayed safely: delivery may already have
+  // happened. Surface it as failed for reconciliation instead of leaving it stuck.
+  await db.update(whatsappMessages).set({ status:"failed", failedAt:now, errorText:"Envio interrompido; confirme no WhatsApp antes de reenviar.", updatedAt:now }).where(and(
+    options.organizationId ? eq(whatsappMessages.organizationId, options.organizationId) : undefined,
+    eq(whatsappMessages.status, "sending"),
+    lte(whatsappMessages.updatedAt, new Date(Date.now() - 10 * 60_000).toISOString()),
+    sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'evolution')`,
+  ));
   const statusCondition = or(
     eq(whatsappMessages.status, "queued"),
     and(eq(whatsappMessages.status, "failed"), eq(whatsappMessages.errorText, META_FALLTHROUGH_ERROR)),
   );
   const condition = options.organizationId
-    ? and(eq(whatsappMessages.organizationId, options.organizationId), statusCondition, lte(whatsappMessages.scheduledAt, now))
-    : and(statusCondition, lte(whatsappMessages.scheduledAt, now));
+    ? and(eq(whatsappMessages.organizationId, options.organizationId), statusCondition, lte(whatsappMessages.scheduledAt, now), sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'evolution')`)
+    : and(statusCondition, lte(whatsappMessages.scheduledAt, now), sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'evolution')`);
   const queue = await db.select().from(whatsappMessages).where(condition).orderBy(whatsappMessages.scheduledAt, whatsappMessages.id).limit(limit);
   let sent = 0;
   let failed = 0;
@@ -310,7 +324,7 @@ export async function processEvolutionWhatsappQueue(options: { organizationId?: 
     if (!connection || connection.provider !== "evolution" || connection.status !== "connected" || !connection.phoneNumberId) continue;
     const settings = (await db.select().from(whatsappAutomationSettings).where(eq(whatsappAutomationSettings.organizationId, message.organizationId)).limit(1))[0];
     if (!settings?.enabled) continue;
-    const entitlement = await getWhatsappEntitlementForOrganization(message.organizationId, Number(settings.monthlyMessageLimit));
+    const entitlement = await getWhatsappEntitlementForOrganization(message.organizationId);
     if (!entitlement.hasAccess) continue;
 
     if (message.kind === "bot_text") {
@@ -355,7 +369,13 @@ export async function processEvolutionWhatsappQueue(options: { organizationId?: 
       sent += 1;
     } catch (error) {
       const failedAt = new Date().toISOString();
-      await db.update(whatsappMessages).set({ status:"failed", failedAt, errorText:error instanceof Error ? error.message.slice(0,500) : "Falha ao enviar pela Evolution.", updatedAt:failedAt }).where(eq(whatsappMessages.id, message.id));
+      const previous = JSON.parse(message.payloadJson || "{}") as Record<string, unknown>;
+      const attempt = Number(previous.__evolutionRetryCount ?? 0);
+      const retryDelay = evolutionRetryDelay(error instanceof EvolutionHttpError ? error.status : 0, attempt);
+      await db.update(whatsappMessages).set(retryDelay === null
+        ? { status:"failed", failedAt, errorText:error instanceof Error ? error.message.slice(0,500) : "Falha ao enviar pela Evolution.", updatedAt:failedAt }
+        : { status:"queued", scheduledAt:new Date(Date.now() + retryDelay).toISOString(), payloadJson:JSON.stringify({ ...previous, __evolutionRetryCount:attempt + 1 }), errorText:"Evolution temporariamente ocupada; tentativa agendada.", updatedAt:failedAt },
+      ).where(and(eq(whatsappMessages.id, message.id), eq(whatsappMessages.status, "sending")));
       failed += 1;
     }
   }
@@ -395,17 +415,44 @@ export async function handleEvolutionWebhook(payload: unknown): Promise<Evolutio
 
   const rawData = body.data;
   const data = rawData && typeof rawData === "object" && !Array.isArray(rawData) ? rawData as Record<string, unknown> : {};
-  if (event === "connection.update" || event === "connection.update") {
+  if (event === "connection.update") {
     const state = String(data.state ?? data.status ?? "").toLowerCase();
     if (state) await updateEvolutionConnectionState(connection.organizationId, name, state);
     return { received:0, statuses:1, inboundTextEvents:[] };
+  }
+  if (event === "messages.update") {
+    const updates = Array.isArray(rawData) ? rawData : [data];
+    let statuses = 0;
+    for (const item of updates) {
+      if (!item || typeof item !== "object") continue;
+      const update = item as Record<string, unknown>;
+      const key = update.key && typeof update.key === "object" ? update.key as Record<string, unknown> : {};
+      const details = update.update && typeof update.update === "object" ? update.update as Record<string, unknown> : {};
+      const providerMessageId = String(key.id ?? update.id ?? "").trim();
+      const status = evolutionDeliveryStatus(details.status ?? update.status);
+      if (!providerMessageId || !status) continue;
+      const at = new Date().toISOString();
+      const updated = await db.update(whatsappMessages).set(status === "read"
+        ? { status:"read", deliveredAt:at, readAt:at, updatedAt:at }
+        : { status:"delivered", deliveredAt:at, updatedAt:at }).where(and(
+        eq(whatsappMessages.organizationId, connection.organizationId),
+        eq(whatsappMessages.providerMessageId, providerMessageId),
+        eq(whatsappMessages.direction, "outbound"),
+        status === "read" ? or(eq(whatsappMessages.status, "sent"), eq(whatsappMessages.status, "delivered")) : eq(whatsappMessages.status, "sent"),
+      )).returning({ id:whatsappMessages.id });
+      if (updated.length) statuses += 1;
+    }
+    return { received:0, statuses, inboundTextEvents:[] };
   }
   if (event !== "messages.upsert") return { received:0, statuses:0, inboundTextEvents:[] };
 
   const key = data.key && typeof data.key === "object" ? data.key as Record<string, unknown> : {};
   const remoteJid = String(key.remoteJid ?? data.remoteJid ?? "");
   if (!remoteJid || remoteJid.endsWith("@g.us") || remoteJid.includes("broadcast")) return { received:0, statuses:0, inboundTextEvents:[] };
-  const barePhone = remoteJid.split("@")[0].split(":")[0];
+  const phoneJid = remoteJid.endsWith("@s.whatsapp.net") || remoteJid.endsWith("@c.us")
+    ? remoteJid : String(key.remoteJidAlt ?? data.remoteJidAlt ?? "");
+  if (!phoneJid.endsWith("@s.whatsapp.net") && !phoneJid.endsWith("@c.us")) return { received:0, statuses:0, inboundTextEvents:[] };
+  const barePhone = phoneJid.split("@")[0].split(":")[0];
   const phone = normalizeWhatsappPhone(barePhone);
   const providerMessageId = String(key.id ?? data.id ?? "").trim();
   const text = inboundText(data).slice(0, 3500);

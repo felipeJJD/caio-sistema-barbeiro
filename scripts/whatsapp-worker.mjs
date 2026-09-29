@@ -2,23 +2,28 @@ const port = String(process.env.PORT || '3000').trim();
 const secret = String(process.env.WHATSAPP_JOB_SECRET || '').trim();
 const intervalMs = 60_000;
 const initialDelayMs = 15_000;
+let running = false;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function runWhatsappJobs() {
-  if (secret.length < 24) return;
+  if (secret.length < 24 || running) return;
+  running = true;
   try {
     const response = await fetch(`http://127.0.0.1:${port}/api/whatsapp/jobs`, {
       method: 'POST',
       headers: { authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(45_000),
     });
     if (!response.ok) {
       console.error('[whatsapp-worker] job failed', { status: response.status });
     }
   } catch (error) {
     console.error('[whatsapp-worker] request failed', { type: error instanceof Error ? error.name : 'Unknown' });
+  } finally {
+    running = false;
   }
 }
 
