@@ -313,6 +313,28 @@ export async function processEvolutionWhatsappQueue(options: { organizationId?: 
     const entitlement = await getWhatsappEntitlementForOrganization(message.organizationId, Number(settings.monthlyMessageLimit));
     if (!entitlement.hasAccess) continue;
 
+    if (message.kind === "bot_text") {
+      const conversation = (await db.select({
+        pauseReason:whatsappConversations.pauseReason,
+        automationPausedUntil:whatsappConversations.automationPausedUntil,
+      }).from(whatsappConversations).where(and(
+        eq(whatsappConversations.organizationId, message.organizationId),
+        eq(whatsappConversations.phone, message.phone),
+      )).limit(1))[0];
+      const pausedByHuman = conversation?.pauseReason === "human_takeover"
+        && (!conversation.automationPausedUntil || conversation.automationPausedUntil > new Date().toISOString());
+      if (pausedByHuman) {
+        const cancelledAt = new Date().toISOString();
+        await db.update(whatsappMessages).set({
+          status:"cancelled",
+          failedAt:cancelledAt,
+          errorText:"Atendimento assumido manualmente no WhatsApp.",
+          updatedAt:cancelledAt,
+        }).where(eq(whatsappMessages.id, message.id));
+        continue;
+      }
+    }
+
     const claimedAt = new Date().toISOString();
     const claimed = await db.update(whatsappMessages).set({ status:"sending", errorText:"", updatedAt:claimedAt }).where(and(
       eq(whatsappMessages.id, message.id),
@@ -381,7 +403,6 @@ export async function handleEvolutionWebhook(payload: unknown): Promise<Evolutio
   if (event !== "messages.upsert") return { received:0, statuses:0, inboundTextEvents:[] };
 
   const key = data.key && typeof data.key === "object" ? data.key as Record<string, unknown> : {};
-  if (Boolean(key.fromMe)) return { received:0, statuses:0, inboundTextEvents:[] };
   const remoteJid = String(key.remoteJid ?? data.remoteJid ?? "");
   if (!remoteJid || remoteJid.endsWith("@g.us") || remoteJid.includes("broadcast")) return { received:0, statuses:0, inboundTextEvents:[] };
   const barePhone = remoteJid.split("@")[0].split(":")[0];
@@ -389,6 +410,55 @@ export async function handleEvolutionWebhook(payload: unknown): Promise<Evolutio
   const providerMessageId = String(key.id ?? data.id ?? "").trim();
   const text = inboundText(data).slice(0, 3500);
   if (!phone || !providerMessageId) return { received:0, statuses:0, inboundTextEvents:[] };
+
+  if (Boolean(key.fromMe)) {
+    const knownSystemMessage = (await db.select({ id:whatsappMessages.id }).from(whatsappMessages).where(and(
+      eq(whatsappMessages.organizationId, connection.organizationId),
+      eq(whatsappMessages.providerMessageId, providerMessageId),
+      eq(whatsappMessages.direction, "outbound"),
+    )).limit(1))[0];
+    if (knownSystemMessage?.id) return { received:0, statuses:0, inboundTextEvents:[] };
+
+    const systemSendInFlight = (await db.select({ id:whatsappMessages.id }).from(whatsappMessages).where(and(
+      eq(whatsappMessages.organizationId, connection.organizationId),
+      eq(whatsappMessages.phone, phone),
+      eq(whatsappMessages.direction, "outbound"),
+      eq(whatsappMessages.status, "sending"),
+    )).limit(1))[0];
+    if (systemSendInFlight?.id) return { received:0, statuses:0, inboundTextEvents:[] };
+
+    const takeoverAt = evolutionTimestamp(data.messageTimestamp ?? body.date_time ?? body.dateTime);
+    await db.insert(whatsappConversations).values({
+      organizationId:connection.organizationId,
+      phone,
+      botState:"human_takeover",
+      pauseReason:"human_takeover",
+      automationPausedUntil:null,
+      lastOutboundAt:takeoverAt,
+      updatedAt:takeoverAt,
+    }).onConflictDoUpdate({
+      target:[whatsappConversations.organizationId, whatsappConversations.phone],
+      set:{
+        botState:"human_takeover",
+        pauseReason:"human_takeover",
+        automationPausedUntil:null,
+        lastOutboundAt:takeoverAt,
+        updatedAt:takeoverAt,
+      },
+    });
+    await db.update(whatsappMessages).set({
+      status:"cancelled",
+      failedAt:takeoverAt,
+      errorText:"Atendimento assumido manualmente no WhatsApp.",
+      updatedAt:takeoverAt,
+    }).where(and(
+      eq(whatsappMessages.organizationId, connection.organizationId),
+      eq(whatsappMessages.phone, phone),
+      eq(whatsappMessages.kind, "bot_text"),
+      or(eq(whatsappMessages.status, "queued"), eq(whatsappMessages.status, "failed")),
+    ));
+    return { received:0, statuses:0, inboundTextEvents:[] };
+  }
   const senderName = String(data.pushName ?? data.notifyName ?? "").trim().slice(0, 120);
   const receivedAt = evolutionTimestamp(data.messageTimestamp ?? body.date_time ?? body.dateTime);
   const inserted = await db.insert(whatsappMessages).values({
