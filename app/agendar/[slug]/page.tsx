@@ -13,7 +13,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const title = `Agende seu horário | ${data.organization.name}`;
   const description = `Escolha o serviço, o profissional, o dia e o horário disponível em ${data.organization.name}.`;
   const cover = data.gallery.find((image) => image.kind === "cover");
-  const preview = `https://cortouanotou.com.br/api/public-booking/preview/${encodeURIComponent(data.organization.slug)}?v=${cover?.id ?? 0}-2`;
+  const preview = `https://cortouanotou.com.br/api/public-booking/preview/${encodeURIComponent(data.organization.slug)}?v=${cover?.id ?? 0}-3`;
   return {
     title,
     description,

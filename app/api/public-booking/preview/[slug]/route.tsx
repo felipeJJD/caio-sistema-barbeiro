@@ -29,13 +29,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   }
 
   return new ImageResponse(
-    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#17221b", color: "#f7f6f0", padding: 56 }}>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", border: "2px solid #cda447", borderRadius: 30, padding: 40 }}>
-        {coverSource ? <img src={coverSource} alt="" width={190} height={190} style={{ objectFit: "contain", borderRadius: 18 }} /> : <div style={{ display: "flex", fontSize: 80, color: "#cda447", letterSpacing: -8 }}>C|A</div>}
-        <div style={{ display: "flex", marginTop: 20, fontSize: 24, color: "#cda447", letterSpacing: 4 }}>AGENDAMENTO ONLINE</div>
-        <div style={{ display: "flex", marginTop: 12, fontSize: 48, fontWeight: 700, textAlign: "center", lineHeight: 1.1, maxWidth: "100%" }}>{data.organization.name}</div>
-      </div>
-    </div>,
+    coverSource
+      ? <img src={coverSource} alt="" width={1200} height={630} style={{ objectFit: "cover", objectPosition: "center" }} />
+      : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#17221b", color: "#f7f6f0", fontSize: 72 }}>{data.organization.name}</div>,
     { width: 1200, height: 630, headers: { "Cache-Control": "public, max-age=300, stale-while-revalidate=3600" } },
   );
 }
