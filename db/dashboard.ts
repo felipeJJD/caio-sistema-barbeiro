@@ -616,7 +616,10 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
   });
   if (conflict) throw new Error(intelligentAgenda ? `Este horário se sobrepõe ao atendimento de ${conflict.clientName}. Escolha outro horário.` : `Não é possível agendar: ${barber.name} já atende ${conflict.clientName} nesse dia e horário.`);
   // Editing or rescheduling must not approve a pending request or a Pix payment.
-  const values = { appointmentDate: input.appointmentDate, appointmentTime: input.appointmentTime, clientName, phone: input.phone ?? "", serviceId: input.serviceId, barberId: input.barberId, notes: input.notes ?? "", status: existing && existing.status !== "Cancelado" ? existing.status : "Agendado", reminderSentAt: null };
+  const restoredStatus = existing?.status === "Cancelado" && existing.paymentChoice === "Pix"
+    ? (existing.paymentConfirmationToken ? "Aguardando pagamento" : "Aguardando")
+    : existing && existing.status !== "Cancelado" ? existing.status : "Agendado";
+  const values = { appointmentDate: input.appointmentDate, appointmentTime: input.appointmentTime, clientName, phone: input.phone ?? "", serviceId: input.serviceId, barberId: input.barberId, notes: input.notes ?? "", status: restoredStatus, reminderSentAt: null };
   if (input.id) {
     if (existing?.paymentChoice === "Mensalista" && existing.membershipCreditState === "released" && existing.membershipClientId) {
       const restored = await db.update(appointments).set({ ...values, membershipCreditState: "reserved" }).where(and(

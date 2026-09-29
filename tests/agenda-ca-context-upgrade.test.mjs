@@ -43,3 +43,8 @@ test("remarcação preserva dados e reaproveita validação central", () => {
   assert.match(block, /clientName: existing\.clientName/);
   assert.match(block, /saveAppointment\(access/);
 });
+
+test("remarcar Pix cancelado nunca aprova pagamento automaticamente", () => {
+  assert.match(dashboard, /existing\?\.status === "Cancelado" && existing\.paymentChoice === "Pix"/);
+  assert.match(dashboard, /paymentConfirmationToken \? "Aguardando pagamento" : "Aguardando"/);
+});
