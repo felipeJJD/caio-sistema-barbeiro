@@ -68,10 +68,9 @@ test("IA interpreta conversa livre; regras protegem passos simples e críticos",
   assert.match(botDb, /interpretCaAtendeWithAi/);
 });
 
-test("saudação padrão já entrega menu principal em uma mensagem", () => {
+test("saudação padrão é curta e aponta para o link real da organização", () => {
   assert.match(botDb, /Seja bem-vindo à/);
-  assert.match(botDb, /Posso ajudar com agendamento, horários, preços, cancelamento ou remarcação/);
-  assert.match(botDb, /Escolha uma opção abaixo ou escreva do seu jeito/);
+  assert.match(botDb, /Se precisar de algo, é só me dizer/);
   assert.match(botDb, /choices:mainChoices/);
   assert.match(botDb, /bookingLink\(context\.organization\.slug\)/);
 });

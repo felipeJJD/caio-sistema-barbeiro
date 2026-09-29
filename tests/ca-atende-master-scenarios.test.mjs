@@ -176,9 +176,11 @@ test("vídeo real: horários sugeridos incluem noite quando existe vaga",async()
   assert.match(answer.reply,/pode digitar o horário/i);
 });
 
-test("vídeo real: mensagem inicial desconhecida também apresenta as ações principais",async()=>{
+test("mensagem inicial sem pedido claro recebe abertura curta sem lista de opções",async()=>{
   const [answer]=await chat(["preciso de uma ajuda"]);
-  assert.deepEqual(answer.choices,["Agendar horário","Ver horários disponíveis","Preços e serviços","Cancelar ou remarcar","Falar com a barbearia"]);
+  assert.match(answer.reply,/Seja bem-vindo à Barbearia Cenários/);
+  assert.match(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
+  assert.equal(answer.choices,undefined);
 });
 
 test("'Ok' após solicitar Pix recebe resposta breve sem alegar pagamento",async()=>{
@@ -498,12 +500,47 @@ for(const template of slangTemplates) for(const person of aiPeople) {
   });
 }
 
-test("saudação real já mostra as ações principais sem exigir Ver opções",async()=>{
-  const [answer]=await chat(["bom dia"]);
+test("saudação real é curta, tem link da organização e não empurra opções",async()=>{
+  const [answer]=await chat(["E aí, beleza?"]);
   assert.match(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
-  assert.deepEqual(answer.choices,["Agendar horário","Ver horários disponíveis","Preços e serviços","Cancelar ou remarcar","Falar com a barbearia"]);
-  assert.ok(!answer.choices.includes("Ver opções"));
+  assert.match(answer.reply,/Seja bem-vindo à Barbearia Cenários/);
+  assert.ok(answer.reply.length<200);
+  assert.equal(answer.choices,undefined);
   assert.equal(globalThis.__caAiCalls,0);
+});
+
+test("áudio sem pergunta não recebe preço antigo mesmo se a IA supuser preço e serviço",async()=>{
+  const audio="Tô só testando esse áudio";
+  const [price,answer]=await chat(["quanto custa corte e barba?",audio],context,{
+    [audio]:{intent:"prices",date:"",time:"",service:"Corte + barba",barber:""},
+  });
+  assert.match(price.reply,/R\$\s+55,00/);
+  assert.match(answer.reply,/Seja bem-vindo/);
+  assert.doesNotMatch(answer.reply,/R\$|Corte \+ barba/);
+  assert.equal(answer.choices,undefined);
+});
+
+test("pergunta sobre tempo não vira preço por palpite da IA",async()=>{
+  const audio="Quanto tempo dura o corte?";
+  const [answer]=await chat([audio],context,{
+    [audio]:{intent:"prices",date:"",time:"",service:"Corte",barber:""},
+  });
+  assert.doesNotMatch(answer.reply,/R\$/);
+  assert.equal(answer.reply,"Corte leva cerca de 30 minutos.");
+  assert.equal(globalThis.__caAiCalls,0);
+});
+
+test("pergunta de preço sem serviço pede o nome em vez de reutilizar o combo",async()=>{
+  const [,question,service]=await chat(["quanto custa corte e barba?","Quanto custa?","Corte"]);
+  assert.equal(question.state,"awaiting_price_service");
+  assert.equal(question.reply,"Qual serviço você quer saber o preço?");
+  assert.doesNotMatch(question.reply,/R\$\s+55,00/);
+  assert.match(service.reply,/Corte custa R\$\s+35,00/);
+});
+
+test("referência clara ao serviço anterior pode receber seu preço",async()=>{
+  const [,answer]=await chat(["quanto custa corte e barba?","E quanto custa esse serviço?"]);
+  assert.match(answer.reply,/Corte \+ barba custa R\$\s+55,00/);
 });
 
 test("saudação personalizada também recebe o link se o texto customizado esquecer dele",async()=>{
@@ -511,6 +548,7 @@ test("saudação personalizada também recebe o link se o texto customizado esqu
   const [answer]=await chat(["bom dia"],custom);
   assert.match(answer.reply,/Olá! Bem-vindo à Barbearia Cenários\./);
   assert.match(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
+  assert.match(answer.reply,/Se precisar de algo, é só me dizer/);
 });
 
 test("Caderno Mestre contém exatamente 320 cenários automáticos",()=>{

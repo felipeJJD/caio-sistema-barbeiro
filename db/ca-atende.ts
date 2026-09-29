@@ -157,10 +157,29 @@ function defaultGreeting(context: CaAtendeRuntimeContext) {
       .trim();
     const withLink = rendered.includes(link)
       ? rendered
-      : `${rendered}\n\nAgendamento pelo link: ${link}`;
-    return `${withLink}\n\nEscolha uma opção abaixo ou escreva do seu jeito.`.slice(0,3500);
+      : `${rendered}\nPara agendar: ${link}`;
+    const invitation = /\b(se precisar|me diga|pode falar|como posso ajudar)\b/i.test(rendered)
+      ? ""
+      : "\nSe precisar de algo, é só me dizer.";
+    return `${withLink}${invitation}`.slice(0,3500);
   }
-  return `Olá! Seja bem-vindo à ${context.organization.name}. Posso ajudar com agendamento, horários, preços, cancelamento ou remarcação.\n\nSe preferir agendar pelo link: ${link}\n\nEscolha uma opção abaixo ou escreva do seu jeito.`;
+  return `Olá! Seja bem-vindo à ${context.organization.name}.\nPara agendar: ${link}\nSe precisar de algo, é só me dizer.`;
+}
+
+function asksForPrice(value: string) {
+  const text = normalizeCaAtendeText(value);
+  if (/\b(lista de servicos|quais servicos)\b/.test(text)) return true;
+  if (/\b(preco|precos|valor|valores|vlr|custa|custo|cobra|cobram|orcamento)\b/.test(text)) return true;
+  if (/\b(quanto tempo|quantos minutos|quanto demora|quanto dura)\b/.test(text)) return false;
+  return /\b(quanto|qto)\b/.test(text) || /\b(sai|fica)\s+(?:por|quanto)\b/.test(text);
+}
+
+function refersToPreviousService(value: string) {
+  return /\b(esse|essa|isso|mesmo|mesma|dele|dela|disso|daquele|daquela)\b/.test(normalizeCaAtendeText(value));
+}
+
+function asksForDuration(value: string) {
+  return /\b(quanto tempo|quantos minutos|duracao|dura|demora)\b/.test(normalizeCaAtendeText(value));
 }
 
 function defaultHandoff(context: CaAtendeRuntimeContext) {
@@ -336,7 +355,9 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
       await recordAiUsageSafely({ organizationId:context.organization.id, surface:"ca_atende", usage:ai.aiUsage });
       // A model classification alone is not enough to silence a real client.
       // Only the high-confidence rule can mark a commercial offer as spam.
-      interpretation = ai.intent === "spam" ? rule : ai;
+      // A guessed price intent cannot turn an unrelated voice transcription
+      // into an unsolicited price from the previous conversation.
+      interpretation = ai.intent === "spam" || (ai.intent === "prices" && !asksForPrice(message)) ? rule : ai;
       if (interpretation.intent !== "unknown") return interpretation;
     }
   }
@@ -727,6 +748,14 @@ export async function composeReply(
     if (!oldMemory.service) return { reply:"Qual serviço você quer?", intent:"booking", state:"awaiting_service", memory:oldMemory, source:"rule", choices:serviceChoices(context) };
     if (!oldMemory.date) return { reply:"Combinado, vou olhar todos os profissionais. Qual dia você prefere?", intent:oldMemory.intent || "booking", state:"awaiting_booking_details", memory:{ ...oldMemory, barber:"" }, source:"rule", choices:bookingDayChoices() };
   }
+  const durationService = findServiceByMessage(event.text, context.services);
+  if (asksForDuration(event.text) || (stage === "awaiting_duration_service" && durationService)) {
+    const directService = durationService;
+    const previousService = oldMemory.service ? findNamedItem(oldMemory.service, oldMemory.service, context.services) : null;
+    const selected = directService || (refersToPreviousService(event.text) ? previousService : null);
+    if (selected) return { reply:`${selected.name} leva cerca de ${selected.durationMinutes} minutos.`, intent:"duration", state:stage === "awaiting_duration_service" ? "" : stage, memory:oldMemory, source:"rule", dataSource:"services" };
+    return { reply:"De qual serviço você quer saber a duração?", intent:"duration", state:"awaiting_duration_service", memory:oldMemory, source:"rule", dataSource:"services" };
+  }
   const serviceSignals = serviceIntentSignals(event.text);
   if (serviceSignals.mentionsCut && serviceSignals.mentionsBeard && !serviceSignals.rejectBeard && !serviceSignals.rejectCut && !findServiceByMessage(event.text, context.services)) {
     return { reply:"Não encontrei corte com barba como um serviço único aqui. Qual serviço você prefere?", intent:"booking", state:"awaiting_service", memory:{ ...oldMemory, intent:"booking", service:"" }, source:"rule", choices:serviceChoices(context) };
@@ -755,6 +784,7 @@ export async function composeReply(
     intent = oldMemory.intent === "availability" ? "availability" : "booking";
   }
   if (wantsAssistedBooking(event.text) && intent === "unknown") intent = "booking";
+  if (stage === "awaiting_price_service" && explicitService) intent = "prices";
   if (normalized === "precos e servicos") intent = "prices";
   if (stage === "booking_method" && intent === "unknown") intent = "booking";
   if (explicitHumanRequest(event.text) && /\b(falar|conversar|chamar)\b/.test(normalized) && intent === "unknown" && !wantsAnotherProfessional(event.text)) intent = "human";
@@ -777,15 +807,16 @@ export async function composeReply(
   if (intent === "reschedule") return beginManagementFlow("reschedule", event, context, interpreted.source);
 
   if (intent === "greeting") {
-    return { reply:defaultGreeting(context), intent, state:"menu", memory:{}, source:interpreted.source, choices:mainChoices };
+    return { reply:defaultGreeting(context), intent, state:"menu", memory:{}, source:interpreted.source };
   }
 
   if (intent === "prices") {
     if (!context.services.length) {
       return { reply:"Os serviços e preços ainda não estão cadastrados por aqui.", intent, state:"", memory:{}, source:interpreted.source, dataSource:"services" };
     }
-    const wantsList = normalized === "precos e servicos" || /\b(quais (os )?precos|tabela|quais servicos|todos os precos)\b/.test(normalized);
-    const selectedService = wantsList ? null : explicitService || service || findNamedItem(memory.service || "", memory.service || "", context.services);
+    const wantsList = ["precos e servicos", "precos", "valores"].includes(normalized)
+      || /\b(quais (os )?(precos|valores)|tabela|lista de servicos|quais servicos|todos os precos)\b/.test(normalized);
+    const selectedService = wantsList ? null : explicitService || (refersToPreviousService(event.text) ? rememberedService : null);
     if (selectedService) {
       return {
         reply:`${selectedService.name} custa ${formatCaAtendeMoney(selectedService.priceCents)}. Se quiser, eu também posso consultar os horários disponíveis pra você.`,
@@ -796,6 +827,7 @@ export async function composeReply(
         dataSource:"services",
       };
     }
+    if (!wantsList) return { reply:"Qual serviço você quer saber o preço?", intent, state:"awaiting_price_service", memory:{ intent:"prices" }, source:"rule", dataSource:"services" };
     const rows = context.services.slice(0,8).map(item => `• ${item.name}: ${formatCaAtendeMoney(item.priceCents)}`);
     const more = context.services.length > 8 ? "\nSe quiser um serviço específico, me fala o nome que eu te passo só aquele valor." : "";
     return {
@@ -964,14 +996,13 @@ export async function composeReply(
     }
   }
 
-  if (!stage) return menuDecision(context);
+  if (!stage) return { reply:defaultGreeting(context), intent:"greeting", state:"menu", memory:{}, source:"rule" };
   return {
-    reply:`Posso te ajudar com preço, horário, agendamento ou chamar uma pessoa da ${context.organization.name}. Me fala do seu jeito o que você precisa.`,
+    reply:"Me fala do seu jeito o que você precisa que eu tento ajudar.",
     intent:"unknown",
     state:"",
     memory:oldMemory,
     source:interpreted.source,
-    choices:mainChoices,
   };
 }
 
