@@ -48,7 +48,7 @@ const context = {
   organization:{id:42,name:"Barbearia Exemplo",slug:"exemplo"},
   services:[{id:11,name:"Corte",priceCents:3500,durationMinutes:30},{id:12,name:"Barba",priceCents:2500,durationMinutes:30}],
   barbers:[{id:1,name:"Eduardo"},{id:2,name:"Davi"}],
-  settings:{enabled:true,botEnabled:true,economyMode:true,bookingLinkFirst:true,spamFilterEnabled:true,aiFallbackEnabled:true,greetingText:"",handoffText:"",monthlyMessageLimit:100},
+  settings:{enabled:true,botEnabled:true,cancellationEnabled:true,rescheduleEnabled:true,economyMode:true,bookingLinkFirst:true,spamFilterEnabled:true,aiFallbackEnabled:true,greetingText:"",handoffText:"",monthlyMessageLimit:100},
   connected:false,
 };
 async function chat(messages, shop=context) {
@@ -124,6 +124,33 @@ test("consultar todos e após 17h mantém todos os profissionais",async()=>{
   assert.match(next.reply,/Davi: 18:00/);
   assert.doesNotMatch(next.reply,/10:00|11:00/);
   assert.ok(globalThis.__caAiCalls>=1);
+});
+
+test("cancelamento identifica o horário e exige confirmação antes da alteração real",async()=>{
+  globalThis.__caManagedBookings=[{appointmentId:77,clientName:"Cliente",date:"2099-12-31",time:"10:00",serviceId:11,serviceName:"Corte",durationMinutes:30,barberId:1,barberName:"Eduardo",status:"Agendado",canChange:true}];
+  const [request,confirmation]=await chat(["quero cancelar meu horario","Confirmar cancelamento"]);
+  assert.equal(request.state,"awaiting_cancel_confirmation");
+  assert.equal(request.memory.appointmentId,77);
+  assert.equal(request.handoff,undefined);
+  assert.equal(confirmation.state,"management_commit");
+  assert.deepEqual(confirmation.managementRequest,{action:"cancel",appointmentId:77});
+  globalThis.__caManagedBookings=[];
+});
+
+test("remarcação preserva o agendamento, consulta agenda real e exige confirmação",async()=>{
+  globalThis.__caManagedBookings=[{appointmentId:88,clientName:"Cliente",date:"2099-12-31",time:"17:30",serviceId:11,serviceName:"Corte",durationMinutes:30,barberId:1,barberName:"Eduardo",status:"Agendado",canChange:true}];
+  const [request,day,hour,confirmation]=await chat(["quero remarcar meu horario","amanhã","10","Confirmar remarcação"]);
+  assert.equal(request.state,"awaiting_reschedule_date");
+  assert.equal(request.memory.appointmentId,88);
+  assert.equal(day.state,"awaiting_reschedule_time");
+  assert.ok(globalThis.__caSlots.some(slot=>slot.barberId===1 && slot.serviceId===11));
+  assert.equal(hour.state,"awaiting_reschedule_confirmation");
+  assert.equal(hour.memory.time,"10:00");
+  assert.equal(confirmation.state,"management_commit");
+  assert.equal(confirmation.managementRequest.action,"reschedule");
+  assert.equal(confirmation.managementRequest.appointmentId,88);
+  assert.equal(confirmation.managementRequest.time,"10:00");
+  globalThis.__caManagedBookings=[];
 });
 
 test("falar com pessoa pausa bot; selecionar Eduardo não transfere",async()=>{
