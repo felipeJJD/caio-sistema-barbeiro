@@ -5,7 +5,7 @@ import { LegalPage } from "../ui/legal-page";
 export const metadata: Metadata = { title: "Termos de uso | Cortou Anotou", description: "Condições de uso do aplicativo Cortou Anotou." };
 
 export default function TermsPage() {
-  return <LegalPage title="Termos de Uso" subtitle="As condições básicas para usar o Cortou Anotou e os recursos de gestão da sua barbearia.">
+  return <LegalPage title="Termos de Uso" subtitle="As condições básicas para usar o Cortou Anotou e os recursos de gestão da sua barbearia." updatedAt="29 de setembro de 2026">
     <section><h2>1. Serviço</h2><p>O Cortou Anotou reúne agenda, registros de atendimentos, equipe e ferramentas de gestão. Recursos como pagamentos e WhatsApp funcionam quando estiverem disponíveis e configurados para a conta. A contratação da assinatura não conecta automaticamente um número de WhatsApp.</p></section>
     <section><h2>2. Conta e acesso</h2><p>O responsável pela conta deve fornecer informações corretas, proteger suas credenciais e controlar o acesso das pessoas da equipe. O profissional ou funcionário utiliza apenas as funções autorizadas para seu perfil. Não é permitido usar a conta de outra barbearia nem contornar as permissões do aplicativo.</p></section>
     <section><h2>3. Conteúdo e registros</h2><p>A barbearia é responsável pelas informações que insere sobre seus serviços, profissionais, clientes, agendamentos e valores, inclusive pela conferência dos registros financeiros e pelas informações prestadas aos clientes. O aplicativo oferece ferramentas de organização; lançamentos inseridos incorretamente devem ser conferidos e corrigidos por quem tem permissão na conta.</p></section>
