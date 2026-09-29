@@ -1,0 +1,37 @@
+name: Validar automação completa do WhatsApp
+
+on:
+  push:
+    branches:
+      - fix/ca-atende-full-automation
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ca-atende-full-automation
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+      - run: npm run test:load
+      - name: Remover workflow temporário após validação
+        shell: bash
+        run: |
+          rm -f .github/workflows/validate-ca-atende-full-automation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Valida automação completa do WhatsApp"
+          git push origin HEAD:fix/ca-atende-full-automation
