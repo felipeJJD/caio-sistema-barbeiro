@@ -1,10 +1,15 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "./index";
-import { whatsappConnections, whatsappConversations, whatsappMessages } from "./schema";
+import { whatsappAutomationSettings, whatsappConnections, whatsappConversations, whatsappMessages } from "./schema";
+import { getWhatsappEntitlementForOrganization } from "./whatsapp-entitlement";
+import { prepareEvolutionAudio } from "../lib/evolution-audio-format";
 import { normalizeWhatsappPhone } from "../lib/whatsapp";
 import type { WhatsappInboundTextEvent } from "./whatsapp";
 
-const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+type AudioResult =
+  | { kind:"transcribed"; event:WhatsappInboundTextEvent }
+  | { kind:"failed"; organizationId:number; phone:string; providerMessageId:string }
+  | { kind:"ignored" };
 
 type EvolutionAudioEnvelope = {
   instanceName: string;
@@ -64,11 +69,11 @@ async function parseAudioEnvelope(payload: unknown): Promise<EvolutionAudioEnvel
   if (!phone) return null;
 
   const db = await getDb();
-  const connection = (await db.select({ organizationId:whatsappConnections.organizationId }).from(whatsappConnections).where(and(
+  const connection = (await db.select({ organizationId:whatsappConnections.organizationId, status:whatsappConnections.status }).from(whatsappConnections).where(and(
     eq(whatsappConnections.provider, "evolution"),
     eq(whatsappConnections.phoneNumberId, instanceName),
   )).limit(1))[0];
-  if (!connection) return null;
+  if (!connection || connection.status !== "connected") return null;
 
   return {
     instanceName,
@@ -93,6 +98,28 @@ function audioMimeType(data: Record<string, unknown>, fallback = "audio/ogg") {
   return String(audio.mimetype ?? audio.mime_type ?? fallback).trim() || fallback;
 }
 
+async function mediaJson(response: Response) {
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 12_000_000) { await reader.cancel(); return null; }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let position = 0;
+    for (const chunk of chunks) { bytes.set(chunk, position); position += chunk.byteLength; }
+    return objectValue(JSON.parse(new TextDecoder().decode(bytes)));
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function evolutionMedia(instanceName: string, data: Record<string, unknown>) {
   const url = String(process.env.EVOLUTION_API_URL ?? "").trim().replace(/\/$/, "");
   const apiKey = String(process.env.EVOLUTION_API_KEY ?? "").trim();
@@ -113,7 +140,11 @@ async function evolutionMedia(instanceName: string, data: Record<string, unknown
       console.warn("evolution_audio_media_unavailable", { status:response.status });
       return null;
     }
-    const payload = objectValue(await response.json().catch(() => ({})));
+    // Refuse oversized media before JSON parsing and base64 allocation.
+    const length = Number(response.headers.get("content-length") ?? 0);
+    if (length > 12_000_000) return null;
+    const payload = await mediaJson(response);
+    if (!payload) return null;
     const nested = objectValue(payload.data);
     const base64 = cleanBase64(payload.base64) || cleanBase64(nested.base64);
     if (!base64) return null;
@@ -125,35 +156,14 @@ async function evolutionMedia(instanceName: string, data: Record<string, unknown
   }
 }
 
-function normalizeMimeType(value: string) {
-  return value.toLowerCase().split(";")[0]?.trim() || "audio/ogg";
-}
-
-function audioExtension(mimeType: string) {
-  if (mimeType.includes("mp4") || mimeType.includes("m4a") || mimeType.includes("aac")) return "m4a";
-  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
-  if (mimeType.includes("wav")) return "wav";
-  if (mimeType.includes("webm")) return "webm";
-  return "ogg";
-}
-
 async function transcribeAudio(base64: string, mimeType: string) {
   const key = String(process.env.OPENAI_API_KEY ?? "").trim();
   if (!key) return "";
-  let raw: Buffer;
-  try {
-    raw = Buffer.from(base64, "base64");
-  } catch {
-    return "";
-  }
-  if (!raw.length || raw.length > MAX_AUDIO_BYTES) return "";
-
-  const safeType = normalizeMimeType(mimeType);
-  const bytes = new Uint8Array(raw.length);
-  bytes.set(raw);
-  const audio = new Blob([bytes], { type:safeType });
+  const prepared = await prepareEvolutionAudio(base64, mimeType);
+  if (!prepared) return "";
+  const audio = new Blob([new Uint8Array(prepared.bytes)], { type:prepared.mimeType });
   const outbound = new FormData();
-  outbound.append("file", audio, `whatsapp.${audioExtension(safeType)}`);
+  outbound.append("file", audio, `whatsapp.${prepared.extension}`);
   outbound.append("model", String(process.env.OPENAI_TRANSCRIBE_MODEL ?? "").trim() || "gpt-4o-mini-transcribe");
   outbound.append("prompt", "Português brasileiro. Atendimento de barbearia pelo WhatsApp. Preserve nomes próprios, horários, datas, valores e serviços como corte, barba e sobrancelha.");
 
@@ -176,29 +186,42 @@ async function transcribeAudio(base64: string, mimeType: string) {
   }
 }
 
-export async function transcribeEvolutionAudioWebhook(payload: unknown): Promise<WhatsappInboundTextEvent | null> {
+export async function transcribeEvolutionAudioWebhook(payload: unknown): Promise<AudioResult> {
   const envelope = await parseAudioEnvelope(payload);
-  if (!envelope) return null;
+  if (!envelope) return { kind:"ignored" };
   const db = await getDb();
-  const row = (await db.select({ id:whatsappMessages.id, kind:whatsappMessages.kind, payloadJson:whatsappMessages.payloadJson }).from(whatsappMessages).where(and(
+  const row = (await db.select({ id:whatsappMessages.id, kind:whatsappMessages.kind, phone:whatsappMessages.phone }).from(whatsappMessages).where(and(
     eq(whatsappMessages.organizationId, envelope.organizationId),
     eq(whatsappMessages.providerMessageId, envelope.providerMessageId),
     eq(whatsappMessages.direction, "inbound"),
   )).limit(1))[0];
-  if (!row) return null;
+  if (!row || row.phone !== envelope.phone || !row.kind.startsWith("inbound_") || row.kind === "inbound_text" || row.kind === "inbound_audio_processing" || row.kind === "inbound_audio_transcribed" || row.kind === "inbound_audio_failed") return { kind:"ignored" };
 
-  if (row.kind === "inbound_audio_transcribed") {
-    try {
-      const stored = JSON.parse(row.payloadJson || "{}") as { caTranscription?: string };
-      const text = String(stored.caTranscription ?? "").trim().slice(0,3500);
-      if (text) return { organizationId:envelope.organizationId, messageRowId:row.id, providerMessageId:envelope.providerMessageId, phone:envelope.phone, senderName:envelope.senderName || undefined, text, receivedAt:envelope.receivedAt };
-    } catch {}
+  const [settings, conversation, entitlement] = await Promise.all([
+    db.select({ enabled:whatsappAutomationSettings.enabled, botEnabled:whatsappAutomationSettings.botEnabled }).from(whatsappAutomationSettings).where(eq(whatsappAutomationSettings.organizationId, envelope.organizationId)).limit(1),
+    db.select({ pauseReason:whatsappConversations.pauseReason, automationPausedUntil:whatsappConversations.automationPausedUntil }).from(whatsappConversations).where(and(eq(whatsappConversations.organizationId, envelope.organizationId), eq(whatsappConversations.phone, envelope.phone))).limit(1),
+    getWhatsappEntitlementForOrganization(envelope.organizationId),
+  ]);
+  const paused = conversation[0]?.pauseReason === "human_takeover" && !conversation[0].automationPausedUntil
+    || Boolean(conversation[0]?.automationPausedUntil && conversation[0].automationPausedUntil > new Date().toISOString());
+  if (!settings[0]?.enabled || !settings[0].botEnabled || !entitlement.hasAccess || paused) return { kind:"ignored" };
+
+  const claimed = await db.update(whatsappMessages).set({ kind:"inbound_audio_processing", updatedAt:new Date().toISOString() }).where(and(
+    eq(whatsappMessages.id, row.id), eq(whatsappMessages.kind, row.kind),
+  )).returning({ id:whatsappMessages.id });
+  if (!claimed[0]) return { kind:"ignored" };
+
+  let text = "";
+  try {
+    const media = await evolutionMedia(envelope.instanceName, envelope.data);
+    text = media ? await transcribeAudio(media.base64, media.mimeType) : "";
+  } catch (error) {
+    console.warn("ca_atende_audio_processing_unavailable", { type:error instanceof Error ? error.name : "Unknown" });
   }
-
-  const media = await evolutionMedia(envelope.instanceName, envelope.data);
-  if (!media) return null;
-  const text = await transcribeAudio(media.base64, media.mimeType);
-  if (!text) return null;
+  if (!text) {
+    await db.update(whatsappMessages).set({ kind:"inbound_audio_failed", updatedAt:new Date().toISOString() }).where(eq(whatsappMessages.id, row.id));
+    return { kind:"failed", organizationId:envelope.organizationId, phone:envelope.phone, providerMessageId:envelope.providerMessageId };
+  }
 
   const updatedAt = new Date().toISOString();
   await db.update(whatsappMessages).set({
@@ -217,7 +240,7 @@ export async function transcribeEvolutionAudioWebhook(payload: unknown): Promise
     set:{ lastInboundAt:envelope.receivedAt, lastInboundPreview:`Áudio: ${text}`.slice(0,240), updatedAt },
   });
 
-  return {
+  return { kind:"transcribed", event:{
     organizationId:envelope.organizationId,
     messageRowId:row.id,
     providerMessageId:envelope.providerMessageId,
@@ -225,5 +248,5 @@ export async function transcribeEvolutionAudioWebhook(payload: unknown): Promise
     senderName:envelope.senderName || undefined,
     text,
     receivedAt:envelope.receivedAt,
-  };
+  } };
 }

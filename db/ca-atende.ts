@@ -334,8 +334,10 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
     });
     if (ai) {
       await recordAiUsageSafely({ organizationId:context.organization.id, surface:"ca_atende", usage:ai.aiUsage });
-      interpretation = ai;
-      if (ai.intent !== "unknown") return ai;
+      // A model classification alone is not enough to silence a real client.
+      // Only the high-confidence rule can mark a commercial offer as spam.
+      interpretation = ai.intent === "spam" ? rule : ai;
+      if (interpretation.intent !== "unknown") return interpretation;
     }
   }
 

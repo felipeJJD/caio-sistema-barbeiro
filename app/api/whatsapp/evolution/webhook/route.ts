@@ -20,32 +20,25 @@ export async function POST(request: Request) {
     if (raw.length > 1_000_000) return Response.json({ error:"Payload muito grande." }, { status:413 });
     const payload = JSON.parse(raw) as unknown;
     const result = await handleEvolutionWebhook(payload);
-    const hasAudio = isEvolutionAudioWebhook(payload);
+    // The webhook handler inserts each inbound message once. A duplicate or an
+    // unrecognized instance must never trigger another transcription or reply.
+    const hasAudio = result.received > 0 && isEvolutionAudioWebhook(payload);
 
     if (result.inboundTextEvents.length || hasAudio) {
       after(async () => {
         const events = [...result.inboundTextEvents];
         if (hasAudio && !events.length) {
-          const transcribed = await transcribeEvolutionAudioWebhook(payload);
-          if (transcribed) {
-            events.push(transcribed);
-          } else {
-            const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-            const data = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data as Record<string, unknown> : {};
-            const key = data.key && typeof data.key === "object" ? data.key as Record<string, unknown> : {};
-            const remoteJid = String(key.remoteJidAlt ?? key.remoteJid ?? data.remoteJidAlt ?? data.remoteJid ?? "");
-            const phone = remoteJid.split("@")[0].split(":")[0].replace(/\D/g, "");
-            const providerMessageId = String(key.id ?? data.id ?? "").trim();
-            const organizationId = Number(String(body.instance ?? body.instanceName ?? "").replace(/^ca-org-/, ""));
-            if (phone && providerMessageId && Number.isInteger(organizationId) && organizationId > 0) {
-              await queueWhatsappTextReply({
-                organizationId,
-                phone,
-                inboundProviderMessageId:providerMessageId,
-                text:"Não consegui entender esse áudio. Pode mandar de novo ou escrever a mensagem pra mim?",
-              });
-              await processEvolutionWhatsappQueue({ organizationId, limit:2 });
-            }
+          const audio = await transcribeEvolutionAudioWebhook(payload);
+          if (audio.kind === "transcribed") {
+            events.push(audio.event);
+          } else if (audio.kind === "failed") {
+            const queued = await queueWhatsappTextReply({
+              organizationId:audio.organizationId,
+              phone:audio.phone,
+              inboundProviderMessageId:audio.providerMessageId,
+              text:"Não consegui entender esse áudio. Pode mandar de novo ou escrever a mensagem pra mim?",
+            });
+            if (queued.queued) await processEvolutionWhatsappQueue({ organizationId:audio.organizationId, limit:2 });
           }
         }
 

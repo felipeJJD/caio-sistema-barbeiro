@@ -96,6 +96,15 @@ function choiceTimes(decision) {
   return (decision.choices||[]).map(choice => /([0-2]\d:[0-5]\d)$/.exec(choice)?.[1]).filter(Boolean);
 }
 
+test("classificação incerta da IA não silencia um cliente como propaganda", async () => {
+  const message = "Vocês têm internet para cliente?";
+  const [decision] = await chat([message], context, {
+    [message]:{ intent:"spam", date:"", time:"", service:"", barber:"" },
+  });
+  assert.equal(decision.spam, undefined);
+  assert.notEqual(decision.reply, "");
+});
+
 test("pedido real 'corte mais barba' mantém o serviço combinado e sua duração",async()=>{
   const [,second]=await chat(["quero horário amanhã às 10", "Corte mais barba"]);
   assert.equal(second.memory.service,"Corte + barba");
