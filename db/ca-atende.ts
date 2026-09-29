@@ -97,13 +97,15 @@ function findNamedItem<T extends { name: string }>(message: string, requested: s
 }
 
 function findServiceByMessage(message: string, items: CaAtendeRuntimeContext["services"]) {
-  const direct = findNamedItem(message, "", items);
-  if (direct) return direct;
   const text = normalizeCaAtendeText(message);
   if (/\b(cortar|corte|cabelo)\b/.test(text) && /\bbarba\b/.test(text)) {
     const combined = items.find(item => /corte/.test(normalizeCaAtendeText(item.name)) && /barba/.test(normalizeCaAtendeText(item.name)));
     if (combined) return combined;
+    // Do not silently replace a requested combination with only one service.
+    return null;
   }
+  const direct = findNamedItem(message, "", items);
+  if (direct) return direct;
   const aliases: Array<[RegExp, RegExp]> = [
     [/\b(cortar|corte|cabelo|cabeca)\b/, /\bcorte\b/],
     [/\b(barba|barbear|barbinha)\b/, /\bbarba\b/],
@@ -510,6 +512,9 @@ export async function composeReply(
   if (highConfidenceCommercialOffer(event.text) && context.settings.spamFilterEnabled) {
     return { reply:"", intent:"spam", state:"suspected_offer", memory:oldMemory, source:"rule", spam:true };
   }
+  if (stage === "booking_pix_pending" && /^(ok|blz|beleza|obrigado|obrigada|certo|combinado)$/.test(normalized)) {
+    return { reply:"Combinado! O horário aguarda o Pix e a conferência da barbearia.", intent:"booking", state:"", memory:{}, source:"rule" };
+  }
   if (normalized === "ver opcoes" || normalized === "opcoes" || normalized === "menu") return menuDecision(context);
   if (normalized === "agendar horario" || normalized === "agendar pelo link") {
     if (normalized === "agendar pelo link") {
@@ -615,6 +620,9 @@ export async function composeReply(
   if (normalized === "qualquer profissional") {
     if (!oldMemory.service) return { reply:"Qual serviço você quer?", intent:"booking", state:"awaiting_service", memory:oldMemory, source:"rule", choices:serviceChoices(context) };
     if (!oldMemory.date) return { reply:"Combinado, vou olhar todos os profissionais. Qual dia você prefere?", intent:oldMemory.intent || "booking", state:"awaiting_booking_details", memory:{ ...oldMemory, barber:"" }, source:"rule", choices:["Hoje", "Amanhã"] };
+  }
+  if (/\b(cortar|corte|cabelo)\b/.test(normalized) && /\bbarba\b/.test(normalized) && !findServiceByMessage(event.text, context.services)) {
+    return { reply:"Não encontrei corte com barba como um serviço único aqui. Qual serviço você prefere?", intent:"booking", state:"awaiting_service", memory:{ ...oldMemory, intent:"booking", service:"" }, source:"rule", choices:serviceChoices(context) };
   }
   const interpreted = await interpretationFor(event.text, context, oldMemory);
   const continuationDate = extractCaAtendeDate(event.text);
@@ -1009,7 +1017,7 @@ export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
       } else if (booking.status === "Aguardando pagamento") {
         reply = `Separei ${booking.serviceName} com ${booking.barberName} para ${when}. O agendamento está aguardando o pagamento por Pix.${booking.pixKey ? ` Chave Pix: ${booking.pixKey}.` : ""}`;
       }
-      decision = { ...decision, reply, state:"", memory:{}, bookingRequest:undefined, confirmationRequested:false, choices:[] };
+      decision = { ...decision, reply, state:booking.status === "Aguardando pagamento" ? "booking_pix_pending" : "", memory:{}, bookingRequest:undefined, confirmationRequested:false, choices:[] };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Não foi possível concluir o agendamento.";
       if (/acabou de ser ocupado/i.test(message)) {

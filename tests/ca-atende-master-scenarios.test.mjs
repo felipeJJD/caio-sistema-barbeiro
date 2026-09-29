@@ -96,6 +96,33 @@ function choiceTimes(decision) {
   return (decision.choices||[]).map(choice => /([0-2]\d:[0-5]\d)$/.exec(choice)?.[1]).filter(Boolean);
 }
 
+test("pedido real 'corte mais barba' mantém o serviço combinado e sua duração",async()=>{
+  const [,second]=await chat(["quero horário amanhã às 10", "Corte mais barba"]);
+  assert.equal(second.memory.service,"Corte + barba");
+  assert.ok(globalThis.__caSlots.some(slot=>slot.serviceId===13));
+  assert.doesNotMatch(second.reply,/prefere Barba\?/);
+  assert.equal(globalThis.__caAiCalls,0);
+});
+
+test("sem serviço combinado, não reserva só barba ou só corte",async()=>{
+  const shop={...context,services:context.services.filter(item=>item.id!==13)};
+  const [reply]=await chat(["Corte mais barba"],shop);
+  assert.equal(reply.state,"awaiting_service");
+  assert.equal(reply.memory.service,"");
+  assert.match(reply.reply,/não encontrei corte com barba/i);
+  assert.equal(globalThis.__caSlots.length,0);
+});
+
+test("'Ok' após solicitar Pix recebe resposta breve sem alegar pagamento",async()=>{
+  const reply=await composeReply(
+    {organizationId:context.organization.id,text:"Ok",phone:"550000000",providerMessageId:"pix",receivedAt:"",messageRowId:0},
+    context,{botState:"booking_pix_pending",botContextJson:"{}"}
+  );
+  assert.match(reply.reply,/aguarda o Pix e a conferência/);
+  assert.equal(reply.state,"");
+  assert.equal(reply.bookingRequest,undefined);
+});
+
 let scenarioCount=0;
 function scenario(category,name,fn){
   scenarioCount++;
