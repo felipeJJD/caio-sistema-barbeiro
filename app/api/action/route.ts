@@ -60,6 +60,7 @@ export async function POST(request: Request) {
     else if (data.action === "delete-product-sale") await deleteProductSale(access, Number(data.id));
     else if (data.action === "appointment") await saveAppointment(access, { id: data.id ? Number(data.id) : undefined, appointmentDate: String(data.appointmentDate), appointmentTime: String(data.appointmentTime), clientName: String(data.clientName ?? ""), phone: String(data.phone ?? ""), serviceId: Number(data.serviceId), barberId: Number(data.barberId), notes: String(data.notes ?? "") });
     else if (data.action === "confirm-appointment") await confirmAppointment(access, Number(data.id));
+    else if (data.action === "confirm-pix-appointment") await confirmAppointment(access, Number(data.id), true);
     else if (data.action === "complete-appointment") await completeAppointment(access, { id: Number(data.id), occurredAt: String(data.occurredAt ?? ""), paymentMethodId: Number(data.paymentMethodId), membershipClientId: Number(data.membershipClientId ?? 0), tipCents: Number(data.tipCents ?? 0) });
     else if (data.action === "mark-appointment-reminder") await markAppointmentReminderSent(access, Number(data.id));
     else if (data.action === "sync-finished-appointments") await syncFinishedAppointments(access);

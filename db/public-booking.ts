@@ -465,6 +465,7 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     date: input.date,
     time: input.time,
     status,
+    paymentChoice,
   });
   if (status === "Agendado") {
     const queued = options.skipImmediateWhatsappConfirmation
@@ -495,7 +496,7 @@ export async function reportPublicBookingPix(slugValue: string, appointmentId: n
   const row = (await db.select({ id: appointments.id, clientName: appointments.clientName, appointmentDate: appointments.appointmentDate, appointmentTime: appointments.appointmentTime, status: appointments.status, token: appointments.paymentConfirmationToken, serviceName: services.name, barberId: appointments.barberId, barberName: team.name }).from(appointments).innerJoin(services, eq(appointments.serviceId, services.id)).innerJoin(team, eq(appointments.barberId, team.id)).where(and(eq(appointments.id, appointmentId), eq(appointments.organizationId, data.organization.id))).limit(1))[0];
   if (!row || row.token !== token || row.status !== "Aguardando pagamento") throw new Error("Não foi possível confirmar esta solicitação.");
   await db.update(appointments).set({ status: "Aguardando", paymentConfirmationToken: null }).where(and(eq(appointments.id, row.id), eq(appointments.organizationId, data.organization.id)));
-  await notifyOwnersOfPublicBooking({ organizationId: data.organization.id, appointmentId: row.id, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date: row.appointmentDate, time: row.appointmentTime, status: "Aguardando" });
+  await notifyOwnersOfPublicBooking({ organizationId: data.organization.id, appointmentId: row.id, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date: row.appointmentDate, time: row.appointmentTime, status: "Aguardando", paymentChoice: "Pix" });
   return { ok: true };
 }
 

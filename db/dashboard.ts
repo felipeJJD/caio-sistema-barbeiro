@@ -615,12 +615,14 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
     return intelligentAgenda ? startMinutes < existingStart + item.durationMinutes && endMinutes > existingStart : existingStart === startMinutes;
   });
   if (conflict) throw new Error(intelligentAgenda ? `Este horário se sobrepõe ao atendimento de ${conflict.clientName}. Escolha outro horário.` : `Não é possível agendar: ${barber.name} já atende ${conflict.clientName} nesse dia e horário.`);
-  const values = { appointmentDate: input.appointmentDate, appointmentTime: input.appointmentTime, clientName, phone: input.phone ?? "", serviceId: input.serviceId, barberId: input.barberId, notes: input.notes ?? "", status: "Agendado", reminderSentAt: null };
+  // Editing or rescheduling must not approve a pending request or a Pix payment.
+  const values = { appointmentDate: input.appointmentDate, appointmentTime: input.appointmentTime, clientName, phone: input.phone ?? "", serviceId: input.serviceId, barberId: input.barberId, notes: input.notes ?? "", status: existing && existing.status !== "Cancelado" ? existing.status : "Agendado", reminderSentAt: null };
   if (input.id) {
     if (existing?.paymentChoice === "Mensalista" && existing.membershipCreditState === "released" && existing.membershipClientId) {
       const restored = await db.update(appointments).set({ ...values, membershipCreditState: "reserved" }).where(and(
         eq(appointments.id, input.id),
         eq(appointments.organizationId, access.organizationId),
+        eq(appointments.status, existing.status),
         sql`(
           SELECT COUNT(*) FROM clients AS membership_client
           WHERE membership_client.id = ${existing.membershipClientId}
@@ -635,9 +637,12 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
             )
         ) > 0`,
       )).returning({ id: appointments.id });
-      if (!restored.length) throw new Error("Este mensalista não possui crédito disponível para reservar novamente.");
+      if (!restored.length) throw new Error("Não foi possível atualizar o agendamento. Confira o crédito e atualize a agenda.");
     } else {
-      await db.update(appointments).set(values).where(and(eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId)));
+      const updated = await db.update(appointments).set(values).where(and(
+        eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId), eq(appointments.status, existing!.status),
+      )).returning({ id: appointments.id });
+      if (!updated.length) throw new Error("O estado deste agendamento mudou. Atualize a agenda antes de remarcar.");
     }
   } else await db.insert(appointments).values({ ...values, organizationId: access.organizationId });
 }
@@ -662,13 +667,23 @@ export async function cancelAppointment(access: AccessContext, id: number) {
   if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, 3);
 }
 
-export async function confirmAppointment(access: AccessContext, id: number) {
+export async function confirmAppointment(access: AccessContext, id: number, pixPaymentVerified = false) {
   const db = await getDb();
   const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0];
   if (!existing) throw new Error("Agendamento não encontrado.");
   requireOwnBarber(access, existing.barberId);
-  if (existing.status !== "Aguardando") return;
-  await db.update(appointments).set({ status: "Agendado" }).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId)));
+  if (pixPaymentVerified) {
+    requireOwner(access);
+    if (!(["Aguardando pagamento", "Aguardando"].includes(existing.status)) || existing.paymentChoice !== "Pix") throw new Error("Este agendamento não aguarda confirmação de Pix. Atualize a agenda.");
+  } else if (existing.status !== "Aguardando") {
+    throw new Error("Este agendamento não está aguardando confirmação. Atualize a agenda.");
+  } else if (existing.paymentChoice === "Pix") {
+    throw new Error("O recebimento do Pix precisa ser conferido pelo proprietário.");
+  }
+  const updated = await db.update(appointments).set({ status: "Agendado", paymentConfirmationToken: null }).where(and(
+    eq(appointments.id, id), eq(appointments.organizationId, access.organizationId), eq(appointments.status, existing.status),
+  )).returning({ id: appointments.id });
+  if (!updated.length) throw new Error("O estado deste agendamento mudou. Atualize a agenda.");
   const queued = await queueAppointmentWhatsappSafely("confirmation", id);
   if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, 3);
 }
@@ -679,6 +694,7 @@ export async function completeAppointment(access: AccessContext, input: { id: nu
   requireOwnBarber(access, appointment.barberId);
   if (appointment.status === "Cancelado") throw new Error("Não é possível concluir um agendamento cancelado.");
   if (appointment.status === "Atendido" || appointment.membershipCreditState === "consumed") return;
+  if (appointment.status === "Aguardando" || appointment.status === "Aguardando pagamento") throw new Error("Confirme o horário e confira o pagamento pendente antes de concluir o atendimento.");
 
   const existingRecord = (await db.select({ id: dailyRecords.id }).from(dailyRecords).where(and(
     eq(dailyRecords.organizationId, access.organizationId),

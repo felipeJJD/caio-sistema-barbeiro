@@ -39,6 +39,7 @@ type PublicBookingNotification = {
   date: string;
   time: string;
   status: string;
+  paymentChoice?: string;
 };
 
 type AppointmentCancellationNotification = {
@@ -429,7 +430,7 @@ export async function notifyOwnersOfWhatsappHandoff(input: {
 
 export async function notifyOwnersOfPublicBooking(booking: PublicBookingNotification) {
   try {
-    const title = booking.status === "Aguardando pagamento" ? "Novo horário aguardando Pix" : booking.status === "Aguardando" ? "Novo horário aguardando confirmação" : "Novo horário agendado pelo site";
+    const title = booking.status === "Aguardando pagamento" ? "Novo horário aguardando Pix" : booking.status === "Aguardando" && booking.paymentChoice === "Pix" ? "Cliente informou Pix · confira o recebimento" : booking.status === "Aguardando" ? "Novo horário aguardando confirmação" : "Novo horário agendado pelo site";
     const body = `${booking.clientName} solicitou ${booking.serviceName} com ${booking.barberName} em ${booking.date.split("-").reverse().join("/")} às ${booking.time}`;
     await deliverNotification({
       organizationId: booking.organizationId,

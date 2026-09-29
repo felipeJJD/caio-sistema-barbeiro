@@ -1317,7 +1317,7 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
   const editing = data.appointments.find((item) => item.id === editingId);
   const completingAppointment = data.appointments.find((item) => item.id === completingId);
   const activeAppointments = data.appointments.filter((item) => item.status !== "Concluído" && item.status !== "Atendido");
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = event.currentTarget; const fields = new FormData(form); const ok = await post({ action: "appointment", id: editingId ?? 0, appointmentDate: String(fields.get("appointmentDate")), appointmentTime: String(fields.get("appointmentTime")), clientName: String(fields.get("clientName")), phone: String(fields.get("phone")), serviceId: Number(fields.get("serviceId")), barberId: Number(fields.get("barberId")), notes: String(fields.get("notes")) }, editing ? "Agendamento remarcado e atualizado na hora." : "Horário incluído na agenda."); if (ok) { setEditingId(null); form.reset(); } }
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = event.currentTarget; const fields = new FormData(form); const ok = await post({ action: "appointment", id: editingId ?? 0, appointmentDate: String(fields.get("appointmentDate")), appointmentTime: String(fields.get("appointmentTime")), clientName: String(fields.get("clientName")), phone: String(fields.get("phone")), serviceId: Number(fields.get("serviceId")), barberId: Number(fields.get("barberId")), notes: String(fields.get("notes")) }, editing ? "Agendamento atualizado. Se estava pendente, ainda precisa de confirmação." : "Horário incluído na agenda."); if (ok) { setEditingId(null); form.reset(); } }
   async function cancel(id: number) { if (window.confirm("Cancelar este agendamento? Ele continuará no histórico como cancelado.")) { const ok = await post({ action: "cancel-appointment", id }, "Agendamento cancelado e mantido no histórico."); if (ok && editingId === id) setEditingId(null); } }
   async function confirm(appointment: Appointment) {
     await post(
@@ -1326,6 +1326,10 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
         ? "Agendamento confirmado. Agora você pode avisar o cliente pelo WhatsApp."
         : "Agendamento confirmado. Cadastre o telefone do cliente para avisá-lo pelo WhatsApp.",
     );
+  }
+  async function confirmPix(appointment: Appointment) {
+    if (!window.confirm(`Você conferiu o recebimento do Pix de ${appointment.clientName}? Confirme somente se o pagamento entrou. O horário será confirmado e o cliente poderá ser avisado.`)) return;
+    await post({ action: "confirm-pix-appointment", id: appointment.id }, "Pix conferido e horário confirmado.");
   }
   async function sendReminder(appointment: Appointment) {
     const whatsappUrl = whatsappReminderUrl(appointment, data.viewer.organizationName);
@@ -1352,17 +1356,18 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
         </div>
       </div>
       <div className="appointment-list">
-        {activeAppointments.map((item) => <article className={item.status === "Cancelado" ? "appointment canceled" : item.status === "Aguardando" ? "appointment awaiting" : "appointment"} key={item.id}>
+        {activeAppointments.map((item) => <article className={item.status === "Cancelado" ? "appointment canceled" : item.status === "Aguardando" || item.status === "Aguardando pagamento" ? "appointment awaiting" : "appointment"} key={item.id}>
           <time>{item.appointmentTime}<small>{date(item.appointmentDate)}</small></time>
           <div className="avatar">{initials(item.clientName)}</div>
           <div className="appointment-info"><strong>{item.clientName}</strong><p>{item.paymentChoice === "Mensalista" ? "Mensalista" : item.serviceName} com {item.barberName}</p><small>{item.phone}{item.notes ? ` · ${item.notes}` : ""}</small><small>{item.paymentChoice === "Mensalista" ? "Uso do plano mensal · conferir cadastro" : `Pagamento escolhido: ${item.paymentChoice}`}</small>{item.reminderSentAt && <small className="appointment-reminder-status">✓ {reminderSentLabel(item.reminderSentAt)}</small>}</div>
-          <span className={`status ${item.status.toLowerCase()}`}>{item.status}</span>
+          <span className={`status ${item.status.toLowerCase()}`}>{item.status === "Aguardando" && item.paymentChoice === "Pix" ? "Pix informado · conferir" : item.status}</span>
           <div className="appointment-actions">
-            {(data.viewer.isOwner || item.barberId === data.viewer.teamMemberId) && item.status === "Aguardando" && <button className="confirm whatsapp-confirm" disabled={pending} title="Confirmar este horário" onClick={() => confirm(item)}>Confirmar horário</button>}
+            {(data.viewer.isOwner || item.barberId === data.viewer.teamMemberId) && item.status === "Aguardando" && item.paymentChoice !== "Pix" && <button className="confirm whatsapp-confirm" disabled={pending} title="Confirmar este horário" onClick={() => confirm(item)}>Confirmar horário</button>}
+            {data.viewer.isOwner && item.paymentChoice === "Pix" && (item.status === "Aguardando pagamento" || item.status === "Aguardando") && <button className="confirm whatsapp-confirm" disabled={pending} title="Confirmar após conferir o recebimento do Pix" onClick={() => confirmPix(item)}>Confirmar Pix e horário</button>}
             {item.status === "Agendado" && whatsappPhone(item.phone) && <a className="whatsapp-message" href={whatsappConfirmationUrl(item, data.viewer.organizationName)} target="_blank" rel="noreferrer"><AppIcon name="whatsapp" /> Avisar no WhatsApp</a>}
             {item.status === "Agendado" && whatsappPhone(item.phone) && <button className={item.reminderSentAt ? "reminder sent" : "reminder"} disabled={pending} title={item.reminderSentAt ? reminderSentLabel(item.reminderSentAt) : "Abrir lembrete no WhatsApp"} onClick={() => sendReminder(item)}>{item.reminderSentAt ? "Reenviar lembrete" : "Enviar lembrete"}</button>}
             {(item.status === "Agendado" || item.status === "Concluído") && <button className="complete-appointment" disabled={pending} onClick={() => setCompletingId(item.id)}>Concluir atendimento</button>}
-            <button onClick={() => setEditingId(item.id)}>{item.status === "Cancelado" ? "Remarcar" : "Editar"}</button>
+            <button onClick={() => setEditingId(item.id)}>{item.status === "Cancelado" || item.status === "Aguardando pagamento" || item.status === "Aguardando" ? "Remarcar" : "Editar"}</button>
             {item.status !== "Cancelado" && <button className="danger" onClick={() => cancel(item.id)}>Cancelar</button>}
             <button className="trash" title="Apagar agendamento" aria-label={`Apagar agendamento de ${item.clientName}`} onClick={() => remove(item.id)}><AppIcon name="trash" /></button>
           </div>
@@ -1371,7 +1376,7 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
       </div>
     </div>
     <div className={`panel form-card compact editor-scroll-target${editing ? " is-editing" : ""}`} ref={editorRef} tabIndex={-1}>
-      <SectionTitle title={editing ? "Editar ou remarcar" : "Novo horário"} copy={editing ? "Altere os dados e salve. Um cancelado volta como agendado." : "Adicione um cliente à agenda."} />
+      <SectionTitle title={editing ? "Editar ou remarcar" : "Novo horário"} copy={editing ? "Altere os dados e salve. Pedidos e Pix pendentes continuam pendentes; um cancelado volta como agendado." : "Adicione um cliente à agenda."} />
       <form className="app-form" onSubmit={submit} key={editing?.id ?? "new-appointment"}>
         <Field label="Data"><input name="appointmentDate" type="date" defaultValue={editing?.appointmentDate ?? today} required /></Field>
         <Field label="Horário"><input name="appointmentTime" type="time" step="60" defaultValue={editing?.appointmentTime ?? ""} required /></Field>
