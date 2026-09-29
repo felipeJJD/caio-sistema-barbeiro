@@ -65,16 +65,12 @@ async function chat(messages, shop=context) {
   return replies;
 }
 
-test("saudação conversa primeiro, menu inicia o agendamento e link continua opcional",async()=>{
+test("saudação, opções e link público passam pelo mesmo motor sem IA",async()=>{
   const [hello,menu,booking,link]=await chat(["oi boa tarde","Ver opções","Agendar horário","Agendar pelo link"]);
   assert.match(hello.reply,/Barbearia Exemplo/);
-  assert.match(hello.reply,/Como posso te ajudar/);
-  assert.doesNotMatch(hello.reply,/https:\/\/cortouanotou/);
   assert.deepEqual(hello.choices,["Ver opções"]);
   assert.equal(menu.choices.length,5);
-  assert.equal(booking.state,"awaiting_service");
-  assert.match(booking.reply,/Qual serviço/);
-  assert.deepEqual(booking.choices,["Corte","Barba"]);
+  assert.deepEqual(booking.choices,["Agendar pelo link","Quero ajuda por aqui"]);
   assert.equal(link.reply,"https://cortouanotou.com.br/agendar/exemplo");
   assert.equal(globalThis.__caAiCalls,0);
 });
@@ -87,15 +83,12 @@ test("consulta preço de um serviço sem oferecer preços inventados",async()=>{
   assert.ok(globalThis.__caAiCalls>=1);
 });
 
-test("conversa guiada avança sozinha e pergunta o horário sem despejar a agenda",async()=>{
-  const [start,service,barber,day,confirmation]=await chat(["Agendar horário","Corte","Eduardo","amanhã","10"]);
-  assert.equal(start.state,"awaiting_service");
-  assert.equal(service.state,"awaiting_professional");
-  assert.equal(barber.memory.service,"Corte");
-  assert.equal(day.state,"awaiting_booking_choice");
+test("conversa guiada mantém serviço, data e profissional até confirmação segura",async()=>{
+  const [start,service,barber,day,hour,confirmation]=await chat(["Agendar horário","Quero ajuda por aqui","Corte","Eduardo","amanhã","10"]);
+  assert.equal(service.state,"awaiting_service");
+  assert.equal(barber.state,"awaiting_professional");
   assert.equal(day.memory.barber,"Eduardo");
-  assert.match(day.reply,/Qual horário você prefere/);
-  assert.doesNotMatch(day.reply,/10:00.*11:00.*17:30/);
+  assert.equal(hour.memory.service,"Corte");
   assert.equal(confirmation.state,"awaiting_confirmation");
   assert.equal(confirmation.memory.time,"10:00");
   assert.deepEqual(confirmation.choices,["Confirmar","Escolher outro horário","Trocar profissional","Cancelar"]);

@@ -125,13 +125,16 @@ function defaultGreeting(context: CaAtendeRuntimeContext) {
   const link = bookingLink(context.organization.slug);
   const custom = context.settings.greetingText.trim();
   if (custom) {
-    return custom
+    const rendered = custom
       .replaceAll("{barbearia}", context.organization.name)
       .replaceAll("{link}", link)
-      .trim()
-      .slice(0,3500);
+      .trim();
+    const withLink = rendered.includes(link)
+      ? rendered
+      : `${rendered}\n\nPara agendar seu horário: ${link}`;
+    return withLink.slice(0,3500);
   }
-  return `Olá! Seja bem-vindo à ${context.organization.name}. Como posso te ajudar? Pode escrever do seu jeito ou tocar em “Ver opções”.`;
+  return `Olá! Seja bem-vindo à ${context.organization.name}. Para agendar seu horário é só acessar: ${link}\n\nSe preferir outro assunto, toque em “Ver opções” ou escreva o que precisa.`;
 }
 
 function defaultHandoff(context: CaAtendeRuntimeContext) {
@@ -258,7 +261,7 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
   const rule = classifyCaAtendeByRule(message);
   if (context.settings.spamFilterEnabled && highConfidenceCommercialOffer(message)) return { ...rule, intent:"spam" as const };
 
-  // Greeting and the guided menu are intentionally local and free. For the rest of natural
+  // Greeting + link is intentionally local and free. For the rest of natural
   // conversation, AI is the primary interpreter; rules remain a safe fallback.
   if (rule.intent === "greeting") return rule;
 
@@ -364,6 +367,7 @@ function wantsBookingConfirmation(value: string) {
 }
 
 const mainChoices = ["Agendar horário", "Ver horários disponíveis", "Preços e serviços", "Cancelar ou remarcar", "Falar com a barbearia"];
+const bookingChoices = ["Agendar pelo link", "Quero ajuda por aqui"];
 
 function safeClientName(value: string | undefined) {
   if (!value) return "";
@@ -507,11 +511,11 @@ export async function composeReply(
     return { reply:"", intent:"spam", state:"suspected_offer", memory:oldMemory, source:"rule", spam:true };
   }
   if (normalized === "ver opcoes" || normalized === "opcoes" || normalized === "menu") return menuDecision(context);
-  if (normalized === "agendar pelo link") {
-    return { reply:bookingLink(context.organization.slug), intent:"booking", state:"", memory:{}, source:"rule" };
-  }
-  if (normalized === "agendar horario") {
-    return { reply:"Claro. Qual serviço você quer?", intent:"booking", state:"awaiting_service", memory:{ intent:"booking" }, source:"rule", choices:serviceChoices(context) };
+  if (normalized === "agendar horario" || normalized === "agendar pelo link") {
+    if (normalized === "agendar pelo link") {
+      return { reply:bookingLink(context.organization.slug), intent:"booking", state:"", memory:{}, source:"rule" };
+    }
+    return { reply:"Como prefere agendar?", intent:"booking", state:"booking_method", memory:{ intent:"booking" }, source:"rule", choices:bookingChoices };
   }
   if (normalized === "cancelar ou remarcar") {
     return { reply:"Claro. Você quer cancelar ou remarcar seu horário?", intent:"cancel", state:"cancel_choice", memory:{}, source:"rule", choices:["Cancelar horário", "Remarcar horário"] };
@@ -786,17 +790,6 @@ export async function composeReply(
           intent:preservedIntent,
           state:"awaiting_booking_details",
           memory:{ ...nextMemory, afterTime, beforeTime },
-          source:interpreted.source,
-          dataSource:"agenda",
-        };
-      }
-
-      if (preservedIntent === "booking" && !desiredTime && !afterTime && !beforeTime) {
-        return {
-          reply:"Qual horário você prefere? Pode responder do seu jeito, por exemplo: “15h”, “de manhã” ou “depois das 14h”.",
-          intent:preservedIntent,
-          state:"awaiting_booking_choice",
-          memory:{ ...nextMemory, afterTime:"", beforeTime:"" },
           source:interpreted.source,
           dataSource:"agenda",
         };

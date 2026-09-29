@@ -66,11 +66,10 @@ test("IA é a interpretação principal da conversa natural, com saudação loca
   assert.match(botDb, /rule\.intent !== "unknown" \? rule : interpretation/);
 });
 
-test("saudação padrão conversa primeiro e mantém o link como opção explícita", () => {
+test("saudação padrão manda uma única mensagem com link e mantém Ver opções", () => {
   assert.match(botDb, /Seja bem-vindo à/);
-  assert.match(botDb, /Como posso te ajudar/);
-  assert.match(botDb, /tocar em “Ver opções”/);
-  assert.match(botDb, /normalized === "agendar pelo link"/);
+  assert.match(botDb, /Para agendar seu horário é só acessar/);
+  assert.match(botDb, /Se preferir outro assunto, toque em “Ver opções”/);
   assert.match(botDb, /bookingLink\(context\.organization\.slug\)/);
 });
 
