@@ -30,26 +30,21 @@ export async function POST(request: Request) {
           if (transcribed) {
             events.push(transcribed);
           } else {
-            const fallback = await transcribeEvolutionAudioWebhook(payload).catch(() => null);
-            if (fallback) {
-              events.push(fallback);
-            } else {
-              const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-              const data = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data as Record<string, unknown> : {};
-              const key = data.key && typeof data.key === "object" ? data.key as Record<string, unknown> : {};
-              const remoteJid = String(key.remoteJidAlt ?? key.remoteJid ?? data.remoteJidAlt ?? data.remoteJid ?? "");
-              const phone = remoteJid.split("@")[0].split(":")[0].replace(/\D/g, "");
-              const providerMessageId = String(key.id ?? data.id ?? "").trim();
-              const organizationId = Number(String(body.instance ?? body.instanceName ?? "").replace(/^ca-org-/, ""));
-              if (phone && providerMessageId && Number.isInteger(organizationId) && organizationId > 0) {
-                await queueWhatsappTextReply({
-                  organizationId,
-                  phone,
-                  inboundProviderMessageId:providerMessageId,
-                  text:"Não consegui entender esse áudio. Pode mandar de novo ou escrever a mensagem pra mim?",
-                });
-                await processEvolutionWhatsappQueue({ organizationId, limit:2 });
-              }
+            const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+            const data = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data as Record<string, unknown> : {};
+            const key = data.key && typeof data.key === "object" ? data.key as Record<string, unknown> : {};
+            const remoteJid = String(key.remoteJidAlt ?? key.remoteJid ?? data.remoteJidAlt ?? data.remoteJid ?? "");
+            const phone = remoteJid.split("@")[0].split(":")[0].replace(/\D/g, "");
+            const providerMessageId = String(key.id ?? data.id ?? "").trim();
+            const organizationId = Number(String(body.instance ?? body.instanceName ?? "").replace(/^ca-org-/, ""));
+            if (phone && providerMessageId && Number.isInteger(organizationId) && organizationId > 0) {
+              await queueWhatsappTextReply({
+                organizationId,
+                phone,
+                inboundProviderMessageId:providerMessageId,
+                text:"Não consegui entender esse áudio. Pode mandar de novo ou escrever a mensagem pra mim?",
+              });
+              await processEvolutionWhatsappQueue({ organizationId, limit:2 });
             }
           }
         }
