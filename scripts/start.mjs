@@ -9,6 +9,21 @@ await bootstrapAdmin(getStorage().DB, {
   organization: process.env.INITIAL_ORGANIZATION_NAME,
 });
 delete process.env.INITIAL_ADMIN_PASSWORD;
+
 const child = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-H', '0.0.0.0', '-p', process.env.PORT || '3000'], { stdio: 'inherit' });
-for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(signal));
-child.on('exit', code => process.exit(code ?? 1));
+const whatsappWorker = spawn(process.execPath, ['scripts/whatsapp-worker.mjs'], { stdio: 'inherit' });
+
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    child.kill(signal);
+    whatsappWorker.kill(signal);
+  });
+}
+
+child.on('exit', code => {
+  whatsappWorker.kill('SIGTERM');
+  process.exit(code ?? 1);
+});
+whatsappWorker.on('exit', code => {
+  if (code && code !== 0) console.error('[whatsapp-worker] exited', { code });
+});
