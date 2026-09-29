@@ -59,12 +59,13 @@ test("datas, horários e dias da semana são entendidos sem IA", () => {
   assert.equal(helper.extractCaAtendeDate("segunda às 9h", "2026-09-20", 1200), "2026-09-21");
 });
 
-test("pedidos claros usam regra; IA interpreta somente linguagem ambígua", () => {
-  assert.match(botDb, /if \(rule\.intent !== "unknown"\) return rule/);
-  assert.match(botDb, /if \(bookingContinuation\) return/);
-  assert.match(botDb, /if \(context\.settings\.aiFallbackEnabled\)/);
+test("IA interpreta conversa livre; regras protegem passos simples e críticos", () => {
+  assert.match(botDb, /const shouldUseAi = context\.settings\.aiFallbackEnabled/);
+  assert.match(botDb, /rule\.intent === "booking"/);
+  assert.match(botDb, /rule\.intent === "availability"/);
+  assert.match(botDb, /rule\.intent === "unknown"/);
+  assert.match(botDb, /deterministicContinuation/);
   assert.match(botDb, /interpretCaAtendeWithAi/);
-  assert.match(botDb, /interpretation\.intent === "unknown"/);
 });
 
 test("saudação padrão já entrega menu principal em uma mensagem", () => {

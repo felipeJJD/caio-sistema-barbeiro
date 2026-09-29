@@ -10,12 +10,13 @@ export async function interpretCaAtendeWithAi(input: {
   services: string[];
   barbers: string[];
   memory?: CaAtendeContextMemory;
+  state?: string;
 }): Promise<CaAtendeInterpretation | null> {
   const { env } = await import("@/runtime/env");
   const settings = env as unknown as { OPENAI_API_KEY?: string; OPENAI_WHATSAPP_MODEL?: string; OPENAI_HELP_MODEL?: string };
   const key = settings.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
   if (!key) return null;
-  const model = settings.OPENAI_WHATSAPP_MODEL || process.env.OPENAI_WHATSAPP_MODEL || settings.OPENAI_HELP_MODEL || process.env.OPENAI_HELP_MODEL || "gpt-4.1-mini-2025-04-14";
+  const model = settings.OPENAI_WHATSAPP_MODEL || process.env.OPENAI_WHATSAPP_MODEL || "gpt-5.6-luna";
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -25,32 +26,32 @@ export async function interpretCaAtendeWithAi(input: {
       body: JSON.stringify({
         model,
         store: false,
-        max_output_tokens: 180,
-        instructions: `Você classifica UMA mensagem recebida por WhatsApp para o C.A. Atende, atendente econômico de uma barbearia. Não escreva resposta ao cliente. Apenas classifique a intenção e extraia dados mencionados.
+        reasoning: { effort: "none" },
+        max_output_tokens: 220,
+        instructions: `Você é o cérebro de interpretação do C.A. Atende, atendente de WhatsApp de uma barbearia brasileira. Não escreva a resposta ao cliente e não execute ações. Interprete o que a pessoa quis dizer e extraia somente os dados que estão claros na mensagem e no contexto.
 
 Hoje é ${appDate()} em America/Sao_Paulo.
 Barbearia: ${input.organizationName.slice(0,120)}.
 Serviços cadastrados: ${input.services.slice(0,30).join(" | ") || "nenhum"}.
 Profissionais cadastrados: ${input.barbers.slice(0,30).join(" | ") || "nenhum"}.
-Contexto curto da conversa: ${JSON.stringify(input.memory || {})}.
+Etapa atual: ${String(input.state || "sem etapa").slice(0,80)}.
+Memória estruturada: ${JSON.stringify(input.memory || {})}.
+
+Entenda português brasileiro natural, informal, abreviações, erros de digitação, gírias leves e texto vindo de transcrição de áudio com sotaques. Use a etapa e a memória para entender respostas curtas e correções. Exemplo: se já está escolhendo um horário e a pessoa diz só "Davi", "amanhã", "depois das 6", "9h", "não, sem barba", "pode ser esse" ou "troca pro Eduardo", isso é continuação da conversa.
 
 Intenções:
 greeting = cumprimento sem outro pedido.
-booking = quer marcar e não pediu uma consulta específica de vagas.
-availability = quer saber horários/vagas/disponibilidade.
-prices = quer preço/valor.
-human = quer explicitamente falar/conversar/chamar uma pessoa, dono, responsável ou atendente. Dizer apenas "quero o Eduardo", "com o Eduardo", "Eduardo" ou escolher um profissional NÃO é human; nesses casos mantenha booking/availability conforme o contexto.
-cancel = quer cancelar/desmarcar.
-reschedule = quer mudar/remarcar.
-spam = oferta comercial clara enviada à barbearia (operadora, empréstimo, marketing, vendedor etc.).
+booking = quer marcar/agendar ou está continuando um agendamento.
+availability = quer consultar vagas/horários/disponibilidade.
+prices = pergunta preço/valor/serviços.
+human = pede explicitamente uma pessoa, dono, responsável ou atendente humano. Escolher um profissional para o serviço NÃO é human.
+cancel = quer cancelar/desmarcar um agendamento.
+reschedule = quer mudar/remarcar um agendamento.
+spam = oferta comercial clara enviada à barbearia.
 unknown = não há segurança suficiente.
 
-service e barber devem ser nomes do cadastro quando a mensagem apontar claramente para um deles; caso contrário vazio.
-date deve ser YYYY-MM-DD quando o cliente disser hoje, amanhã, dia da semana ou uma data clara; caso contrário vazio.
-time deve ser HH:MM quando houver horário claro como "9h", "9 horas", "às 9" ou "14:30"; caso contrário vazio.
-Leve a memória em conta em respostas curtas. Se a conversa estava escolhendo agendamento/horário e a pessoa disser apenas "Corte", "Eduardo", "amanhã", "9h" ou "quero resolver por aqui", trate isso como continuação do agendamento, não como assunto novo.
-Se houver dúvida entre spam e cliente real, use unknown. Não invente nomes, datas, horários ou serviços.`,
-        input: input.message.slice(0,1200),
+service e barber devem corresponder a nomes reais do cadastro quando houver correspondência clara. Não invente nomes, serviços, datas nem horários. Se o cliente corrigir algo, extraia o novo valor. date deve ser YYYY-MM-DD para data clara. time deve ser HH:MM quando houver horário exato. Frases como "depois das 6" não devem virar um horário exato inventado; deixe time vazio para a lógica de janela de horário tratar.`,
+        input: input.message.slice(0,1600),
         text: { format: { type: "json_schema", name: "ca_atende_intent", strict: true, schema: {
           type: "object",
           additionalProperties: false,
