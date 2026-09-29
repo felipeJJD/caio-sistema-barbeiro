@@ -68,13 +68,22 @@ async function chat(messages, shop=context) {
 test("saudação, opções e link público passam pelo mesmo motor sem IA",async()=>{
   const [hello,menu,booking,link]=await chat(["oi boa tarde","Ver opções","Agendar horário","Agendar pelo link"]);
   assert.match(hello.reply,/Barbearia Exemplo/);
-  assert.deepEqual(hello.choices,["Agendar horário","Ver horários disponíveis","Preços e serviços","Cancelar ou remarcar","Falar com a barbearia"]);
+  assert.match(hello.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/exemplo/);
+  assert.equal(hello.choices,undefined);
   assert.equal(menu.choices.length,5);
   assert.equal(booking.state,"awaiting_service");
   assert.ok(booking.choices.includes("Corte"));
   assert.doesNotMatch(booking.reply,/Como prefere agendar/i);
   assert.equal(link.reply,"https://cortouanotou.com.br/agendar/exemplo");
   assert.equal(globalThis.__caAiCalls,0);
+});
+
+test("saudação usa nome e link da própria organização",async()=>{
+  const another={...context,organization:{id:43,name:"Outra Barbearia",slug:"outra"}};
+  const [hello]=await chat(["e aí beleza?"],another);
+  assert.match(hello.reply,/Outra Barbearia/);
+  assert.match(hello.reply,/\/agendar\/outra/);
+  assert.doesNotMatch(hello.reply,/Barbearia Exemplo|\/agendar\/exemplo/);
 });
 
 test("consulta preço de um serviço sem oferecer preços inventados",async()=>{

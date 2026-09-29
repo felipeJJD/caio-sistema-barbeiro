@@ -165,7 +165,9 @@ async function transcribeAudio(base64: string, mimeType: string) {
   const outbound = new FormData();
   outbound.append("file", audio, `whatsapp.${prepared.extension}`);
   outbound.append("model", String(process.env.OPENAI_TRANSCRIBE_MODEL ?? "").trim() || "gpt-4o-mini-transcribe");
-  outbound.append("prompt", "Português brasileiro. Atendimento de barbearia pelo WhatsApp. Preserve nomes próprios, horários, datas, valores e serviços como corte, barba e sobrancelha.");
+  // Keep the hint neutral: listing services here can bias a short or noisy
+  // voice note into words the customer never said.
+  outbound.append("prompt", "Conversa em português brasileiro. Preserve somente as palavras realmente faladas, inclusive gírias e nomes próprios.");
 
   try {
     const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
