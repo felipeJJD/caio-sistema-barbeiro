@@ -31,8 +31,8 @@ jobs:
         with:
           node-version: 24.13.0
           cache: npm
-      - name: Aplicar alterações focadas
-        run: python3 scripts/apply-ca-atende-ai-audio.py
+      - name: Aplicar alteração focada de IA
+        run: python3 scripts/apply-ca-atende-ai-first-v2.py
       - name: Instalar dependências
         run: npm ci
       - name: Verificar tipos
@@ -49,7 +49,7 @@ jobs:
         run: |
           git fetch origin main
           git checkout origin/main -- .github/workflows/validate.yml
-          rm -f scripts/apply-ca-atende-ai-audio.py
+          rm -f scripts/apply-ca-atende-ai-audio.py scripts/apply-ca-atende-ai-first-v2.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
