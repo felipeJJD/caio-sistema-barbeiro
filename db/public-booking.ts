@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gte, isNull } from "drizzle-orm";
 import { appDate, clientCanChangeAppointment } from "../lib/app-date";
 import { appointments, clients, organizations, plans, services, team } from "./schema";
 import { getDb } from "./index";
@@ -10,7 +10,8 @@ import { validClientName } from "../lib/client-name";
 import { parseBookingWeekdays } from "../lib/booking-weekdays";
 import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWindowAllows, parseTeamWeeklyBookingHours, parseWeeklyBookingHours, type WeeklyBookingHours } from "../lib/booking-hours";
 import { availableMembershipUses, membershipNameMatches, membershipNameNeedsPhone, normalizeMembershipIdentity, phoneDigits, resolveMembershipService } from "../lib/membership-service";
-import { processWhatsappQueueSafely, queueAppointmentReminderOnlySafely, queueAppointmentWhatsappSafely } from "./whatsapp";
+import { queueAppointmentReminderOnlySafely, queueAppointmentWhatsappSafely } from "./whatsapp";
+import { processConnectedWhatsappQueueSafely } from "./whatsapp-dispatch";
 
 export type PublicBookingData = {
   organization: {
@@ -469,7 +470,7 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     const queued = options.skipImmediateWhatsappConfirmation
       ? await queueAppointmentReminderOnlySafely(appointmentId)
       : await queueAppointmentWhatsappSafely("confirmation", appointmentId);
-    if (queued.queued) await processWhatsappQueueSafely(data.organization.id, 3);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(data.organization.id, 3);
   }
   return {
     id: appointmentId,
@@ -547,6 +548,160 @@ export async function getPublicBookingManagement(slug: string, token: string): P
   };
 }
 
+
+export type WhatsappManagedBooking = {
+  appointmentId: number;
+  clientName: string;
+  date: string;
+  time: string;
+  serviceId: number;
+  serviceName: string;
+  durationMinutes: number;
+  barberId: number;
+  barberName: string;
+  status: string;
+  canChange: boolean;
+};
+
+function sameWhatsappPhone(left: string, right: string) {
+  const a = phoneDigits(left);
+  const b = phoneDigits(right);
+  const compareLength = Math.min(11, a.length, b.length);
+  return compareLength >= 10 && a.slice(-compareLength) === b.slice(-compareLength);
+}
+
+export async function listWhatsappManagedBookings(slugValue: string, phoneValue: string): Promise<WhatsappManagedBooking[]> {
+  const slug = cleanSlug(slugValue);
+  if (!slug || phoneDigits(phoneValue).length < 10) return [];
+  const db = await getDb();
+  const organization = (await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).limit(1))[0];
+  if (!organization) return [];
+  const rows = await db.select({
+    appointmentId: appointments.id,
+    phone: appointments.phone,
+    clientName: appointments.clientName,
+    date: appointments.appointmentDate,
+    time: appointments.appointmentTime,
+    serviceId: appointments.serviceId,
+    serviceName: services.name,
+    durationMinutes: services.durationMinutes,
+    barberId: appointments.barberId,
+    barberName: team.name,
+    status: appointments.status,
+  }).from(appointments)
+    .innerJoin(services, eq(appointments.serviceId, services.id))
+    .innerJoin(team, eq(appointments.barberId, team.id))
+    .where(and(
+      eq(appointments.organizationId, organization.id),
+      gte(appointments.appointmentDate, appDate()),
+    ))
+    .orderBy(appointments.appointmentDate, appointments.appointmentTime);
+  return rows
+    .filter((row) => row.status !== "Cancelado" && sameWhatsappPhone(row.phone, phoneValue))
+    .map((row) => ({
+      appointmentId: row.appointmentId,
+      clientName: row.clientName,
+      date: row.date,
+      time: row.time,
+      serviceId: row.serviceId,
+      serviceName: row.serviceName,
+      durationMinutes: row.durationMinutes,
+      barberId: row.barberId,
+      barberName: row.barberName,
+      status: row.status,
+      canChange: clientCanChangeAppointment(row.date, row.time),
+    }));
+}
+
+async function findWhatsappManagedBooking(slugValue: string, phoneValue: string, appointmentId: number) {
+  const slug = cleanSlug(slugValue);
+  if (!slug || !Number.isInteger(appointmentId) || appointmentId <= 0) return null;
+  const db = await getDb();
+  const row = (await db.select({
+    appointmentId: appointments.id,
+    organizationId: appointments.organizationId,
+    phone: appointments.phone,
+    clientName: appointments.clientName,
+    date: appointments.appointmentDate,
+    time: appointments.appointmentTime,
+    serviceId: appointments.serviceId,
+    serviceName: services.name,
+    durationMinutes: services.durationMinutes,
+    barberId: appointments.barberId,
+    barberName: team.name,
+    status: appointments.status,
+    membershipCreditState: appointments.membershipCreditState,
+  }).from(appointments)
+    .innerJoin(organizations, eq(appointments.organizationId, organizations.id))
+    .innerJoin(services, eq(appointments.serviceId, services.id))
+    .innerJoin(team, eq(appointments.barberId, team.id))
+    .where(and(
+      eq(organizations.slug, slug),
+      eq(appointments.id, appointmentId),
+    )).limit(1))[0] ?? null;
+  if (!row || !sameWhatsappPhone(row.phone, phoneValue)) return null;
+  return row;
+}
+
+export async function cancelWhatsappManagedBooking(slugValue: string, phoneValue: string, appointmentId: number, options: { skipWhatsappNotice?: boolean } = {}) {
+  const row = await findWhatsappManagedBooking(slugValue, phoneValue, appointmentId);
+  if (!row) throw new Error("Não encontrei esse agendamento para este WhatsApp.");
+  if (row.status === "Cancelado") throw new Error("Este horário já foi cancelado.");
+  if (!clientCanChangeAppointment(row.date, row.time)) throw new Error("Faltam menos de 2 horas para o atendimento. Vou chamar a barbearia para ajudar.");
+  const db = await getDb();
+  await db.update(appointments).set({
+    status: "Cancelado",
+    membershipCreditState: row.membershipCreditState === "reserved" ? "released" : row.membershipCreditState,
+  }).where(and(
+    eq(appointments.id, row.appointmentId),
+    eq(appointments.organizationId, row.organizationId),
+  ));
+  await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date: row.date, time: row.time, status: "Cancelado" }, "cancelled");
+  if (!options.skipWhatsappNotice) {
+    const queued = await queueAppointmentWhatsappSafely("cancellation", row.appointmentId);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, 3);
+  }
+  return { ...row, status:"Cancelado" };
+}
+
+export async function rescheduleWhatsappManagedBooking(slugValue: string, phoneValue: string, appointmentId: number, date: string, time: string, options: { skipWhatsappNotice?: boolean } = {}) {
+  const row = await findWhatsappManagedBooking(slugValue, phoneValue, appointmentId);
+  if (!row) throw new Error("Não encontrei esse agendamento para este WhatsApp.");
+  if (row.status === "Cancelado") throw new Error("Um horário cancelado não pode ser remarcado.");
+  if (!clientCanChangeAppointment(row.date, row.time)) throw new Error("Faltam menos de 2 horas para o atendimento. Vou chamar a barbearia para ajudar.");
+  const slots = await getPublicBookingSlots(slugValue, date, row.serviceId, row.barberId);
+  if (!slots.some((slot) => slot.time === time && slot.barberId === row.barberId)) throw new Error("Esse horário não está mais disponível. Escolha outro.");
+  const data = await getPublicBookingData(slugValue);
+  if (!data) throw new Error("Barbearia não encontrada.");
+  const newStatus = data.organization.requiresApproval ? "Aguardando" : "Agendado";
+  const { env } = await import("@/runtime/env");
+  const database = (env as unknown as { DB?: D1DatabaseLike }).DB;
+  if (!database) throw new Error("Não foi possível remarcar o horário.");
+  const requestedStart = toMinutes(time);
+  const requestedEnd = requestedStart + row.durationMinutes;
+  const updated = await database.prepare(`
+    UPDATE appointments
+    SET appointment_date = ?, appointment_time = ?, status = ?
+    WHERE id = ? AND organization_id = ? AND status <> 'Cancelado'
+      AND NOT EXISTS (
+        SELECT 1 FROM appointments AS existing
+        INNER JOIN services AS existing_service ON existing_service.id = existing.service_id
+        WHERE existing.organization_id = ? AND existing.appointment_date = ?
+          AND existing.barber_id = ? AND existing.id <> ? AND existing.status <> 'Cancelado'
+          AND (CAST(SUBSTR(existing.appointment_time, 1, 2) AS INTEGER) * 60 + CAST(SUBSTR(existing.appointment_time, 4, 2) AS INTEGER)) < ?
+          AND ? < (CAST(SUBSTR(existing.appointment_time, 1, 2) AS INTEGER) * 60 + CAST(SUBSTR(existing.appointment_time, 4, 2) AS INTEGER) + existing_service.duration_minutes)
+      )
+    RETURNING id
+  `).bind(date, time, newStatus, row.appointmentId, row.organizationId, row.organizationId, date, row.barberId, row.appointmentId, requestedEnd, requestedStart).first<{ id: number }>();
+  if (!updated) throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
+  await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date, time, status: newStatus }, "rescheduled");
+  if (newStatus === "Agendado" && !options.skipWhatsappNotice) {
+    const queued = await queueAppointmentWhatsappSafely("rescheduled", row.appointmentId);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, 3);
+  }
+  return { ...row, date, time, status:newStatus };
+}
+
 export async function cancelPublicBooking(slug: string, token: string) {
   const row = await findManagedBooking(slug, token);
   if (!row) throw new Error("Este link não é válido ou já expirou.");
@@ -562,7 +717,7 @@ export async function cancelPublicBooking(slug: string, token: string) {
   ));
   await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date: row.date, time: row.time, status: "Cancelado" }, "cancelled");
   const queued = await queueAppointmentWhatsappSafely("cancellation", row.appointmentId);
-  if (queued.queued) await processWhatsappQueueSafely(row.organizationId, 3);
+  if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, 3);
   return getPublicBookingManagement(slug, token);
 }
 
@@ -599,7 +754,7 @@ export async function reschedulePublicBooking(slug: string, token: string, date:
   await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date, time, status: newStatus }, "rescheduled");
   if (newStatus === "Agendado") {
     const queued = await queueAppointmentWhatsappSafely("rescheduled", row.appointmentId);
-    if (queued.queued) await processWhatsappQueueSafely(row.organizationId, 3);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, 3);
   }
   return getPublicBookingManagement(slug, token);
 }

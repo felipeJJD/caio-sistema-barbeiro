@@ -30,6 +30,8 @@ export type CaAtendeContextMemory = {
   barber?: string;
   clientName?: string;
   paymentChoice?: string;
+  appointmentId?: number;
+  manageAction?: "cancel" | "reschedule" | "";
   // The customer's explicit selection is kept separate from the last displayed options.
   afterTime?: string;
   beforeTime?: string;
@@ -198,6 +200,8 @@ export function mergeCaAtendeMemory(memory: CaAtendeContextMemory, next: Partial
     barber: next.barber || memory.barber || "",
     clientName: next.clientName || memory.clientName || "",
     paymentChoice: next.paymentChoice || memory.paymentChoice || "",
+    appointmentId: next.appointmentId !== undefined ? next.appointmentId : (memory.appointmentId || 0),
+    manageAction: next.manageAction !== undefined ? next.manageAction : (memory.manageAction || ""),
     afterTime: next.afterTime || memory.afterTime || "",
     beforeTime: next.beforeTime || memory.beforeTime || "",
   };

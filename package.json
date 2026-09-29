@@ -11,7 +11,7 @@
     "start": "node scripts/start.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:load": "node tests/load-smoke.mjs",
-    "lint": "eslint app db lib runtime scripts/start.mjs scripts/bootstrap-admin.mjs next.config.ts",
+    "lint": "eslint app db lib runtime scripts/start.mjs scripts/whatsapp-worker.mjs scripts/bootstrap-admin.mjs next.config.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate"
   },
