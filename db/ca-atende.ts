@@ -14,7 +14,7 @@ import {
   type CaAtendeInterpretation,
 } from "../lib/ca-atende";
 import { interpretCaAtendeWithAi } from "../lib/ca-atende-model";
-import { createPublicBooking, getPublicBookingData, getPublicBookingSlotsExpanded } from "./public-booking";
+import { cancelWhatsappManagedBooking, createPublicBooking, getPublicBookingData, getPublicBookingSlotsExpanded, listWhatsappManagedBookings, rescheduleWhatsappManagedBooking, type WhatsappManagedBooking } from "./public-booking";
 import { recordAiUsageSafely } from "./ai-usage";
 import { getDb } from "./index";
 import { getWhatsappEntitlementForOrganization } from "./whatsapp-entitlement";
@@ -36,6 +36,8 @@ type CaAtendeRuntimeContext = {
   settings: {
     enabled: boolean;
     botEnabled: boolean;
+    cancellationEnabled: boolean;
+    rescheduleEnabled: boolean;
     economyMode: boolean;
     bookingLinkFirst: boolean;
     spamFilterEnabled: boolean;
@@ -67,6 +69,8 @@ function safeMemory(value: string): CaAtendeContextMemory {
       barber: String(parsed.barber || "").slice(0,120),
       clientName: String(parsed.clientName || "").slice(0,120),
       paymentChoice: String(parsed.paymentChoice || "").slice(0,30),
+      appointmentId: Math.max(0, Math.round(Number(parsed.appointmentId || 0))),
+      manageAction: parsed.manageAction === "cancel" || parsed.manageAction === "reschedule" ? parsed.manageAction : "",
       afterTime: String(parsed.afterTime || "").slice(0,5),
       beforeTime: String(parsed.beforeTime || "").slice(0,5),
     };
@@ -169,6 +173,8 @@ async function runtimeContext(organizationId: number): Promise<CaAtendeRuntimeCo
     settings: {
       enabled: Boolean(current?.enabled),
       botEnabled: Boolean(current?.botEnabled),
+      cancellationEnabled: current?.cancellationEnabled === undefined ? true : Boolean(current.cancellationEnabled),
+      rescheduleEnabled: current?.rescheduleEnabled === undefined ? true : Boolean(current.rescheduleEnabled),
       economyMode: current?.economyMode === undefined ? true : Boolean(current.economyMode),
       bookingLinkFirst: current?.bookingLinkFirst === undefined ? true : Boolean(current.bookingLinkFirst),
       spamFilterEnabled: current?.spamFilterEnabled === undefined ? true : Boolean(current.spamFilterEnabled),
@@ -307,6 +313,7 @@ type CaAtendeDecision = {
   confirmationRequested?: boolean;
   choices?: string[];
   bookingRequest?: { date:string; time:string; serviceId:number; barberId:number; clientName:string; paymentChoice:string };
+  managementRequest?: { action:"cancel" | "reschedule"; appointmentId:number; date?:string; time?:string };
 };
 
 function guardedDecision(
@@ -436,6 +443,49 @@ function humanDate(value: string) {
   return value.split("-").reverse().join("/");
 }
 
+
+function managedBookingLabel(item: WhatsappManagedBooking, index?: number) {
+  const prefix = index === undefined ? "" : `${index + 1}. `;
+  return `${prefix}${humanDate(item.date)} às ${item.time} · ${item.serviceName} · ${item.barberName}`;
+}
+
+function managedBookingChoices(items: WhatsappManagedBooking[]) {
+  return items.slice(0,5).map((item,index) => managedBookingLabel(item,index));
+}
+
+function chooseManagedBooking(message: string, items: WhatsappManagedBooking[]) {
+  const normalized = normalizeCaAtendeText(message);
+  const index = /^(?:opcao\s*)?([1-5])$/.exec(normalized);
+  if (index) return items[Number(index[1]) - 1] ?? null;
+  const date = extractCaAtendeDate(message);
+  const time = extractCaAtendeTime(message);
+  let matches = items.filter((item) => (!date || item.date === date) && (!time || item.time === time));
+  const serviceMatches = matches.filter((item) => normalized.includes(normalizeCaAtendeText(item.serviceName)));
+  if (serviceMatches.length) matches = serviceMatches;
+  const barberMatches = matches.filter((item) => normalized.includes(normalizeCaAtendeText(item.barberName)));
+  if (barberMatches.length) matches = barberMatches;
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function managementPrompt(action: "cancel" | "reschedule", item: WhatsappManagedBooking): CaAtendeDecision {
+  const memory: CaAtendeContextMemory = { intent:action, manageAction:action, appointmentId:item.appointmentId, date:item.date, time:item.time, service:item.serviceName, barber:item.barberName, clientName:item.clientName };
+  if (action === "cancel") {
+    return { reply:`Encontrei ${item.serviceName} com ${item.barberName}, ${humanDate(item.date)} às ${item.time}. Quer cancelar esse horário?`, intent:"cancel", state:"awaiting_cancel_confirmation", memory, source:"rule", choices:["Confirmar cancelamento", "Manter horário"], dataSource:"agenda" };
+  }
+  return { reply:`Encontrei ${item.serviceName} com ${item.barberName}, ${humanDate(item.date)} às ${item.time}. Para qual dia você quer remarcar?`, intent:"reschedule", state:"awaiting_reschedule_date", memory, source:"rule", choices:["Hoje", "Amanhã"], dataSource:"agenda" };
+}
+
+async function beginManagementFlow(action: "cancel" | "reschedule", event: WhatsappInboundTextEvent, context: CaAtendeRuntimeContext, source: "rule" | "ai"): Promise<CaAtendeDecision> {
+  const enabled = action === "cancel" ? context.settings.cancellationEnabled : context.settings.rescheduleEnabled;
+  if (!enabled) return { reply:`Essa automação está desligada agora. Vou chamar alguém da ${context.organization.name} para te ajudar.`, intent:action, state:"human_takeover", memory:{ intent:action }, source, handoff:true };
+  const appointments = await listWhatsappManagedBookings(context.organization.slug, event.phone);
+  if (!appointments.length) return { reply:"Não encontrei nenhum horário futuro ligado a este WhatsApp. Se quiser, posso chamar a barbearia.", intent:action, state:"", memory:{}, source:"rule", choices:["Falar com a barbearia", "Ver opções"], dataSource:"agenda" };
+  const changeable = appointments.filter((item) => item.canChange);
+  if (!changeable.length) return { reply:`Seu horário está a menos de 2 horas e não posso alterar automaticamente. Vou chamar alguém da ${context.organization.name}.`, intent:action, state:"human_takeover", memory:{ intent:action }, source:"rule", handoff:true, dataSource:"agenda" };
+  if (changeable.length === 1) return managementPrompt(action, changeable[0]);
+  return { reply:`Encontrei mais de um horário. Qual deles você quer ${action === "cancel" ? "cancelar" : "remarcar"}? Pode responder pelo número, dia ou horário.`, intent:action, state:"awaiting_manage_choice", memory:{ intent:action, manageAction:action, appointmentId:0 }, source:"rule", choices:managedBookingChoices(changeable), dataSource:"agenda" };
+}
+
 function slotSummary(slots: Array<{ time: string; barberId: number; barberName: string }>, maxPerBarber = 4) {
   const groups = new Map<string, string[]>();
   for (const slot of slots) {
@@ -468,7 +518,7 @@ export async function composeReply(
     return { reply:"Como prefere agendar?", intent:"booking", state:"booking_method", memory:{ intent:"booking" }, source:"rule", choices:bookingChoices };
   }
   if (normalized === "cancelar ou remarcar") {
-    return { reply:"Você quer cancelar ou remarcar? Vou chamar uma pessoa para cuidar do seu horário com segurança.", intent:"cancel", state:"cancel_choice", memory:{}, source:"rule", choices:["Cancelar horário", "Remarcar horário"] };
+    return { reply:"Claro. Você quer cancelar ou remarcar seu horário?", intent:"cancel", state:"cancel_choice", memory:{}, source:"rule", choices:["Cancelar horário", "Remarcar horário"] };
   }
   if (normalized === "falar com a barbearia") {
     return { reply:defaultHandoff(context), intent:"human", state:"human_takeover", memory:oldMemory, source:"rule", handoff:true };
@@ -479,6 +529,52 @@ export async function composeReply(
   if (normalized === "precos e servicos") {
     // Let the real service query below list the active services.
   }
+
+  if (stage === "awaiting_manage_choice") {
+    const action = oldMemory.manageAction === "reschedule" ? "reschedule" : "cancel";
+    const appointments = (await listWhatsappManagedBookings(context.organization.slug, event.phone)).filter((item) => item.canChange);
+    const selected = chooseManagedBooking(event.text, appointments);
+    if (!selected) return { reply:"Não consegui identificar qual horário. Responda pelo número, dia ou horário:", intent:action, state:"awaiting_manage_choice", memory:oldMemory, source:"rule", choices:managedBookingChoices(appointments), dataSource:"agenda" };
+    return managementPrompt(action, selected);
+  }
+  if (stage === "awaiting_cancel_confirmation") {
+    if (/\b(manter|nao cancelar|voltar|deixa assim)\b/.test(normalized)) return menuDecision(context);
+    if (/\b(confirmar cancelamento|pode cancelar|cancela|cancelar|sim)\b/.test(normalized) && oldMemory.appointmentId) {
+      return { reply:"", intent:"cancel", state:"management_commit", memory:oldMemory, source:"rule", dataSource:"agenda", managementRequest:{ action:"cancel", appointmentId:oldMemory.appointmentId } };
+    }
+    return { reply:"Quer mesmo cancelar esse horário?", intent:"cancel", state:"awaiting_cancel_confirmation", memory:oldMemory, source:"rule", choices:["Confirmar cancelamento", "Manter horário"], dataSource:"agenda" };
+  }
+  if (stage === "awaiting_reschedule_date") {
+    const date = extractCaAtendeDate(event.text);
+    if (!date) return { reply:"Para qual dia você quer remarcar?", intent:"reschedule", state:"awaiting_reschedule_date", memory:oldMemory, source:"rule", choices:["Hoje", "Amanhã"], dataSource:"agenda" };
+    const appointments = await listWhatsappManagedBookings(context.organization.slug, event.phone);
+    const current = appointments.find((item) => item.appointmentId === oldMemory.appointmentId);
+    if (!current) return { reply:"Não encontrei mais esse horário. Posso chamar a barbearia se precisar.", intent:"reschedule", state:"", memory:{}, source:"rule", dataSource:"agenda" };
+    const slots = await getPublicBookingSlotsExpanded(context.organization.slug, date, current.serviceId, current.barberId);
+    if (!slots.length) return { reply:`Não encontrei horário livre com ${current.barberName} em ${humanDate(date)}. Me diga outro dia.`, intent:"reschedule", state:"awaiting_reschedule_date", memory:oldMemory, source:"rule", dataSource:"agenda" };
+    return { reply:`Tenho ${slots.slice(0,8).map((slot) => slot.time).join(", ")}. Qual horário fica melhor?`, intent:"reschedule", state:"awaiting_reschedule_time", memory:{ ...oldMemory, date, time:"" }, source:"rule", choices:slots.slice(0,8).map((slot) => slot.time), dataSource:"agenda" };
+  }
+  if (stage === "awaiting_reschedule_time") {
+    const time = extractCaAtendeTime(event.text);
+    const date = oldMemory.date || "";
+    const appointments = await listWhatsappManagedBookings(context.organization.slug, event.phone);
+    const current = appointments.find((item) => item.appointmentId === oldMemory.appointmentId);
+    if (!current || !date) return { reply:"Perdi os detalhes desse horário. Me diga que quer remarcar e eu começo de novo.", intent:"reschedule", state:"", memory:{}, source:"rule" };
+    const slots = await getPublicBookingSlotsExpanded(context.organization.slug, date, current.serviceId, current.barberId);
+    const exact = slots.find((slot) => slot.time === time);
+    if (!time || !exact) return { reply:`Esse horário não está livre. Tenho ${slots.slice(0,8).map((slot) => slot.time).join(", ")}. Qual prefere?`, intent:"reschedule", state:"awaiting_reschedule_time", memory:oldMemory, source:"rule", choices:slots.slice(0,8).map((slot) => slot.time), dataSource:"agenda" };
+    const memory = { ...oldMemory, date, time };
+    return { reply:`Certo. Remarcar ${current.serviceName} com ${current.barberName} para ${humanDate(date)} às ${time}. Confirma?`, intent:"reschedule", state:"awaiting_reschedule_confirmation", memory, source:"rule", choices:["Confirmar remarcação", "Escolher outro horário", "Cancelar alteração"], dataSource:"agenda" };
+  }
+  if (stage === "awaiting_reschedule_confirmation") {
+    if (/\b(cancelar alteracao|desistir|voltar)\b/.test(normalized)) return menuDecision(context);
+    if (/\b(escolher outro horario|outro horario)\b/.test(normalized)) return { reply:"Qual outro horário você prefere?", intent:"reschedule", state:"awaiting_reschedule_time", memory:{ ...oldMemory, time:"" }, source:"rule", dataSource:"agenda" };
+    if (/\b(confirmar remarcacao|confirmar|confirma|sim|pode remarcar|remarca)\b/.test(normalized) && oldMemory.appointmentId && oldMemory.date && oldMemory.time) {
+      return { reply:"", intent:"reschedule", state:"management_commit", memory:oldMemory, source:"rule", dataSource:"agenda", managementRequest:{ action:"reschedule", appointmentId:oldMemory.appointmentId, date:oldMemory.date, time:oldMemory.time } };
+    }
+    return { reply:"Confirma essa remarcação?", intent:"reschedule", state:"awaiting_reschedule_confirmation", memory:oldMemory, source:"rule", choices:["Confirmar remarcação", "Escolher outro horário", "Cancelar alteração"], dataSource:"agenda" };
+  }
+
   if (stage === "awaiting_confirmation" && normalized === "cancelar") return menuDecision(context);
   if (stage === "awaiting_confirmation" && normalized === "escolher outro horario") {
     return { reply:"Qual outro horário você prefere?", intent:oldMemory.intent || "booking", state:"awaiting_booking_choice", memory:{ ...oldMemory, time:"" }, source:"rule" };
@@ -562,9 +658,8 @@ export async function composeReply(
     return { reply:defaultHandoff(context), intent, state:"human_takeover", memory, source:interpreted.source, handoff:true };
   }
 
-  if (intent === "cancel" || intent === "reschedule") {
-    return { reply:defaultHandoff(context), intent, state:"human_takeover", memory, source:interpreted.source, handoff:true };
-  }
+  if (intent === "cancel") return beginManagementFlow("cancel", event, context, interpreted.source);
+  if (intent === "reschedule") return beginManagementFlow("reschedule", event, context, interpreted.source);
 
   if (intent === "greeting") {
     return { reply:defaultGreeting(context), intent, state:"menu", memory:{}, source:interpreted.source, choices:["Ver opções"] };
@@ -875,6 +970,30 @@ export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
   const guarded = guardedDecision(rawDecision, conversation, context);
   let decision = guarded.decision;
   const now = new Date().toISOString();
+
+
+  if (decision.managementRequest) {
+    const request = decision.managementRequest;
+    if (event.messageRowId === 0) {
+      decision = { ...decision, reply:"No modo teste eu não altero horários reais.", state:"", memory:{}, managementRequest:undefined, choices:[] };
+    } else {
+      try {
+        if (request.action === "cancel") {
+          const cancelled = await cancelWhatsappManagedBooking(context.organization.slug, event.phone, request.appointmentId, { skipWhatsappNotice:true });
+          decision = { ...decision, reply:`Pronto. Seu ${cancelled.serviceName} com ${cancelled.barberName}, ${humanDate(cancelled.date)} às ${cancelled.time}, foi cancelado.`, state:"", memory:{}, managementRequest:undefined, choices:[] };
+        } else {
+          const rescheduled = await rescheduleWhatsappManagedBooking(context.organization.slug, event.phone, request.appointmentId, String(request.date || ""), String(request.time || ""), { skipWhatsappNotice:true });
+          const when = `${humanDate(rescheduled.date)} às ${rescheduled.time}`;
+          const reply = rescheduled.status === "Aguardando" ? `Pronto. Sua remarcação para ${when} foi registrada e está aguardando confirmação da barbearia.` : `Pronto. Seu horário foi remarcado para ${when}.`;
+          decision = { ...decision, reply, state:"", memory:{}, managementRequest:undefined, choices:[] };
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Não consegui alterar o horário.";
+        const needsHuman = /menos de 2 horas/i.test(message);
+        decision = { ...decision, reply:message, state:needsHuman ? "human_takeover" : "", memory:{}, managementRequest:undefined, choices:needsHuman ? [] : ["Ver opções"], handoff:needsHuman };
+      }
+    }
+  }
 
   if (decision.bookingRequest) {
     const request = decision.bookingRequest;

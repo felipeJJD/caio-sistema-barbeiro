@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const callLog = [];
 const fixtures = `
+export async function listWhatsappManagedBookings(){ return globalThis.__caManagedBookings || []; }
+export async function cancelWhatsappManagedBooking(){ throw Error("No real cancellation in tests"); }
+export async function rescheduleWhatsappManagedBooking(){ throw Error("No real reschedule in tests"); }
 export async function getPublicBookingSlotsExpanded(slug,date,serviceId,barberId) {
   globalThis.__caSlots.push({slug,date,serviceId,barberId});
   return [

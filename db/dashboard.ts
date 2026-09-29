@@ -16,7 +16,8 @@ import { bookingHoursForDate, bookingWeekdaysFromHours, bookingWeekdaysTextFromH
 import { isTeamPaymentKind, type TeamPaymentKind } from "../lib/team-payments";
 import { assertTeamPaymentOpen } from "./team-money";
 import { resolveMembershipService } from "../lib/membership-service";
-import { processWhatsappQueueSafely, queueAppointmentWhatsappSafely } from "./whatsapp";
+import { queueAppointmentWhatsappSafely } from "./whatsapp";
+import { processConnectedWhatsappQueueSafely } from "./whatsapp-dispatch";
 
 export type DashboardData = {
   dataPeriod: { start: string; end: string };
@@ -658,7 +659,7 @@ export async function cancelAppointment(access: AccessContext, id: number) {
     time: existing.appointmentTime,
   });
   const queued = await queueAppointmentWhatsappSafely("cancellation", id);
-  if (queued.queued) await processWhatsappQueueSafely(access.organizationId, 3);
+  if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, 3);
 }
 
 export async function confirmAppointment(access: AccessContext, id: number) {
@@ -669,7 +670,7 @@ export async function confirmAppointment(access: AccessContext, id: number) {
   if (existing.status !== "Aguardando") return;
   await db.update(appointments).set({ status: "Agendado" }).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId)));
   const queued = await queueAppointmentWhatsappSafely("confirmation", id);
-  if (queued.queued) await processWhatsappQueueSafely(access.organizationId, 3);
+  if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, 3);
 }
 export async function completeAppointment(access: AccessContext, input: { id: number; occurredAt: string; paymentMethodId: number; membershipClientId?: number; tipCents?: number }) {
   const db = await getDb();

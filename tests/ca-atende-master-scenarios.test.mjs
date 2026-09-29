@@ -16,6 +16,9 @@ const helper = await load("../lib/ca-atende.ts");
 const fixtureModule = `
 const TIMES=["08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:30","17:00","17:30","18:00","19:00"];
 const BARBERS=[{id:1,name:"Eduardo"},{id:2,name:"Davi"},{id:3,name:"Kaio"}];
+export async function listWhatsappManagedBookings(){ return globalThis.__caManagedBookings || []; }
+export async function cancelWhatsappManagedBooking(){ throw Error("No real cancellation in tests"); }
+export async function rescheduleWhatsappManagedBooking(){ throw Error("No real reschedule in tests"); }
 export async function getPublicBookingSlotsExpanded(slug,date,serviceId,barberId){
   globalThis.__caSlots.push({slug,date,serviceId,barberId});
   return BARBERS.flatMap(barber => TIMES.map(time => ({time,barberId:barber.id,barberName:barber.name})))
