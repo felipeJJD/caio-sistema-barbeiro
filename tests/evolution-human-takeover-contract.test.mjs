@@ -13,7 +13,10 @@ test("mensagem manual enviada pela barbearia assume a conversa",()=>{
 
 test("eco de mensagem do próprio sistema não é confundido com atendimento humano",()=>{
   assert.match(source,/knownSystemMessage/);
-  assert.match(source,/systemSendInFlight/);
+  assert.match(source,/systemSendsInFlight/);
+  assert.match(source,/matchingSystemEcho/);
+  assert.match(source,/normalizedOutgoingText/);
+  assert.match(source,/evolutionText\(message\.kind, queuedPayload\)/);
   assert.match(source,/providerMessageId/);
   assert.match(source,/direction, "outbound"/);
 });

@@ -471,13 +471,28 @@ export async function handleEvolutionWebhook(payload: unknown): Promise<Evolutio
     )).limit(1))[0];
     if (knownSystemMessage?.id) return { received:0, statuses:0, inboundTextEvents:[] };
 
-    const systemSendInFlight = (await db.select({ id:whatsappMessages.id }).from(whatsappMessages).where(and(
+    const systemSendsInFlight = await db.select({
+      id:whatsappMessages.id,
+      kind:whatsappMessages.kind,
+      payloadJson:whatsappMessages.payloadJson,
+    }).from(whatsappMessages).where(and(
       eq(whatsappMessages.organizationId, connection.organizationId),
       eq(whatsappMessages.phone, phone),
       eq(whatsappMessages.direction, "outbound"),
       eq(whatsappMessages.status, "sending"),
-    )).limit(1))[0];
-    if (systemSendInFlight?.id) return { received:0, statuses:0, inboundTextEvents:[] };
+    )).limit(5);
+    const normalizedOutgoingText = text.replace(/\s+/g, " ").trim();
+    const matchingSystemEcho = systemSendsInFlight.some((message) => {
+      if (!normalizedOutgoingText) return false;
+      try {
+        const queuedPayload = JSON.parse(message.payloadJson || "{}") as Record<string, string>;
+        const queuedText = evolutionText(message.kind, queuedPayload).replace(/\s+/g, " ").trim();
+        return queuedText === normalizedOutgoingText;
+      } catch {
+        return false;
+      }
+    });
+    if (matchingSystemEcho) return { received:0, statuses:0, inboundTextEvents:[] };
 
     const takeoverAt = evolutionTimestamp(data.messageTimestamp ?? body.date_time ?? body.dateTime);
     await db.insert(whatsappConversations).values({
