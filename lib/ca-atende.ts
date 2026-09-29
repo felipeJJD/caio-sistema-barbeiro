@@ -48,9 +48,7 @@ export function normalizeCaAtendeText(value: string) {
 }
 
 export function caAtendeTomorrow(today = appDate()) {
-  const date = new Date(`${today}T12:00:00-03:00`);
-  date.setDate(date.getDate() + 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return addDays(today, 1);
 }
 
 export function extractCaAtendeTime(value: string) {
@@ -104,9 +102,9 @@ function minutesBefore(value: string) {
 }
 
 function addDays(dateValue: string, days: number) {
-  const date = new Date(`${dateValue}T12:00:00-03:00`);
-  date.setDate(date.getDate() + days);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+  const date = new Date(`${dateValue}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2,"0")}-${String(date.getUTCDate()).padStart(2,"0")}`;
 }
 
 export function extractCaAtendeDate(value: string, today = appDate(), currentMinutes = appTimeMinutes()) {
@@ -121,17 +119,17 @@ export function extractCaAtendeDate(value: string, today = appDate(), currentMin
     const month = Number(br[2]);
     const day = Number(br[1]);
     const result = `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-    const parsed = new Date(`${result}T12:00:00-03:00`);
-    if (Number.isFinite(parsed.getTime()) && parsed.getFullYear() === year && parsed.getMonth() + 1 === month && parsed.getDate() === day) return result;
+    const parsed = new Date(`${result}T12:00:00Z`);
+    if (Number.isFinite(parsed.getTime()) && parsed.getUTCFullYear() === year && parsed.getUTCMonth() + 1 === month && parsed.getUTCDate() === day) return result;
   }
   const dayOnly = /\bdia\s+(\d{1,2})\b/.exec(text);
   if (dayOnly) {
     const day = Number(dayOnly[1]);
     const [year, month] = today.split("-").map(Number);
     for (let offset = 0; offset < 12; offset++) {
-      const candidate = new Date(year, month - 1 + offset, day, 12);
-      if (candidate.getDate() !== day) continue;
-      const result = `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const candidate = new Date(Date.UTC(year, month - 1 + offset, day, 12));
+      if (candidate.getUTCDate() !== day) continue;
+      const result = `${candidate.getUTCFullYear()}-${String(candidate.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       if (result >= today) return result;
     }
   }
@@ -143,8 +141,8 @@ export function extractCaAtendeDate(value: string, today = appDate(), currentMin
   ] as const;
   const found = weekdayNames.find(([name]) => text.includes(name));
   if (found) {
-    const todayDate = new Date(`${today}T12:00:00-03:00`);
-    const todayWeekday = todayDate.getDay();
+    const todayDate = new Date(`${today}T12:00:00Z`);
+    const todayWeekday = todayDate.getUTCDay();
     let delta = (found[1] - todayWeekday + 7) % 7;
     const desiredTime = extractCaAtendeTime(value);
     if (delta === 0 && desiredTime) {

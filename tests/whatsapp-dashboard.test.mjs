@@ -15,10 +15,11 @@ test("proprietário possui área WhatsApp na navegação e no roteamento interno
   assert.match(dashboard, /"Equipe", "Usuários", "WhatsApp"/);
 });
 
-test("aba mostra conexão, pacote, uso mensal e automações", () => {
+test("aba mostra conexão, link de agendamento e automações sem pacotes", () => {
   assert.match(whatsappUi, /C\.A\. ATENDE · WHATSAPP/);
-  assert.match(whatsappUi, /PACOTE DE MENSAGENS/);
-  assert.match(whatsappUi, /USO NESTE MÊS/);
+  assert.match(whatsappUi, /WhatsApp conectado/);
+  assert.match(whatsappUi, /Link para clientes agendarem/);
+  assert.doesNotMatch(whatsappUi, /PACOTE DE MENSAGENS/);
   assert.match(whatsappUi, /Confirmação do agendamento/);
   assert.match(whatsappUi, /Lembrete antes do horário/);
   assert.match(whatsappUi, /Aviso de cancelamento/);
@@ -26,10 +27,10 @@ test("aba mostra conexão, pacote, uso mensal e automações", () => {
 });
 
 test("conexão Evolution acontece dentro do próprio menu sem campos técnicos", () => {
-  assert.match(whatsappUi, /CONEXÃO EVOLUTION/);
-  assert.match(whatsappUi, /Conectar meu WhatsApp/);
+  assert.match(whatsappUi, /CONECTAR WHATSAPP/);
+  assert.match(whatsappUi, /Gerar código/);
   assert.match(whatsappUi, /\/api\/whatsapp\/evolution/);
-  assert.match(whatsappUi, /Código para vincular/);
+  assert.match(whatsappUi, /Seu código de conexão/);
   assert.doesNotMatch(whatsappUi, /CONEXÃO OFICIAL META/);
   assert.doesNotMatch(whatsappUi, /connect\.facebook\.net/);
   assert.doesNotMatch(whatsappUi, /name="accessToken"/);
@@ -44,18 +45,15 @@ test("laboratório antigo não aparece na experiência do cliente", () => {
 
 test("chave geral exige conexão e direito de uso do WhatsApp", () => {
   assert.match(whatsappUi, /const hasMessageAccess = Boolean\(data\?\.entitlement\.hasAccess\)/);
-  assert.match(whatsappUi, /const hasPackage = data\?\.entitlement\.source === "package"/);
+  assert.doesNotMatch(whatsappUi, /const hasPackage/);
   assert.match(whatsappUi, /const canEnable = Boolean\(connected && hasMessageAccess\)/);
   assert.match(whatsappUi, /disabled=\{!canEnable \|\| saving\}/);
 });
 
 test("C.A. Atende só liga com conexão, direito de uso e automações", () => {
   assert.match(whatsappUi, /Atendimento inteligente por IA/);
-  assert.match(whatsappUi, /LINK PRIMEIRO/);
-  assert.match(whatsappUi, /FILTRO DE OFERTAS/);
-  assert.match(whatsappUi, /IA PRINCIPAL/);
   assert.match(whatsappUi, /checked=\{data\.settings\.botEnabled\}/);
-  assert.match(whatsappUi, /!hasMessageAccess \? "Ative um pacote primeiro"/);
+  assert.match(whatsappUi, /!hasMessageAccess \? "Renove a assinatura"/);
   assert.match(whatsappUi, /disabled=\{!canEnable \|\| !data\.settings\.enabled \|\| saving\}/);
 });
 

@@ -3,7 +3,7 @@ import type { AccessContext } from "./access";
 import { requireOwner } from "./access";
 import { getDb } from "./index";
 import { notifyOwnersOfSubscriptionPayment } from "./notifications";
-import { getPixPlan, getPlatformBillingOffer, type PixPlanCode } from "./platform-billing";
+import { getPixPlan, getPlatformBillingOffer } from "./platform-billing";
 import { getPlatformSecret, mercadoPagoSecretNames } from "./platform-secrets";
 import { affiliateCommissions, organizations, subscriptionPayments } from "./schema";
 import { recordAffiliateCommission } from "./affiliates";
@@ -195,14 +195,14 @@ async function applyProviderPayment(order: StoredPayment, payment: MercadoPagoPa
   return fresh;
 }
 
-export async function createPixPayment(access: AccessContext, planCode: PixPlanCode = "monthly") {
+export async function createPixPayment(access: AccessContext) {
   requireOwner(access);
   const config = await billingConfig();
   if (!config.accessToken) throw new BillingConfigurationError("A integração Pix ainda precisa ser conectada ao Mercado Pago.");
 
   const db = await getDb();
   const offer = await getPlatformBillingOffer();
-  const plan = getPixPlan({ ...offer, pixPlans: access.accountType === "individual" ? offer.barberPixPlans : offer.pixPlans }, planCode);
+  const plan = getPixPlan(offer);
   const now = new Date().toISOString();
   const reusable = (await db.select().from(subscriptionPayments).where(and(
     eq(subscriptionPayments.organizationId, access.organizationId),

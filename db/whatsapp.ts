@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import type { AccessContext } from "./access";
-import { requireOwner, requirePlatformAdmin } from "./access";
+import { requireOwner } from "./access";
 import { getDb } from "./index";
 import { getWhatsappEntitlementForOrganization, type WhatsappEntitlement } from "./whatsapp-entitlement";
 import { decryptSecret, encryptSecret } from "./platform-secrets";
@@ -19,6 +19,7 @@ import {
 export type WhatsappAutomationKind = "confirmation" | "reminder" | "cancellation" | "rescheduled";
 
 export type WhatsappAutomationStatus = {
+  bookingUrl: string;
   connection: {
     status: string;
     provider: string;
@@ -49,13 +50,10 @@ export type WhatsappAutomationStatus = {
     greetingText: string;
     handoffText: string;
     humanTakeoverMinutes: number;
-    planCode: string;
-    monthlyMessageLimit: number;
     templateLanguage: string;
   };
   usage: {
     sentThisMonth: number;
-    remainingThisMonth: number;
   };
   humanHandoffs: Array<{
     phone: string;
@@ -143,15 +141,16 @@ async function humanHandoffsForOrganization(organizationId: number) {
 
 export async function getWhatsappAutomationStatus(access: AccessContext): Promise<WhatsappAutomationStatus> {
   requireOwner(access);
-  const [settings, connection, sentThisMonth, humanHandoffs] = await Promise.all([
+  const [settings, connection, sentThisMonth, humanHandoffs, organization] = await Promise.all([
     settingsForOrganization(access.organizationId),
     connectionForOrganization(access.organizationId),
     sentCountThisMonth(access.organizationId),
     humanHandoffsForOrganization(access.organizationId),
+    getDb().then(async (db) => (await db.select({ slug: organizations.slug }).from(organizations).where(eq(organizations.id, access.organizationId)).limit(1))[0]),
   ]);
-  const monthlyMessageLimit = Math.max(0, Number(settings.monthlyMessageLimit ?? 0));
-  const entitlement = await getWhatsappEntitlementForOrganization(access.organizationId, monthlyMessageLimit);
+  const entitlement = await getWhatsappEntitlementForOrganization(access.organizationId);
   return {
+    bookingUrl: organization?.slug ? `https://cortouanotou.com.br/agendar/${encodeURIComponent(organization.slug)}` : "",
     connection: {
       status: connection?.status ?? "disconnected",
       provider: connection?.provider ?? "meta_cloud",
@@ -182,13 +181,10 @@ export async function getWhatsappAutomationStatus(access: AccessContext): Promis
       greetingText: String(settings.greetingText ?? ""),
       handoffText: String(settings.handoffText ?? ""),
       humanTakeoverMinutes: Number(settings.humanTakeoverMinutes ?? 120),
-      planCode: String(settings.planCode ?? "off"),
-      monthlyMessageLimit,
       templateLanguage: String(settings.templateLanguage ?? "pt_BR"),
     },
     usage: {
       sentThisMonth,
-      remainingThisMonth: Math.max(0, monthlyMessageLimit - sentThisMonth),
     },
     humanHandoffs,
   };
@@ -272,45 +268,6 @@ export async function saveWhatsappAutomationSettings(access: AccessContext, inpu
     },
   });
   return getWhatsappAutomationStatus(access);
-}
-
-export async function saveWhatsappPlanForOrganization(access: AccessContext, input: {
-  organizationId: number;
-  planCode: string;
-  monthlyMessageLimit: number;
-}) {
-  requirePlatformAdmin(access);
-  const organizationId = Math.round(Number(input.organizationId));
-  if (!Number.isInteger(organizationId) || organizationId <= 0) throw new Error("Barbearia inválida.");
-  const current = await settingsForOrganization(organizationId);
-  const monthlyMessageLimit = Math.round(Number(input.monthlyMessageLimit));
-  if (!Number.isFinite(monthlyMessageLimit) || monthlyMessageLimit < 0 || monthlyMessageLimit > 100000) throw new Error("Limite mensal de mensagens inválido.");
-  const planCode = input.planCode.trim().toLowerCase().slice(0, 40) || "off";
-  const db = await getDb();
-  const now = new Date().toISOString();
-  await db.insert(whatsappAutomationSettings).values({
-    organizationId,
-    ...defaultSettings,
-    enabled: Boolean(current.enabled),
-    confirmationEnabled: Boolean(current.confirmationEnabled),
-    reminderEnabled: Boolean(current.reminderEnabled),
-    reminderHoursBefore: Number(current.reminderHoursBefore),
-    cancellationEnabled: Boolean(current.cancellationEnabled),
-    rescheduleEnabled: Boolean(current.rescheduleEnabled),
-    botEnabled: Boolean(current.botEnabled),
-    humanTakeoverMinutes: Number(current.humanTakeoverMinutes),
-    planCode,
-    monthlyMessageLimit,
-    confirmationTemplate: String(current.confirmationTemplate),
-    reminderTemplate: String(current.reminderTemplate),
-    cancellationTemplate: String(current.cancellationTemplate),
-    rescheduleTemplate: String(current.rescheduleTemplate),
-    templateLanguage: String(current.templateLanguage),
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: whatsappAutomationSettings.organizationId,
-    set: { planCode, monthlyMessageLimit, updatedAt: now },
-  });
 }
 
 export type WhatsappEmbeddedSignupClientConfig = {
@@ -682,7 +639,7 @@ export async function queueAppointmentWhatsapp(kind: Exclude<WhatsappAutomationK
     await cancelPendingAppointmentMessages(appointment.organizationId, appointment.id, ["reminder", "rescheduled"]);
   }
 
-  const entitlement = await getWhatsappEntitlementForOrganization(appointment.organizationId, Number(settings.monthlyMessageLimit));
+  const entitlement = await getWhatsappEntitlementForOrganization(appointment.organizationId);
   if (!settings.enabled || !connection || connection.status !== "connected" || !entitlement.hasAccess) {
     return { queued: false, reason: "automation_inactive" as const };
   }
@@ -714,7 +671,7 @@ export async function queueAppointmentReminderOnly(appointmentId: number) {
     settingsForOrganization(appointment.organizationId),
     connectionForOrganization(appointment.organizationId),
   ]);
-  const entitlement = await getWhatsappEntitlementForOrganization(appointment.organizationId, Number(settings.monthlyMessageLimit));
+  const entitlement = await getWhatsappEntitlementForOrganization(appointment.organizationId);
   if (!settings.enabled || !settings.reminderEnabled || !connection || connection.status !== "connected" || !entitlement.hasAccess) {
     return { queued:false, reason:"automation_inactive" as const };
   }
@@ -746,7 +703,7 @@ export async function queueWhatsappTextReply(input: {
     settingsForOrganization(input.organizationId),
     connectionForOrganization(input.organizationId),
   ]);
-  const entitlement = await getWhatsappEntitlementForOrganization(input.organizationId, Number(settings.monthlyMessageLimit));
+  const entitlement = await getWhatsappEntitlementForOrganization(input.organizationId);
   if (!settings.enabled || !settings.botEnabled || !connection || connection.status !== "connected" || !entitlement.hasAccess) {
     return { queued:false, reason:"automation_inactive" as const };
   }
@@ -786,13 +743,9 @@ async function sendQueuedMessage(message: typeof whatsappMessages.$inferSelect) 
     connectionForOrganization(message.organizationId),
     settingsForOrganization(message.organizationId),
   ]);
-  const entitlement = await getWhatsappEntitlementForOrganization(message.organizationId, Number(settings.monthlyMessageLimit));
+  const entitlement = await getWhatsappEntitlementForOrganization(message.organizationId);
   if (!settings.enabled || !entitlement.hasAccess || !connection || connection.status !== "connected" || !connection.encryptedAccessToken || !connection.accessTokenIv) {
     throw new Error("A conexão do WhatsApp desta barbearia não está ativa.");
-  }
-  if (!entitlement.unlimited) {
-    const sentThisMonth = await sentCountThisMonth(message.organizationId);
-    if (sentThisMonth >= entitlement.monthlyMessageLimit) throw new Error("O limite mensal de mensagens desta barbearia foi atingido.");
   }
 
   const token = await decryptSecret(connection.encryptedAccessToken, connection.accessTokenIv);
@@ -839,8 +792,8 @@ export async function processWhatsappQueue(options: { organizationId?: number; l
   const limit = Math.max(1, Math.min(50, Math.round(Number(options.limit ?? 20))));
   const now = new Date().toISOString();
   const condition = options.organizationId
-    ? and(eq(whatsappMessages.organizationId, options.organizationId), eq(whatsappMessages.status, "queued"), lte(whatsappMessages.scheduledAt, now))
-    : and(eq(whatsappMessages.status, "queued"), lte(whatsappMessages.scheduledAt, now));
+    ? and(eq(whatsappMessages.organizationId, options.organizationId), eq(whatsappMessages.status, "queued"), lte(whatsappMessages.scheduledAt, now), sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'meta_cloud')`)
+    : and(eq(whatsappMessages.status, "queued"), lte(whatsappMessages.scheduledAt, now), sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'meta_cloud')`);
   const queue = await db.select().from(whatsappMessages).where(condition).orderBy(whatsappMessages.scheduledAt, whatsappMessages.id).limit(limit);
   let sent = 0;
   let failed = 0;

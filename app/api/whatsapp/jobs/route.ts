@@ -12,8 +12,7 @@ function authorized(request: Request) {
 async function run(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Não autorizado." }, { status: 401 });
   try {
-    // Mantemos a Cloud API intacta. Conexões Evolution que passaram pelo
-    // processador legado são recuperadas em seguida sem reenviar falhas reais.
+    // Cada fila seleciona somente organizações do seu provedor antes do LIMIT.
     const meta = await processWhatsappQueue({ limit: 40 });
     const evolution = await processEvolutionWhatsappQueue({ limit: 40 });
     return Response.json({

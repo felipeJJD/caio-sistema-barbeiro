@@ -22,8 +22,8 @@ export function accessPeriodHasEnded(trialEndsAt: string | null) {
   return Number.isFinite(endTime) && endTime <= Date.now();
 }
 
-export function isOrganizationAccessExpired(access: Pick<AccessContext, "trialEndsAt">) {
-  return accessPeriodHasEnded(access.trialEndsAt);
+export function isOrganizationAccessExpired(access: Pick<AccessContext, "trialEndsAt" | "isPlatformAdmin">) {
+  return !access.isPlatformAdmin && accessPeriodHasEnded(access.trialEndsAt);
 }
 
 export async function getAccessContext(email: string): Promise<AccessContext | null> {

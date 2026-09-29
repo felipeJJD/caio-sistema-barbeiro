@@ -8,10 +8,12 @@ const evolution = await readFile(new URL("../db/evolution-whatsapp.ts", import.m
 const caAtende = await readFile(new URL("../db/ca-atende.ts", import.meta.url), "utf8");
 const ui = await readFile(new URL("../app/ui/whatsapp-automation.tsx", import.meta.url), "utf8");
 
-test("WhatsApp centralizes platform-admin entitlement without a fake package", () => {
+test("WhatsApp centralizes platform-admin and subscription entitlements", () => {
   assert.match(entitlement, /eq\(team\.platformAdmin, true\)/);
   assert.match(entitlement, /source: "platform_admin"/);
-  assert.match(entitlement, /if \(limit > 0\)/);
+  assert.match(entitlement, /source: "subscription"/);
+  assert.match(entitlement, /source: "trial"/);
+  assert.doesNotMatch(entitlement, /monthlyMessageLimit/);
   assert.match(entitlement, /source: "none"/);
   assert.doesNotMatch(entitlement, /organizationId\s*===\s*1/);
 });
@@ -25,10 +27,10 @@ test("C.A. Atende and both outbound queues use the same entitlement", () => {
   assert.match(evolution, /!entitlement\.hasAccess/);
 });
 
-test("Platform admin bypasses only the package limit while customer package rules remain", () => {
-  assert.match(whatsapp, /if \(!entitlement\.unlimited\)/);
-  assert.match(whatsapp, /sentThisMonth >= entitlement\.monthlyMessageLimit/);
+test("platform admin is perpetual; expired customers cannot send", () => {
+  assert.match(entitlement, /if \(input\.platformAdmin\) return/);
+  assert.match(entitlement, /Date\.parse\(input\.trialEndsAt\) <= Date\.now\(\)/);
   assert.match(ui, /Acesso administrativo completo/);
   assert.match(ui, /data\?\.entitlement\.hasAccess/);
-  assert.match(ui, /source === "package"/);
+  assert.doesNotMatch(ui, /source === "package"/);
 });

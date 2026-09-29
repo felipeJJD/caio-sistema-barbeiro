@@ -346,9 +346,9 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
     return sum + (product?.priceCents ?? 0) * item.quantity;
   }, 0);
   const viewer = liveData.viewer;
-  const accessExpired = accessPeriodEnded(viewer.trialEndsAt);
-  const ownerSections = viewer.trialEndsAt ? [...ownerNavigation, planNavigation] : ownerNavigation;
-  const individualSections = viewer.trialEndsAt ? [...individualNavigation, planNavigation] : individualNavigation;
+  const accessExpired = !viewer.isPlatformAdmin && accessPeriodEnded(viewer.trialEndsAt);
+  const ownerSections = viewer.trialEndsAt && !viewer.isPlatformAdmin ? [...ownerNavigation, planNavigation] : ownerNavigation;
+  const individualSections = viewer.trialEndsAt && !viewer.isPlatformAdmin ? [...individualNavigation, planNavigation] : individualNavigation;
   const navigation = viewer.accountType === "individual" ? individualSections : viewer.isOwner ? (viewer.isPlatformAdmin ? [...ownerSections, platformNavigation] : ownerSections) : barberNavigation;
   const operationNavigation = navigation.filter((item) => item.group === "operation");
   const managementNavigation = navigation.filter((item) => item.group === "management");
@@ -465,13 +465,13 @@ export function DashboardApp({ initialData }: { initialData: DashboardData }) {
   }, [section]);
 
   useEffect(() => {
-    if (!viewer.trialEndsAt) return;
+    if (!viewer.trialEndsAt || viewer.isPlatformAdmin) return;
     const endTime = Date.parse(viewer.trialEndsAt);
     const remaining = endTime - Date.now();
     if (!Number.isFinite(remaining) || remaining <= 0) return;
     const timer = window.setTimeout(() => window.location.reload(), Math.min(remaining + 1000, 2147483647));
     return () => window.clearTimeout(timer);
-  }, [viewer.trialEndsAt]);
+  }, [viewer.trialEndsAt, viewer.isPlatformAdmin]);
 
   useEffect(() => {
     if (!showIntro) return;
@@ -785,7 +785,7 @@ function ExpiredAccessScreen({ data }: { data: DashboardData }) {
     <header className="expired-access-header"><div className="expired-access-brand"><BrandLogo /></div><a href="/api/auth/logout">Sair</a></header>
     {viewer.isOwner ? <section className="expired-owner-layout">
       <div className="expired-access-intro"><span>ACESSO PAUSADO</span><h1>{viewer.organizationStatus === "trial" ? "Seu teste gratuito terminou." : "O plano da barbearia venceu."}</h1><p>Escolha um período e pague por Pix. Assim que o pagamento for aprovado, o Cortou Anotou abre novamente sozinho.</p><div className="expired-data-note"><b>✓</b><div><strong>Seus dados continuam guardados</strong><small>Clientes, agenda, atendimentos, produtos e financeiro não foram apagados.</small></div></div>{validExpiredAt && <small className="expired-date">Período encerrado em {validExpiredAt.toLocaleDateString("pt-BR")}.</small>}</div>
-      <div className="expired-plan-area"><span>ESCOLHA COMO CONTINUAR</span><h2>Renove sem cobrança automática.</h2><p>O plano mensal por Pix continua disponível, junto com as opções de 3, 6 e 12 meses.</p><PlanPaymentOptions offer={{ ...data.billingOffer, pixPlans: data.viewer.accountType === "individual" ? data.billingOffer.barberPixPlans : data.billingOffer.pixPlans }} /><small className="expired-payment-note">Pagamento único por Pix. Nenhum plano renova ou cobra sozinho.</small></div>
+      <div className="expired-plan-area"><span>CONTINUE USANDO O APP</span><h2>Renove sem cobrança automática.</h2><p>Uma assinatura mensal por Pix com WhatsApp incluído.</p><PlanPaymentOptions offer={data.billingOffer} /><small className="expired-payment-note">Pagamento único por Pix. Sem renovação automática.</small></div>
     </section> : <section className="expired-staff-card"><span className="expired-staff-icon">◷</span><small>ACESSO TEMPORARIAMENTE PAUSADO</small><h1>O período da barbearia terminou.</h1><p>Peça ao proprietário de <strong>{viewer.organizationName}</strong> para renovar o plano. Seus registros continuam guardados e o acesso volta assim que o Pix for aprovado.</p><a href="/api/auth/logout">Sair e tentar novamente depois</a></section>}
   </main>;
 }
@@ -888,7 +888,7 @@ function Overview({ data: baseData, go, planAutoOpen, post, pending }: { data: D
   const visibleTeamPayoutCards = showAllPayouts ? teamPayoutCards : teamPayoutCards.slice(0, 3);
   const hiddenPayoutCards = Math.max(0, teamPayoutCards.length - visibleTeamPayoutCards.length);
   return <>
-    {data.viewer.isOwner && data.viewer.trialEndsAt && <TrialStatus viewer={data.viewer} offer={data.billingOffer} autoOpen={planAutoOpen} />}
+    {data.viewer.isOwner && !data.viewer.isPlatformAdmin && data.viewer.trialEndsAt && <TrialStatus viewer={data.viewer} offer={data.billingOffer} autoOpen={planAutoOpen} />}
     {data.viewer.organizationStatus === "trial" && !data.records.length && <NewShopWelcome data={data} go={go} />}
     <DateFilter start={start} end={end} setStart={setStart} setEnd={setEnd} />
     <section className="stat-grid six"><Stat label={`Atendimentos ${ownerName}`} value={String(ownerAttendanceCount)} note={`${ownerWorkedDays} ${ownerWorkedDays === 1 ? "dia trabalhado" : "dias trabalhados"}`} tone="blue" icon={<AppIcon name="scissors" />} /><Stat label="Faturamento total" value={shortMoney(revenueCents)} note={`${progress}% da meta`} tone="gold" icon={<AppIcon name="trend" />} /><Stat label="Lucro líquido" value={shortMoney(netProfitCents)} note="Depois de todos os custos" tone="green" icon={<AppIcon name="money" />} /><Stat label="Mensalistas ativos" value={money(activeMembership.revenueCents)} note={`${data.stats.active} ${data.stats.active === 1 ? "mensalista ativo" : "mensalistas ativos"}`} tone="purple" icon={<AppIcon name="members" />} /><Stat label="Despesas" value={money(expenseCents)} note={`${money(feeCents)} em taxas`} tone="rose" icon={<AppIcon name="trend" className="icon-down" />} /><Stat label="Agendados hoje" value={String(data.appointments.filter((item) => item.appointmentDate === today && isOpenAppointment(item.status)).length)} note="Horários confirmados" tone="cyan" icon={<AppIcon name="calendar" />} /></section>
@@ -957,16 +957,12 @@ function PlanPaymentOptions({ offer }: { offer: DashboardData["billingOffer"] })
   return <>
     <div className="plan-payment-options">
       {offer.pixPlans.map((plan) => {
-        const discount = plan.discountBps / 100;
-        const effectiveMonthly = Math.round(plan.priceCents / plan.months);
         const pending = pixPendingPlan === plan.code;
         return <button className={`plan-payment-card pix plan-${plan.code}`} type="button" onClick={() => createPix(plan.code)} disabled={Boolean(pixPendingPlan)} key={plan.code}>
-          {plan.code === "quarterly" && <span className="plan-recommended">MAIS ESCOLHIDO</span>}
-          {plan.code === "annual" && <span className="plan-recommended best-saving">MAIOR ECONOMIA</span>}
           <div className="plan-payment-icon">◇</div><strong>{plan.label}</strong>
           <b>{money(plan.priceCents)}<small>/{plan.periodDays} dias</small></b>
-          <p>{discount ? `${discount}% de desconto · equivale a ${money(effectiveMonthly)} por mês.` : "Um mês de acesso, sem renovação automática."}</p>
-          <em>{pending ? "Gerando Pix seguro..." : "Pagar este plano por Pix"} <i aria-hidden="true">→</i></em>
+          <p>App completo com agenda, gestão e automação de WhatsApp. Sem renovação automática.</p>
+          <em>{pending ? "Gerando Pix seguro..." : "Pagar assinatura por Pix"} <i aria-hidden="true">→</i></em>
         </button>;
       })}
     </div>
@@ -1085,9 +1081,9 @@ function TrialStatus({ viewer, offer, autoOpen }: { viewer: DashboardData["viewe
     {planOpen && createPortal(<div className="trial-plan-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPlanOpen(false); }}>
       <section className="trial-plan-dialog" id="trial-plan-dialog" role="dialog" aria-modal="true" aria-labelledby="trial-plan-title">
         <button type="button" className="trial-plan-close" aria-label="Fechar opções do plano" onClick={() => setPlanOpen(false)}>×</button>
-        <span className="trial-plan-kicker">MEU PLANO</span><h2 id="trial-plan-title">{ending ? "Continue usando o Cortou Anotou" : isTrial ? "Gostou? Você já pode continuar." : "Renove quando quiser."}</h2><p>{ending ? "Escolha por quanto tempo deseja continuar e pague pelo Pix." : isTrial ? `Seu teste segue liberado${validEnd ? ` até ${validEnd.toLocaleDateString("pt-BR")}` : ""}. Se preferir, você já pode escolher um plano.` : `Seu acesso está liberado${validEnd ? ` até ${validEnd.toLocaleDateString("pt-BR")}` : ""}. O novo período é somado ao acesso atual.`}</p>
+        <span className="trial-plan-kicker">MINHA ASSINATURA</span><h2 id="trial-plan-title">{ending ? "Continue usando o Cortou Anotou" : isTrial ? "Gostou? Você já pode continuar." : "Renove quando quiser."}</h2><p>{ending ? "Renove a assinatura mensal pelo Pix." : isTrial ? `Seu teste segue liberado${validEnd ? ` até ${validEnd.toLocaleDateString("pt-BR")}` : ""}. Você já pode contratar a assinatura.` : `Seu acesso está liberado${validEnd ? ` até ${validEnd.toLocaleDateString("pt-BR")}` : ""}. O novo período é somado ao acesso atual.`}</p>
         <div className={`trial-plan-summary${ending ? " ending" : ""}`}><span>{ending ? "PERÍODO ENCERRADO" : isTrial ? "TESTE GRATUITO" : "PLANO ATIVO"}</span><strong>{remainingLabel}</strong>{validEnd && <small>Data final: {validEnd.toLocaleDateString("pt-BR")}</small>}</div>
-        <PlanPaymentOptions offer={{ ...offer, pixPlans: viewer.accountType === "individual" ? offer.barberPixPlans : offer.pixPlans }} />
+        <PlanPaymentOptions offer={offer} />
         {!ending && <button type="button" className="continue-trial-button" onClick={() => setPlanOpen(false)}>{isTrial ? "Continuar usando o teste gratuito" : "Voltar ao aplicativo"}</button>}
       </section>
     </div>, document.body)}
@@ -1096,7 +1092,7 @@ function TrialStatus({ viewer, offer, autoOpen }: { viewer: DashboardData["viewe
 
 function PlanPage({ viewer, offer }: { viewer: DashboardData["viewer"]; offer: DashboardData["billingOffer"] }) {
   const { validEnd, ending, remainingLabel, isTrial } = trialPlanDetails(viewer);
-  return <section className="plan-page-layout"><div className="panel plan-page-card"><span className="trial-plan-kicker">{viewer.accountType === "individual" ? "PLANO DO BARBEIRO" : "PLANO DA BARBEARIA"}</span><h2>{ending ? (isTrial ? "Seu teste terminou" : "Seu plano venceu") : isTrial ? "Teste gratuito em andamento" : "Plano ativo"}</h2><p>{ending ? "Escolha por quanto tempo deseja continuar usando o Cortou Anotou." : isTrial ? `Você pode testar tudo até ${validEnd ? validEnd.toLocaleDateString("pt-BR") : "o fim do período gratuito"} e contratar quando quiser.` : `Seu acesso está liberado${validEnd ? ` até ${validEnd.toLocaleDateString("pt-BR")}` : ""}.`}</p><div className={`trial-plan-summary${ending ? " ending" : ""}`}><span>{ending ? "PERÍODO ENCERRADO" : "SITUAÇÃO ATUAL"}</span><strong>{remainingLabel}</strong>{validEnd && <small>Data final: {validEnd.toLocaleDateString("pt-BR")}</small>}</div><PlanPaymentOptions offer={{ ...offer, pixPlans: viewer.accountType === "individual" ? offer.barberPixPlans : offer.pixPlans }} /></div><aside className="panel plan-explanation"><span>SIMPLES E SEM SURPRESA</span><h2>Você escolhe o período.</h2><div><b>◇</b><p><strong>Somente Pix</strong><small>Pague por qualquer banco, sem precisar ter conta no Mercado Pago.</small></p></div><div><b>%</b><p><strong>Mais tempo, mais desconto</strong><small>Planos de 3, 6 e 12 meses custam menos por mês.</small></p></div><small className="plan-owner-note">Não há renovação automática. Somente o proprietário vê esta área.</small></aside></section>;
+  return <section className="plan-page-layout"><div className="panel plan-page-card"><span className="trial-plan-kicker">ASSINATURA CORTOU ANOTOU</span><h2>{ending ? (isTrial ? "Seu teste terminou" : "Sua assinatura venceu") : isTrial ? "Teste gratuito em andamento" : "Assinatura ativa"}</h2><p>{ending ? "Renove o acesso mensal ao Cortou Anotou." : isTrial ? `Você pode testar tudo até ${validEnd ? validEnd.toLocaleDateString("pt-BR") : "o fim do período gratuito"} e contratar quando quiser.` : `Seu acesso está liberado${validEnd ? ` até ${validEnd.toLocaleDateString("pt-BR")}` : ""}.`}</p><div className={`trial-plan-summary${ending ? " ending" : ""}`}><span>{ending ? "PERÍODO ENCERRADO" : "SITUAÇÃO ATUAL"}</span><strong>{remainingLabel}</strong>{validEnd && <small>Data final: {validEnd.toLocaleDateString("pt-BR")}</small>}</div><PlanPaymentOptions offer={offer} /></div><aside className="panel plan-explanation"><span>SIMPLES E SEM SURPRESA</span><h2>Um preço mensal para todos.</h2><div><b>◇</b><p><strong>Somente Pix</strong><small>Barbearia ou profissional individual: mesmo valor, com WhatsApp incluído.</small></p></div><small className="plan-owner-note">Não há renovação automática. Somente o proprietário vê esta área.</small></aside></section>;
 }
 
 function NewShopWelcome({ data, go }: { data: DashboardData; go: (section: string) => void }) {
@@ -1855,17 +1851,13 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const pixPriceCents = Math.round(Number(data.get("pixPrice")) * 100);
-    const barberPixPriceCents = Math.round(Number(data.get("barberPixPrice")) * 100);
-    const quarterlyDiscountBps = Math.round(Number(data.get("quarterlyDiscount")) * 100);
-    const semiannualDiscountBps = Math.round(Number(data.get("semiannualDiscount")) * 100);
-    const annualDiscountBps = Math.round(Number(data.get("annualDiscount")) * 100);
     setPricingPending(true);
     setPricingFeedback(null);
     try {
       const response = await fetch("/api/platform/pricing", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pixPriceCents, barberPixPriceCents, quarterlyDiscountBps, semiannualDiscountBps, annualDiscountBps }),
+        body: JSON.stringify({ pixPriceCents }),
       });
       const payload = await response.json() as PlatformPricingPayload;
       if (!response.ok || !payload.offer) {
@@ -1874,7 +1866,7 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
       }
       setBillingOffer(payload.offer);
       onOfferChange(payload.offer);
-      showAppToast(`Preços atualizados. Barbearia ${money(payload.offer.pixPriceCents)} e barbeiro individual ${money(payload.offer.barberPixPriceCents)} por mês.`);
+      showAppToast(`Assinatura mensal atualizada para ${money(payload.offer.pixPriceCents)}.`);
     } catch {
       setPricingFeedback("Não foi possível salvar o preço agora. Verifique sua conexão.");
     } finally {
@@ -1985,10 +1977,23 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
       <button type="button" onClick={() => setMercadoPagoOpen((open) => !open)}>{mercadoPagoOpen ? "Fechar" : "Gerenciar"}</button>
     </section>
     {mercadoPagoOpen && <section className={`panel mercado-pago-integration platform-payment-details${mercadoPagoStatus?.configured ? " connected" : ""}`}>
-      <div className="mercado-pago-copy"><div className="mercado-pago-heading"><span className="mercado-pago-icon">◇</span><div><small>CONFIGURAÇÃO DE COBRANÇA</small><h2>{mercadoPagoStatus?.configured ? "Atualizar integração" : "Conectar Mercado Pago"}</h2></div><b>{mercadoPagoStatus?.configured ? "CONECTADO" : "ÚLTIMO PASSO"}</b></div><p>Essa configuração vale para todas as barbearias. O cliente escolhe um plano, paga pelo banco que quiser e o período é liberado automaticamente.</p><ol><li><span>1</span>Abra as credenciais de produção no Mercado Pago.</li><li><span>2</span>Copie somente o <strong>Access Token</strong> que começa por APP_USR-.</li><li><span>3</span>Cole no campo ao lado e toque em conectar.</li></ol><div className="mercado-pago-security"><span>▣</span><p><strong>Área privada do administrador</strong><small>A chave é criptografada antes de ser guardada e nunca volta a aparecer na tela.</small></p></div></div>
+      <div className="mercado-pago-copy"><div className="mercado-pago-heading"><span className="mercado-pago-icon">◇</span><div><small>CONFIGURAÇÃO DE COBRANÇA</small><h2>{mercadoPagoStatus?.configured ? "Atualizar integração" : "Conectar Mercado Pago"}</h2></div><b>{mercadoPagoStatus?.configured ? "CONECTADO" : "ÚLTIMO PASSO"}</b></div><p>Essa configuração vale para todas as assinaturas. O cliente paga a mensalidade pelo banco que quiser e o acesso é liberado após a aprovação.</p><ol><li><span>1</span>Abra as credenciais de produção no Mercado Pago.</li><li><span>2</span>Copie somente o <strong>Access Token</strong> que começa por APP_USR-.</li><li><span>3</span>Cole no campo ao lado e toque em conectar.</li></ol><div className="mercado-pago-security"><span>▣</span><p><strong>Área privada do administrador</strong><small>A chave é criptografada antes de ser guardada e nunca volta a aparecer na tela.</small></p></div></div>
       <form className="mercado-pago-form" onSubmit={connectMercadoPago}><label><span>ACCESS TOKEN DE PRODUÇÃO</span><input name="accessToken" type="password" minLength={40} maxLength={500} autoComplete="off" spellCheck={false} placeholder="APP_USR-••••••••••••••••" required /></label><small>{mercadoPagoStatus?.configured && mercadoPagoStatus.updatedAt ? `Conectado em ${new Date(mercadoPagoStatus.updatedAt).toLocaleDateString("pt-BR")}. Cole uma nova chave somente para atualizar.` : "Não envie essa chave por WhatsApp ou pelo chat."}</small><button type="submit" disabled={mercadoPagoPending}>{mercadoPagoPending ? "Validando com o Mercado Pago..." : mercadoPagoStatus?.configured ? "Atualizar integração" : "Conectar Mercado Pago"}</button>{mercadoPagoFeedback && <p className={mercadoPagoFeedback.includes("conectado") ? "mercado-pago-feedback success" : "mercado-pago-feedback error"} role="status">{mercadoPagoFeedback}</p>}</form>
     </section>}
-    <section className="panel platform-central-pricing"><div><span>PLANOS PIX CENTRALIZADOS</span><h2>Preços por tipo de cliente</h2><p>O valor da barbearia e o valor do barbeiro individual são separados. Você pode editar os dois quando quiser; os descontos são aplicados a ambos.</p>{billingOffer && <><h3>Barbearia</h3><div className="platform-plan-preview">{billingOffer.pixPlans.map((plan) => <article key={plan.code}><span>{plan.label}</span><strong>{money(plan.priceCents)}</strong><small>{plan.discountBps ? `${plan.discountBps / 100}% de desconto` : `${plan.periodDays} dias`}</small></article>)}</div><h3>Barbeiro individual</h3><div className="platform-plan-preview">{billingOffer.barberPixPlans.map((plan) => <article key={plan.code}><span>{plan.label}</span><strong>{money(plan.priceCents)}</strong><small>{plan.discountBps ? `${plan.discountBps / 100}% de desconto` : `${plan.periodDays} dias`}</small></article>)}</div></>}</div><form onSubmit={savePricing}><label><span>BARBEARIA · VALOR MENSAL</span><div><b>R$</b><input name="pixPrice" type="number" min="1" max="10000" step="0.01" defaultValue={billingOffer ? (billingOffer.pixPriceCents / 100).toFixed(2) : "9.99"} key={`price-${billingOffer?.pixPriceCents ?? 999}`} required /></div></label><label><span>BARBEIRO INDIVIDUAL · VALOR MENSAL</span><div><b>R$</b><input name="barberPixPrice" type="number" min="1" max="10000" step="0.01" defaultValue={billingOffer ? (billingOffer.barberPixPriceCents / 100).toFixed(2) : "9.99"} key={`barber-price-${billingOffer?.barberPixPriceCents ?? 999}`} required /></div></label><div className="platform-discount-grid"><label><span>TRIMESTRAL</span><div><input name="quarterlyDiscount" type="number" min="0" max="50" step="0.01" defaultValue={billingOffer ? billingOffer.quarterlyDiscountBps / 100 : 10} key={`quarter-${billingOffer?.quarterlyDiscountBps ?? 1000}`} required /><b>%</b></div></label><label><span>SEMESTRAL</span><div><input name="semiannualDiscount" type="number" min="0" max="50" step="0.01" defaultValue={billingOffer ? billingOffer.semiannualDiscountBps / 100 : 15} key={`semester-${billingOffer?.semiannualDiscountBps ?? 1500}`} required /><b>%</b></div></label><label><span>ANUAL</span><div><input name="annualDiscount" type="number" min="0" max="50" step="0.01" defaultValue={billingOffer ? billingOffer.annualDiscountBps / 100 : 20} key={`annual-${billingOffer?.annualDiscountBps ?? 2000}`} required /><b>%</b></div></label></div><button type="submit" disabled={pricingPending}>{pricingPending ? "Salvando..." : "Salvar todos os planos"}</button><small>Somente Pix. Sem cobrança ou renovação automática.</small>{pricingFeedback && <p className={pricingFeedback.includes("atualizados") ? "success" : "error"} role="status">{pricingFeedback}</p>}</form></section>
+    <section className="panel platform-central-pricing">
+      <div>
+        <span>ASSINATURA MENSAL</span>
+        <h2>Um preço para todos</h2>
+        <p>Barbearias e profissionais individuais pagam o mesmo valor. Agenda, gestão e automação de WhatsApp incluídas.</p>
+        {billingOffer && <div className="platform-plan-preview"><article><span>Mensal</span><strong>{money(billingOffer.pixPriceCents)}</strong><small>{billingOffer.pixPeriodDays} dias</small></article></div>}
+      </div>
+      <form onSubmit={savePricing}>
+        <label><span>VALOR MENSAL</span><div><b>R$</b><input name="pixPrice" type="number" min="1" max="10000" step="0.01" defaultValue={billingOffer ? (billingOffer.pixPriceCents / 100).toFixed(2) : "39.90"} key={`price-${billingOffer?.pixPriceCents ?? 3990}`} required /></div></label>
+        <button type="submit" disabled={pricingPending}>{pricingPending ? "Salvando..." : "Salvar valor mensal"}</button>
+        <small>Somente Pix. Sem renovação automática.</small>
+        {pricingFeedback && <p className={pricingFeedback.includes("atualizada") ? "success" : "error"} role="status">{pricingFeedback}</p>}
+      </form>
+    </section>
     </>}
     {platformView === "Afiliados" && <section className="panel affiliate-admin">
       <div className="affiliate-admin-heading"><div><span>PROGRAMA DE INDICAÇÃO</span><h2>Afiliados do Cortou Anotou</h2><p>Você cria o afiliado e envia um convite de acesso. Depois ele gera os próprios links e acompanha os resultados sem entrar no painel das barbearias.</p></div><div className="affiliate-summary"><article><small>INDICAÇÕES</small><strong>{affiliates.reduce((total, affiliate) => total + Number(affiliate.referrals), 0)}</strong></article><article><small>COMISSÕES GERADAS</small><strong>{money(affiliateSummary.totalCents)}</strong></article><article><small>AGUARDANDO COMISSÃO</small><strong>{money(affiliateSummary.pendingCents)}</strong></article></div></div>
@@ -1996,7 +2001,6 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
         <form className="affiliate-create-form" onSubmit={createAffiliateFromForm}>
           <h3>Criar afiliado e acesso</h3>
           <label><span>NOME</span><input name="affiliateName" minLength={2} maxLength={100} placeholder="Nome do colaborador" required /></label>
-          <div><label><span>WHATSAPP</span><input name="affiliateWhatsapp" type="tel" placeholder="(41) 99999-9999" /></label><label><span>E-MAIL</span><input name="affiliateEmail" type="email" placeholder="afiliado@email.com" /></label></div>
           <label><span>CHAVE PIX</span><input name="affiliatePixKey" maxLength={160} placeholder="CPF, telefone, e-mail ou chave aleatória" /><small>Pode cadastrar agora ou completar depois.</small></label>
           <div><label><span>COMISSÃO</span><div className="affiliate-number"><input name="commissionPercent" type="number" min="1" max="50" step="0.01" defaultValue="30" required /><b>%</b></div></label><label><span>DURAÇÃO</span><div className="affiliate-number"><input name="commissionMonths" type="number" min="1" max="36" step="1" defaultValue="12" required /><b>meses</b></div></label></div>
           <button type="submit" disabled={affiliatePending}>{affiliatePending ? "Criando..." : "Criar afiliado e gerar convite de acesso"}</button>

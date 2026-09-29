@@ -59,11 +59,12 @@ test("datas, horários e dias da semana são entendidos sem IA", () => {
   assert.equal(helper.extractCaAtendeDate("segunda às 9h", "2026-09-20", 1200), "2026-09-21");
 });
 
-test("IA é a interpretação principal da conversa natural, com saudação local e regra como fallback", () => {
-  assert.match(botDb, /if \(rule\.intent === "greeting"\) return rule/);
+test("pedidos claros usam regra; IA interpreta somente linguagem ambígua", () => {
+  assert.match(botDb, /if \(rule\.intent !== "unknown"\) return rule/);
+  assert.match(botDb, /if \(bookingContinuation\) return/);
   assert.match(botDb, /if \(context\.settings\.aiFallbackEnabled\)/);
   assert.match(botDb, /interpretCaAtendeWithAi/);
-  assert.match(botDb, /rule\.intent !== "unknown" \? rule : interpretation/);
+  assert.match(botDb, /interpretation\.intent === "unknown"/);
 });
 
 test("saudação padrão manda uma única mensagem com link e mantém Ver opções", () => {

@@ -1,16 +1,13 @@
 import { getSessionAccess } from "../../../../db/auth";
 import { BillingConfigurationError, createPixPayment, getPixPayment, pixFallbackUrl } from "../../../../db/billing";
-import type { PixPlanCode } from "../../../../db/platform-billing";
-
-const planCodes = new Set<PixPlanCode>(["monthly", "quarterly", "semiannual", "annual"]);
 
 export async function POST(request: Request) {
   try {
     const access = await getSessionAccess();
     if (!access) return Response.json({ error: "Sua sessão terminou. Entre novamente." }, { status: 401 });
     const data = await request.json().catch(() => ({})) as { planCode?: string };
-    const planCode = planCodes.has(data.planCode as PixPlanCode) ? data.planCode as PixPlanCode : "monthly";
-    const payment = await createPixPayment(access, planCode);
+    if (data.planCode && data.planCode !== "monthly") return Response.json({ error: "Esta opção foi encerrada. Atualize o aplicativo para contratar a assinatura mensal." }, { status: 400 });
+    const payment = await createPixPayment(access);
     return Response.json({ ok: true, payment });
   } catch (error) {
     if (error instanceof BillingConfigurationError) {

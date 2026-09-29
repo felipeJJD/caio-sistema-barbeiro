@@ -42,6 +42,7 @@ async function evolutionRequest<T>(path: string, init: RequestInit = {}): Promis
   const response = await fetch(`${config.url}${path}`, {
     ...init,
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
     headers: {
       apikey: config.apiKey,
       ...(init.body ? { "content-type":"application/json" } : {}),
@@ -89,17 +90,6 @@ function pairingCodeFrom(value: unknown) {
     return String(nested.pairingCode ?? nested.pairing_code ?? "").trim();
   }
   return "";
-}
-
-function qrCodeFrom(value: unknown) {
-  if (!value || typeof value !== "object") return "";
-  const body = value as Record<string, unknown>;
-  const qrcode = body.qrcode;
-  const nested = qrcode && typeof qrcode === "object" ? qrcode as Record<string, unknown> : {};
-  const raw = String(body.base64 ?? nested.base64 ?? body.Qrcode ?? nested.Qrcode ?? "").trim();
-  if (!raw) return "";
-  if (raw.startsWith("data:image/")) return raw;
-  return `data:image/png;base64,${raw}`;
 }
 
 async function createEvolutionInstance(name: string, phone: string) {
@@ -192,6 +182,11 @@ export async function beginEvolutionPairingSafe(access: AccessContext, phoneValu
   }
 
   const db = await getDb();
+  const current = (await db.select().from(whatsappConnections)).find((item) => item.organizationId === access.organizationId);
+  if (current?.provider === "evolution" && current.status === "connected") {
+    if (normalizeWhatsappPhone(current.displayPhoneNumber) !== phone) throw new Error("Já existe outro número conectado. Confira a conexão antes de trocar.");
+    return { pairingCode:"", state:"open", whatsapp:await getWhatsappAutomationStatus(access) };
+  }
   const allConnections = await db.select().from(whatsappConnections);
   const occupied = allConnections.find((item) =>
     item.organizationId !== access.organizationId &&
@@ -207,35 +202,28 @@ export async function beginEvolutionPairingSafe(access: AccessContext, phoneValu
 
   const stateBefore = await readEvolutionState(name);
   if (stateBefore === "open" || stateBefore === "connected") {
+    if (current?.provider === "evolution" && current.displayPhoneNumber && normalizeWhatsappPhone(current.displayPhoneNumber) !== phone) {
+      throw new Error("Este aparelho já está vinculado a outro número. Confira o número conectado antes de continuar.");
+    }
     await persistConnection(access, phone, name, "connected");
-    return { pairingCode:"", qrCode:"", state:"open", whatsapp:await getWhatsappAutomationStatus(access) };
+    return { pairingCode:"", state:"open", whatsapp:await getWhatsappAutomationStatus(access) };
   }
 
   let connectResult = created ?? {};
   let pairingCode = pairingCodeFrom(connectResult);
-  let qrCode = qrCodeFrom(connectResult);
 
-  if (!pairingCode && !qrCode) {
-    for (let attempt = 0; attempt < 3 && !pairingCode && !qrCode; attempt += 1) {
+  if (!pairingCode) {
+    for (let attempt = 0; attempt < 3 && !pairingCode; attempt += 1) {
       connectResult = await connectEvolutionInstance(name, phone);
       pairingCode = pairingCodeFrom(connectResult);
-      qrCode = qrCodeFrom(connectResult);
-      if (!pairingCode && !qrCode && attempt < 2) await new Promise((resolve) => setTimeout(resolve, 900));
+      if (!pairingCode && attempt < 2) await new Promise((resolve) => setTimeout(resolve, 900));
     }
   }
 
-  if (!pairingCode && !qrCode) {
-    // Algumas versões do Baileys recusam o pairing code, mas continuam
-    // oferecendo QR normalmente. Pedimos explicitamente uma sessão sem número.
-    connectResult = await connectEvolutionInstance(name);
-    pairingCode = pairingCodeFrom(connectResult);
-    qrCode = qrCodeFrom(connectResult);
-  }
-
-  if (!pairingCode && !qrCode) {
-    throw new Error("O WhatsApp ainda não liberou um método de conexão. Tente novamente em alguns segundos.");
+  if (!pairingCode) {
+    throw new Error("O código ainda não apareceu. Aguarde alguns segundos e toque em Gerar código novamente.");
   }
 
   await persistConnection(access, phone, name, "connecting");
-  return { pairingCode, qrCode, state:"connecting", whatsapp:await getWhatsappAutomationStatus(access) };
+  return { pairingCode, state:"connecting", whatsapp:await getWhatsappAutomationStatus(access) };
 }
