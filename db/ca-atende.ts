@@ -282,7 +282,7 @@ async function updateConversation(input: {
   });
 }
 
-async function interpretationFor(message: string, context: CaAtendeRuntimeContext, memory: CaAtendeContextMemory) {
+async function interpretationFor(message: string, context: CaAtendeRuntimeContext, memory: CaAtendeContextMemory, state = "") {
   const rule = classifyCaAtendeByRule(message);
   if (context.settings.spamFilterEnabled && highConfidenceCommercialOffer(message)) return { ...rule, intent:"spam" as const };
 
@@ -290,27 +290,47 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
   if (normalized === "qualquer profissional") return { ...rule, intent:memory.intent === "availability" ? "availability" as const : "booking" as const };
   if (normalized === "precos e servicos") return { ...rule, intent:"prices" as const };
 
-  // Clear requests and known entities are answered with organization data; AI
-  // is reserved for ambiguous language, reducing latency and model calls.
-  if (rule.intent !== "unknown") return rule;
+  const date = extractCaAtendeDate(message);
+  const time = extractCaAtendeTime(message);
+  const timeWindow = extractCaAtendeTimeWindow(message);
+  const words = normalized.split(" ").filter(Boolean);
+  const shortEntityChoice = words.length <= 4 && [...context.services.map(item => item.name), ...context.barbers.map(item => item.name)].some((name) => {
+    const entityWords = normalizeCaAtendeText(name).split(" ").filter(Boolean);
+    return entityWords.length > 0 && entityWords.every((word) => words.includes(word));
+  });
+  const exactEntityChoice = [...context.services.map(item => item.name), ...context.barbers.map(item => item.name)]
+    .some(name => normalized === normalizeCaAtendeText(name) || normalized === `quero o ${normalizeCaAtendeText(name)}`);
   const knownService = context.services.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
   const knownBarber = context.barbers.some(item => normalized.includes(normalizeCaAtendeText(item.name)));
   const bookingContinuation = (memory.intent === "booking" || memory.intent === "availability")
-    && (knownService || knownBarber || Boolean(extractCaAtendeDate(message)) || Boolean(extractCaAtendeTime(message)) || Boolean(extractCaAtendeTimeWindow(message).afterTime) || Boolean(extractCaAtendeTimeWindow(message).beforeTime) || wantsAssistedBooking(message) || wantsAnotherProfessional(message) || wantsBookingConfirmation(message));
-  if (bookingContinuation) return { ...rule, intent:memory.intent as "booking" | "availability" };
-  if ([...context.services.map(item => item.name), ...context.barbers.map(item => item.name)]
-    .some(name => normalized === normalizeCaAtendeText(name) || normalized === `quero o ${normalizeCaAtendeText(name)}`)) {
+    && (knownService || knownBarber || shortEntityChoice || Boolean(date) || Boolean(time) || Boolean(timeWindow.afterTime) || Boolean(timeWindow.beforeTime) || wantsAssistedBooking(message) || wantsAnotherProfessional(message) || wantsBookingConfirmation(message));
+  const simpleDateChoice = Boolean(date) && words.length <= 3;
+  const simpleTimeChoice = Boolean(time) && words.length <= 3;
+  const simpleWindowChoice = (Boolean(timeWindow.afterTime) || Boolean(timeWindow.beforeTime)) && words.length <= 6;
+  const guidedConversationCommand = wantsAssistedBooking(message) || wantsAnotherProfessional(message) || wantsBookingConfirmation(message);
+  const deterministicContinuation = bookingContinuation
+    && (exactEntityChoice || shortEntityChoice || simpleDateChoice || simpleTimeChoice || simpleWindowChoice || guidedConversationCommand);
+
+  // Escritas e mudanças sensíveis continuam determinísticas. Cumprimentos,
+  // preços e respostas curtas dos botões também não precisam gastar uma chamada
+  // de modelo. A IA vira o intérprete principal da conversa livre.
+  if (rule.intent === "spam" || rule.intent === "human" || rule.intent === "cancel" || rule.intent === "reschedule" || rule.intent === "greeting" || rule.intent === "prices") return rule;
+  if (deterministicContinuation) return { ...rule, intent:memory.intent as "booking" | "availability" };
+  if (exactEntityChoice || shortEntityChoice) {
     return { ...rule, intent:memory.intent === "prices" ? "prices" as const : "booking" as const };
   }
 
   let interpretation: CaAtendeInterpretation = rule;
-  if (context.settings.aiFallbackEnabled) {
+  const shouldUseAi = context.settings.aiFallbackEnabled
+    && (rule.intent === "booking" || rule.intent === "availability" || rule.intent === "unknown");
+  if (shouldUseAi) {
     const ai = await interpretCaAtendeWithAi({
       message,
       organizationName: context.organization.name,
       services: context.services.map(item => item.name),
       barbers: context.barbers.map(item => item.name),
       memory,
+      state,
     });
     if (ai) {
       await recordAiUsageSafely({ organizationId:context.organization.id, surface:"ca_atende", usage:ai.aiUsage });
@@ -319,7 +339,9 @@ async function interpretationFor(message: string, context: CaAtendeRuntimeContex
     }
   }
 
-  return interpretation.intent === "unknown" && rule.intent !== "unknown" ? rule : interpretation;
+  if (rule.intent !== "unknown") return rule;
+  if (bookingContinuation) return { ...rule, intent:memory.intent as "booking" | "availability" };
+  return interpretation;
 }
 
 type CaAtendeConversationSnapshot = {
@@ -707,7 +729,7 @@ export async function composeReply(
   if (serviceSignals.mentionsCut && serviceSignals.mentionsBeard && !serviceSignals.rejectBeard && !serviceSignals.rejectCut && !findServiceByMessage(event.text, context.services)) {
     return { reply:"Não encontrei corte com barba como um serviço único aqui. Qual serviço você prefere?", intent:"booking", state:"awaiting_service", memory:{ ...oldMemory, intent:"booking", service:"" }, source:"rule", choices:serviceChoices(context) };
   }
-  const interpreted = await interpretationFor(event.text, context, oldMemory);
+  const interpreted = await interpretationFor(event.text, context, oldMemory, stage);
   const continuationDate = extractCaAtendeDate(event.text);
   const continuationTime = extractCaAtendeTime(event.text);
   const timeWindow = extractCaAtendeTimeWindow(event.text);

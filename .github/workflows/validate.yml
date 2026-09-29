@@ -3,59 +3,16 @@ name: Validar aplicativo
 on:
   pull_request:
   push:
-    branches: [main, feat/ca-atende-ai-audio]
+    branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: validar-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply-ai-audio:
-    name: Aplicar upgrade IA e áudio
-    if: github.ref == 'refs/heads/feat/ca-atende-ai-audio' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      CI: true
-    steps:
-      - name: Baixar branch
-        uses: actions/checkout@v5
-        with:
-          ref: feat/ca-atende-ai-audio
-          fetch-depth: 0
-      - name: Preparar Node 24.13.0
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24.13.0
-          cache: npm
-      - name: Aplicar alteração focada de IA
-        run: python3 scripts/apply-ca-atende-ai-first-v2.py
-      - name: Instalar dependências
-        run: npm ci
-      - name: Verificar tipos
-        run: npm run typecheck
-      - name: Verificar lint
-        run: npm run lint
-      - name: Validar build de produção
-        run: npm run build
-      - name: Rodar testes automatizados
-        run: npm test
-      - name: Teste de carga
-        run: npm run test:load
-      - name: Restaurar workflow e publicar resultado validado
-        run: |
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/validate.yml
-          rm -f scripts/apply-ca-atende-ai-audio.py scripts/apply-ca-atende-ai-first-v2.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Adiciona IA principal e áudio ao C.A. Atende"
-          git push origin HEAD:feat/ca-atende-ai-audio
-
   lint:
     name: Lint
     runs-on: ubuntu-latest

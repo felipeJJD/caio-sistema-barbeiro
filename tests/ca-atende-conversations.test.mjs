@@ -98,14 +98,14 @@ test("conversa guiada mantém serviço, data e profissional até confirmação s
   assert.ok(globalThis.__caSlots.every(slot=>slot.slug==="exemplo" && slot.serviceId===11));
 });
 
-test("pedido direto consulta agenda real, confirma sem trocar serviço e não cria reserva",async()=>{
+test("pedido direto usa IA para interpretar a conversa livre e mantém execução segura",async()=>{
   const [candidate,confirmed]=await chat(["quero cortar com Eduardo amanhã às10","quero que vc marque pra mim"]);
   assert.equal(candidate.state,"awaiting_confirmation");
   assert.equal(confirmed.memory.service,"Corte");
   assert.equal(confirmed.memory.barber,"Eduardo");
   assert.equal(confirmed.confirmationRequested,true);
   assert.equal(confirmed.state,"test_confirmation");
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.equal(globalThis.__caAiCalls,1);
 });
 
 test("troca profissional não perde serviço e dia, e consulta alternativas",async()=>{
@@ -115,7 +115,7 @@ test("troca profissional não perde serviço e dia, e consulta alternativas",asy
   assert.equal(swap.memory.date,first.memory.date);
   assert.notEqual(swap.memory.barber,"Eduardo");
   assert.match(swap.reply,/Davi/);
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.equal(globalThis.__caAiCalls,1);
 });
 
 test("consultar todos e após 17h mantém todos os profissionais",async()=>{

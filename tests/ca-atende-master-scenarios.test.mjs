@@ -101,7 +101,7 @@ test("pedido real 'corte mais barba' mantém o serviço combinado e sua duraçã
   assert.equal(second.memory.service,"Corte + barba");
   assert.ok(globalThis.__caSlots.some(slot=>slot.serviceId===13));
   assert.doesNotMatch(second.reply,/prefere Barba\?/);
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.equal(globalThis.__caAiCalls,1);
 });
 
 test("sem serviço combinado, não reserva só barba ou só corte",async()=>{
@@ -383,7 +383,7 @@ for(const [phrase,time] of shortTimes) scenario("contexto","hora curta: "+phrase
   assert.equal(answer.memory.barber,"Eduardo");
   assert.equal(answer.memory.time,time);
   assert.equal(answer.state,"awaiting_confirmation");
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.equal(globalThis.__caAiCalls,1);
 });
 
 const switchPhrases=[
@@ -401,7 +401,7 @@ for(const phrase of switchPhrases) scenario("contexto","troca profissional prese
   assert.equal(answer.memory.time,"10:00");
   assert.equal(answer.memory.barber,"");
   assert.ok((answer.choices||[]).every(choice=>!choice.startsWith("Eduardo ·")));
-  assert.equal(globalThis.__caAiCalls,0);
+  assert.equal(globalThis.__caAiCalls,1);
 });
 
 const confirmPhrases=[
