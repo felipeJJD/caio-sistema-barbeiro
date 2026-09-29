@@ -23,7 +23,7 @@ jobs:
           node-version: 24.13.0
           cache: npm
       - name: Aplicar correções focadas
-        run: python3 scripts/apply-ca-atende-video-flow-v2.py
+        run: python3 scripts/apply-ca-atende-video-flow-v3.py
       - name: Instalar dependências
         run: npm ci --no-audit --no-fund
       - name: Typecheck
@@ -36,8 +36,8 @@ jobs:
         run: npm test
       - name: Carga
         run: npm run test:load
-      - name: Remover aplicador temporário
-        run: rm -f scripts/apply-ca-atende-video-flow-v2.py .github/workflows/apply-ca-atende-video-flow-v2.yml
+      - name: Remover aplicadores temporários
+        run: rm -f scripts/apply-ca-atende-video-flow-v2.py scripts/apply-ca-atende-video-flow-v3.py .github/workflows/apply-ca-atende-video-flow-v2.yml
       - name: Publicar resultado validado na branch
         run: |
           git config user.name "github-actions[bot]"
