@@ -157,10 +157,10 @@ function defaultGreeting(context: CaAtendeRuntimeContext) {
       .trim();
     const withLink = rendered.includes(link)
       ? rendered
-      : `${rendered}\n\nPara agendar seu horário: ${link}`;
-    return withLink.slice(0,3500);
+      : `${rendered}\n\nAgendamento pelo link: ${link}`;
+    return `${withLink}\n\nEscolha uma opção abaixo ou escreva do seu jeito.`.slice(0,3500);
   }
-  return `Olá! Seja bem-vindo à ${context.organization.name}. Para agendar seu horário é só acessar: ${link}\n\nSe preferir outro assunto, toque em “Ver opções” ou escreva o que precisa.`;
+  return `Olá! Seja bem-vindo à ${context.organization.name}. Posso ajudar com agendamento, horários, preços, cancelamento ou remarcação.\n\nSe preferir agendar pelo link: ${link}\n\nEscolha uma opção abaixo ou escreva do seu jeito.`;
 }
 
 function defaultHandoff(context: CaAtendeRuntimeContext) {
@@ -394,7 +394,47 @@ function wantsBookingConfirmation(value: string) {
 }
 
 const mainChoices = ["Agendar horário", "Ver horários disponíveis", "Preços e serviços", "Cancelar ou remarcar", "Falar com a barbearia"];
-const bookingChoices = ["Agendar pelo link", "Quero ajuda por aqui"];
+
+function bookingDayChoices(count = 5) {
+  const today = appDate();
+  const base = new Date(`${today}T12:00:00Z`);
+  const weekday = new Intl.DateTimeFormat("pt-BR", { weekday:"long", timeZone:"America/Sao_Paulo" });
+  return Array.from({ length:count }, (_, index) => {
+    const day = new Date(base);
+    day.setUTCDate(day.getUTCDate() + index);
+    const name = weekday.format(day).replace("-feira", "");
+    const prettyName = name.charAt(0).toUpperCase() + name.slice(1);
+    const dd = String(day.getUTCDate()).padStart(2, "0");
+    const mm = String(day.getUTCMonth() + 1).padStart(2, "0");
+    if (index === 0) return `Hoje · ${prettyName}`;
+    if (index === 1) return `Amanhã · ${prettyName}`;
+    return `${prettyName} · ${dd}/${mm}`;
+  });
+}
+
+function representativeSlots<T extends { time:string; barberId:number; barberName:string }>(slots: T[], max = 9) {
+  const seen = new Set<string>();
+  const unique = slots.filter((slot) => {
+    const key = `${slot.barberId}:${slot.time}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const buckets = [
+    unique.filter((slot) => slot.time < "12:00"),
+    unique.filter((slot) => slot.time >= "12:00" && slot.time < "18:00"),
+    unique.filter((slot) => slot.time >= "18:00"),
+  ];
+  const picked: T[] = [];
+  while (picked.length < max && buckets.some((bucket) => bucket.length)) {
+    for (const bucket of buckets) {
+      const next = bucket.shift();
+      if (next) picked.push(next);
+      if (picked.length >= max) break;
+    }
+  }
+  return picked.sort((left, right) => left.time.localeCompare(right.time) || left.barberName.localeCompare(right.barberName, "pt-BR"));
+}
 
 function safeClientName(value: string | undefined) {
   if (!value) return "";
@@ -499,7 +539,7 @@ function managementPrompt(action: "cancel" | "reschedule", item: WhatsappManaged
   if (action === "cancel") {
     return { reply:`Encontrei ${item.serviceName} com ${item.barberName}, ${humanDate(item.date)} às ${item.time}. Quer cancelar esse horário?`, intent:"cancel", state:"awaiting_cancel_confirmation", memory, source:"rule", choices:["Confirmar cancelamento", "Manter horário"], dataSource:"agenda" };
   }
-  return { reply:`Encontrei ${item.serviceName} com ${item.barberName}, ${humanDate(item.date)} às ${item.time}. Para qual dia você quer remarcar?`, intent:"reschedule", state:"awaiting_reschedule_date", memory, source:"rule", choices:["Hoje", "Amanhã"], dataSource:"agenda" };
+  return { reply:`Encontrei ${item.serviceName} com ${item.barberName}, ${humanDate(item.date)} às ${item.time}. Para qual dia você quer remarcar?`, intent:"reschedule", state:"awaiting_reschedule_date", memory, source:"rule", choices:bookingDayChoices(), dataSource:"agenda" };
 }
 
 async function beginManagementFlow(action: "cancel" | "reschedule", event: WhatsappInboundTextEvent, context: CaAtendeRuntimeContext, source: "rule" | "ai"): Promise<CaAtendeDecision> {
@@ -513,11 +553,11 @@ async function beginManagementFlow(action: "cancel" | "reschedule", event: Whats
   return { reply:`Encontrei mais de um horário. Qual deles você quer ${action === "cancel" ? "cancelar" : "remarcar"}? Pode responder pelo número, dia ou horário.`, intent:action, state:"awaiting_manage_choice", memory:{ intent:action, manageAction:action, appointmentId:0 }, source:"rule", choices:managedBookingChoices(changeable), dataSource:"agenda" };
 }
 
-function slotSummary(slots: Array<{ time: string; barberId: number; barberName: string }>, maxPerBarber = 4) {
+function slotSummary(slots: Array<{ time: string; barberId: number; barberName: string }>, max = 6) {
   const groups = new Map<string, string[]>();
-  for (const slot of slots) {
+  for (const slot of representativeSlots(slots, max)) {
     const times = groups.get(slot.barberName) ?? [];
-    if (times.length < maxPerBarber && !times.includes(slot.time)) times.push(slot.time);
+    if (!times.includes(slot.time)) times.push(slot.time);
     groups.set(slot.barberName, times);
   }
   if (groups.size === 1) return [...groups.values()][0].join(", ");
@@ -560,7 +600,7 @@ export async function composeReply(
     if (normalized === "agendar pelo link") {
       return { reply:bookingLink(context.organization.slug), intent:"booking", state:"", memory:{}, source:"rule" };
     }
-    return { reply:"Como prefere agendar?", intent:"booking", state:"booking_method", memory:{ intent:"booking" }, source:"rule", choices:bookingChoices };
+    return { reply:"Qual serviço você quer?", intent:"booking", state:"awaiting_service", memory:{ intent:"booking" }, source:"rule", choices:serviceChoices(context) };
   }
   if (normalized === "cancelar ou remarcar") {
     return { reply:"Claro. Você quer cancelar ou remarcar seu horário?", intent:"cancel", state:"cancel_choice", memory:{}, source:"rule", choices:["Cancelar horário", "Remarcar horário"] };
@@ -591,13 +631,14 @@ export async function composeReply(
   }
   if (stage === "awaiting_reschedule_date") {
     const date = extractCaAtendeDate(event.text);
-    if (!date) return { reply:"Para qual dia você quer remarcar?", intent:"reschedule", state:"awaiting_reschedule_date", memory:oldMemory, source:"rule", choices:["Hoje", "Amanhã"], dataSource:"agenda" };
+    if (!date) return { reply:"Para qual dia você quer remarcar?", intent:"reschedule", state:"awaiting_reschedule_date", memory:oldMemory, source:"rule", choices:bookingDayChoices(), dataSource:"agenda" };
     const appointments = await listWhatsappManagedBookings(context.organization.slug, event.phone);
     const current = appointments.find((item) => item.appointmentId === oldMemory.appointmentId);
     if (!current) return { reply:"Não encontrei mais esse horário. Posso chamar a barbearia se precisar.", intent:"reschedule", state:"", memory:{}, source:"rule", dataSource:"agenda" };
     const slots = await getPublicBookingSlotsExpanded(context.organization.slug, date, current.serviceId, current.barberId);
     if (!slots.length) return { reply:`Não encontrei horário livre com ${current.barberName} em ${humanDate(date)}. Me diga outro dia.`, intent:"reschedule", state:"awaiting_reschedule_date", memory:oldMemory, source:"rule", dataSource:"agenda" };
-    return { reply:`Tenho ${slots.slice(0,8).map((slot) => slot.time).join(", ")}. Qual horário fica melhor?`, intent:"reschedule", state:"awaiting_reschedule_time", memory:{ ...oldMemory, date, time:"" }, source:"rule", choices:slots.slice(0,8).map((slot) => slot.time), dataSource:"agenda" };
+    const visibleSlots = representativeSlots(slots, 8);
+    return { reply:`Alguns horários livres são ${visibleSlots.map((slot) => slot.time).join(", ")}. Se quiser outro, pode digitar o horário.`, intent:"reschedule", state:"awaiting_reschedule_time", memory:{ ...oldMemory, date, time:"" }, source:"rule", choices:visibleSlots.map((slot) => slot.time), dataSource:"agenda" };
   }
   if (stage === "awaiting_reschedule_time") {
     const time = extractCaAtendeTime(event.text);
@@ -607,7 +648,8 @@ export async function composeReply(
     if (!current || !date) return { reply:"Perdi os detalhes desse horário. Me diga que quer remarcar e eu começo de novo.", intent:"reschedule", state:"", memory:{}, source:"rule" };
     const slots = await getPublicBookingSlotsExpanded(context.organization.slug, date, current.serviceId, current.barberId);
     const exact = slots.find((slot) => slot.time === time);
-    if (!time || !exact) return { reply:`Esse horário não está livre. Tenho ${slots.slice(0,8).map((slot) => slot.time).join(", ")}. Qual prefere?`, intent:"reschedule", state:"awaiting_reschedule_time", memory:oldMemory, source:"rule", choices:slots.slice(0,8).map((slot) => slot.time), dataSource:"agenda" };
+    const visibleSlots = representativeSlots(slots, 8);
+    if (!time || !exact) return { reply:`Esse horário não está livre. Alguns horários livres são ${visibleSlots.map((slot) => slot.time).join(", ")}. Se quiser outro, pode digitar o horário.`, intent:"reschedule", state:"awaiting_reschedule_time", memory:oldMemory, source:"rule", choices:visibleSlots.map((slot) => slot.time), dataSource:"agenda" };
     const memory = { ...oldMemory, date, time };
     return { reply:`Certo. Remarcar ${current.serviceName} com ${current.barberName} para ${humanDate(date)} às ${time}. Confirma?`, intent:"reschedule", state:"awaiting_reschedule_confirmation", memory, source:"rule", choices:["Confirmar remarcação", "Escolher outro horário", "Cancelar alteração"], dataSource:"agenda" };
   }
@@ -659,7 +701,7 @@ export async function composeReply(
   }
   if (normalized === "qualquer profissional") {
     if (!oldMemory.service) return { reply:"Qual serviço você quer?", intent:"booking", state:"awaiting_service", memory:oldMemory, source:"rule", choices:serviceChoices(context) };
-    if (!oldMemory.date) return { reply:"Combinado, vou olhar todos os profissionais. Qual dia você prefere?", intent:oldMemory.intent || "booking", state:"awaiting_booking_details", memory:{ ...oldMemory, barber:"" }, source:"rule", choices:["Hoje", "Amanhã"] };
+    if (!oldMemory.date) return { reply:"Combinado, vou olhar todos os profissionais. Qual dia você prefere?", intent:oldMemory.intent || "booking", state:"awaiting_booking_details", memory:{ ...oldMemory, barber:"" }, source:"rule", choices:bookingDayChoices() };
   }
   const serviceSignals = serviceIntentSignals(event.text);
   if (serviceSignals.mentionsCut && serviceSignals.mentionsBeard && !serviceSignals.rejectBeard && !serviceSignals.rejectCut && !findServiceByMessage(event.text, context.services)) {
@@ -711,7 +753,7 @@ export async function composeReply(
   if (intent === "reschedule") return beginManagementFlow("reschedule", event, context, interpreted.source);
 
   if (intent === "greeting") {
-    return { reply:defaultGreeting(context), intent, state:"menu", memory:{}, source:interpreted.source, choices:["Ver opções"] };
+    return { reply:defaultGreeting(context), intent, state:"menu", memory:{}, source:interpreted.source, choices:mainChoices };
   }
 
   if (intent === "prices") {
@@ -769,22 +811,17 @@ export async function composeReply(
       return { reply:`${selectedService.name}, certo. Tem preferência de profissional?`, intent:preservedIntent, state:"awaiting_professional", memory:nextMemory, source:"rule", choices:professionalChoices(context) };
     }
     if (stage === "awaiting_professional" && !date && (explicitBarber || normalized === "qualquer profissional")) {
-      return { reply:"Qual dia você prefere?", intent:preservedIntent, state:"awaiting_booking_details", memory:nextMemory, source:"rule", choices:["Hoje", "Amanhã"] };
+      return { reply:`Perfeito. ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""}. Qual dia você prefere?`, intent:preservedIntent, state:"awaiting_booking_details", memory:nextMemory, source:"rule", choices:bookingDayChoices() };
     }
 
     if (!date) {
-      const missing: string[] = [];
-      if (!selectedService) missing.push("qual serviço você quer");
-      if (!date) missing.push("qual dia");
-      const known: string[] = [];
-      if (selectedBarber) known.push(`com ${selectedBarber.name}`);
-      if (desiredTime) known.push(`às ${desiredTime}`);
       return {
-        reply:`${changingProfessional ? "Claro, podemos trocar de profissional. " : ""}${known.length ? `Beleza, ${known.join(" ")}. ` : ""}Me diga ${missing.join(" e ")}. Pode responder curto, por exemplo: “corte” ou “amanhã”.`,
+        reply:`${changingProfessional ? "Claro, podemos trocar de profissional. " : ""}Certo, ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""}. Qual dia você prefere?`,
         intent: preservedIntent,
         state:"awaiting_booking_details",
         memory:nextMemory,
         source:"rule",
+        choices:bookingDayChoices(),
       };
     }
 
@@ -844,6 +881,7 @@ export async function composeReply(
         };
       }
 
+      const visibleSlots = representativeSlots(slots, 9);
       if (desiredTime) {
         const exact = slots.filter(slot => slot.time === desiredTime);
         if (exact.length) {
@@ -871,24 +909,24 @@ export async function composeReply(
           };
         }
         return {
-          reply:`Às ${desiredTime} não está livre para ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""} em ${humanDate(date)}. Tenho ${changingProfessional && !selectedBarber && slots.length ? `${slots[0].barberName}: ` : ""}${slotSummary(slots)}. Qual desses fica melhor?`,
+          reply:`Às ${desiredTime} não está livre para ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""} em ${humanDate(date)}. Alguns horários disponíveis são ${changingProfessional && !selectedBarber && visibleSlots.length ? `${visibleSlots[0].barberName}: ` : ""}${slotSummary(visibleSlots)}. Se quiser outro, pode digitar o horário (ex.: 18h).`,
           intent:preservedIntent,
           state:"awaiting_booking_choice",
           memory:{ ...nextMemory, time:"" },
           source:interpreted.source,
           dataSource:"agenda",
-          choices:slots.slice(0,10).map(slot => `${slot.barberName} · ${slot.time}`),
+          choices:visibleSlots.map(slot => `${slot.barberName} · ${slot.time}`),
         };
       }
 
       return {
-        reply:`${changingProfessional ? "Claro. " : ""}Para ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""} em ${humanDate(date)}, tenho ${changingProfessional && !selectedBarber && slots.length && slots.every(slot => slot.barberId === slots[0].barberId) ? `${slots[0].barberName}: ` : ""}${slotSummary(slots)}. Qual horário você prefere?`,
+        reply:`${changingProfessional ? "Claro. " : ""}Para ${selectedService.name}${selectedBarber ? ` com ${selectedBarber.name}` : ""} em ${humanDate(date)}, alguns horários são ${changingProfessional && !selectedBarber && visibleSlots.length && visibleSlots.every(slot => slot.barberId === visibleSlots[0].barberId) ? `${visibleSlots[0].barberName}: ` : ""}${slotSummary(visibleSlots)}. Qual você prefere? Se quiser outro, pode digitar o horário (ex.: 18h).`,
         intent:preservedIntent,
         state:"awaiting_booking_choice",
         memory:changingProfessional ? { ...nextMemory, barber:"", time:desiredTime, afterTime, beforeTime } : { ...nextMemory, afterTime, beforeTime },
         source:changingProfessional ? "rule" : interpreted.source,
         dataSource:"agenda",
-        choices:slots.slice(0,10).map(slot => `${slot.barberName} · ${slot.time}`),
+        choices:visibleSlots.map(slot => `${slot.barberName} · ${slot.time}`),
       };
     } catch {
       return {
@@ -902,12 +940,14 @@ export async function composeReply(
     }
   }
 
+  if (!stage) return menuDecision(context);
   return {
     reply:`Posso te ajudar com preço, horário, agendamento ou chamar uma pessoa da ${context.organization.name}. Me fala do seu jeito o que você precisa.`,
     intent:"unknown",
     state:"",
-    memory:{},
+    memory:oldMemory,
     source:interpreted.source,
+    choices:mainChoices,
   };
 }
 

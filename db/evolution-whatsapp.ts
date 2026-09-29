@@ -267,11 +267,16 @@ export async function disconnectEvolutionWhatsapp(access: AccessContext) {
   await db.update(whatsappAutomationSettings).set({ enabled:false, updatedAt:now }).where(eq(whatsappAutomationSettings.organizationId, access.organizationId));
 }
 
+function formatWhatsappDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value.trim();
+}
+
 function evolutionText(kind: string, payload: Record<string, string>) {
   if (kind === "bot_text") return String(payload.text ?? "").trim().slice(0, 3500);
   const client = String(payload.clientName ?? "cliente").trim();
   const business = String(payload.organizationName ?? "barbearia").trim();
-  const date = String(payload.date ?? "").trim();
+  const date = formatWhatsappDate(String(payload.date ?? ""));
   const time = String(payload.time ?? "").trim();
   const service = String(payload.serviceName ?? "").trim();
   const barber = String(payload.barberName ?? "").trim();

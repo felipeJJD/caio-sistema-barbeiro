@@ -67,10 +67,11 @@ test("pedidos claros usam regra; IA interpreta somente linguagem ambígua", () =
   assert.match(botDb, /interpretation\.intent === "unknown"/);
 });
 
-test("saudação padrão manda uma única mensagem com link e mantém Ver opções", () => {
+test("saudação padrão já entrega menu principal em uma mensagem", () => {
   assert.match(botDb, /Seja bem-vindo à/);
-  assert.match(botDb, /Para agendar seu horário é só acessar/);
-  assert.match(botDb, /Se preferir outro assunto, toque em “Ver opções”/);
+  assert.match(botDb, /Posso ajudar com agendamento, horários, preços, cancelamento ou remarcação/);
+  assert.match(botDb, /Escolha uma opção abaixo ou escreva do seu jeito/);
+  assert.match(botDb, /choices:mainChoices/);
   assert.match(botDb, /bookingLink\(context\.organization\.slug\)/);
 });
 

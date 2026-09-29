@@ -139,6 +139,39 @@ test("correção 'na verdade às 11' muda só o horário",async()=>{
   assert.equal(second.memory.time,"11:00");
 });
 
+test("vídeo real: Agendar horário vai direto aos serviços, sem perguntar link x conversa",async()=>{
+  const [answer]=await chat(["Agendar horário"]);
+  assert.equal(answer.state,"awaiting_service");
+  assert.match(answer.reply,/Qual serviço você quer/i);
+  assert.ok(answer.choices.includes("Corte"));
+  assert.doesNotMatch(answer.reply,/Como prefere agendar/i);
+});
+
+test("vídeo real: depois do profissional oferece cinco dias em formato de calendário",async()=>{
+  const replies=await chat(["Agendar horário","Corte","Kaio"]);
+  const answer=replies.at(-1);
+  assert.equal(answer.state,"awaiting_booking_details");
+  assert.equal(answer.choices.length,5);
+  assert.match(answer.choices[0],/^Hoje · /);
+  assert.match(answer.choices[1],/^Amanhã · /);
+  assert.doesNotMatch(answer.reply,/corte.? ou.? amanhã/i);
+});
+
+test("vídeo real: horários sugeridos incluem noite quando existe vaga",async()=>{
+  const replies=await chat(["Agendar horário","Corte","Kaio","amanhã"]);
+  const answer=replies.at(-1);
+  const times=choiceTimes(answer);
+  assert.ok(times.some(time=>time<"12:00"));
+  assert.ok(times.some(time=>time>="18:00"));
+  assert.ok(times.length<=9);
+  assert.match(answer.reply,/pode digitar o horário/i);
+});
+
+test("vídeo real: mensagem inicial desconhecida também apresenta as ações principais",async()=>{
+  const [answer]=await chat(["preciso de uma ajuda"]);
+  assert.deepEqual(answer.choices,["Agendar horário","Ver horários disponíveis","Preços e serviços","Cancelar ou remarcar","Falar com a barbearia"]);
+});
+
 test("'Ok' após solicitar Pix recebe resposta breve sem alegar pagamento",async()=>{
   const reply=await composeReply(
     {organizationId:context.organization.id,text:"Ok",phone:"550000000",providerMessageId:"pix",receivedAt:"",messageRowId:0},
@@ -268,7 +301,7 @@ for(const service of serviceNames) for(const prefix of pricePrefixes) scenario("
 
 const menuCases=[
   ["Ver opções","menu"],["VER OPÇÕES","menu"],["Menu","menu"],["Opcoes","menu"],
-  ["Agendar horário","booking_method"],["AGENDAR HORÁRIO","booking_method"],
+  ["Agendar horário","awaiting_service"],["AGENDAR HORÁRIO","awaiting_service"],
   ["Agendar pelo link",""],["agendar pelo link",""],
   ["Ver horários disponíveis","awaiting_availability_details"],
   ["Preços e serviços",""],["PREÇOS E SERVIÇOS",""],
@@ -456,11 +489,11 @@ for(const template of slangTemplates) for(const person of aiPeople) {
   });
 }
 
-test("saudação real inclui link público e botão Ver opções sem usar IA",async()=>{
+test("saudação real já mostra as ações principais sem exigir Ver opções",async()=>{
   const [answer]=await chat(["bom dia"]);
   assert.match(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
-  assert.match(answer.reply,/Ver opções/);
-  assert.deepEqual(answer.choices,["Ver opções"]);
+  assert.deepEqual(answer.choices,["Agendar horário","Ver horários disponíveis","Preços e serviços","Cancelar ou remarcar","Falar com a barbearia"]);
+  assert.ok(!answer.choices.includes("Ver opções"));
   assert.equal(globalThis.__caAiCalls,0);
 });
 
