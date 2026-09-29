@@ -21,7 +21,9 @@ jobs:
           node-version: 24.13.0
           cache: npm
       - name: Aplicar mudanças focadas
-        run: python3 .github/scripts/apply-conversation-first.py
+        run: |
+          python3 .github/scripts/apply-conversation-first.py
+          python3 .github/scripts/update-conversation-first-tests.py
       - name: Instalar dependências
         run: npm ci --no-audit --no-fund
       - name: Verificar tipos
@@ -39,7 +41,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/apply-conversation-first.yml .github/scripts/apply-conversation-first.py
-          git add db/ca-atende.ts tests/ca-atende-conversations.test.mjs
+          git rm .github/workflows/apply-conversation-first.yml .github/scripts/apply-conversation-first.py .github/scripts/update-conversation-first-tests.py
+          git add db/ca-atende.ts tests/ca-atende-conversations.test.mjs tests/ca-atende-master-scenarios.test.mjs tests/ca-atende.test.mjs
           git commit -m "C.A. Atende prioriza conversa no agendamento"
           git push origin feat/ca-atende-conversation-first
