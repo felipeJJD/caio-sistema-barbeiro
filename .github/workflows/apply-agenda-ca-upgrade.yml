@@ -19,6 +19,8 @@ jobs:
           cache: npm
       - name: Aplicar mudanças focadas
         run: python3 scripts/apply-agenda-ca-upgrade.py
+      - name: Ajustar tipagem gerada
+        run: python3 scripts/fix-agenda-generated.py
       - name: Instalar dependências
         run: npm ci --no-audit --no-fund
       - name: Typecheck
@@ -32,7 +34,7 @@ jobs:
       - name: Carga
         run: npm run test:load
       - name: Limpar aplicadores temporários
-        run: rm -f scripts/apply-agenda-ca-upgrade.mjs scripts/fix-agenda-applicator.mjs scripts/apply-agenda-ca-upgrade.py .github/workflows/apply-agenda-ca-upgrade.yml
+        run: rm -f scripts/apply-agenda-ca-upgrade.mjs scripts/fix-agenda-applicator.mjs scripts/apply-agenda-ca-upgrade.py scripts/fix-agenda-generated.py .github/workflows/apply-agenda-ca-upgrade.yml
       - name: Gravar resultado validado
         run: |
           git config user.name "github-actions[bot]"
