@@ -671,10 +671,17 @@ export async function rescheduleAppointmentFromAgenda(access: AccessContext, inp
   const existing = (await db.select().from(appointments).where(and(eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId))).limit(1))[0];
   if (!existing) throw new Error("Agendamento não encontrado.");
   requireOwnBarber(access, existing.barberId);
+  const changed = existing.appointmentDate !== input.appointmentDate
+    || existing.appointmentTime !== input.appointmentTime
+    || existing.barberId !== input.barberId;
   await saveAppointment(access, {
     id: existing.id, appointmentDate: input.appointmentDate, appointmentTime: input.appointmentTime,
     clientName: existing.clientName, phone: existing.phone, serviceId: existing.serviceId, barberId: input.barberId, notes: existing.notes,
   });
+  if (changed && existing.status === "Agendado") {
+    const queued = await queueAppointmentWhatsappSafely("rescheduled", existing.id);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, 3);
+  }
 }
 
 export async function cancelAppointment(access: AccessContext, id: number) {
@@ -703,12 +710,11 @@ export async function confirmAppointment(access: AccessContext, id: number, pixP
   if (!existing) throw new Error("Agendamento não encontrado.");
   requireOwnBarber(access, existing.barberId);
   if (pixPaymentVerified) {
-    requireOwner(access);
     if (!(["Aguardando pagamento", "Aguardando"].includes(existing.status)) || existing.paymentChoice !== "Pix") throw new Error("Este agendamento não aguarda confirmação de Pix. Atualize a agenda.");
   } else if (existing.status !== "Aguardando") {
     throw new Error("Este agendamento não está aguardando confirmação. Atualize a agenda.");
   } else if (existing.paymentChoice === "Pix") {
-    throw new Error("O recebimento do Pix precisa ser conferido pelo proprietário.");
+    throw new Error("O recebimento do Pix precisa ser conferido antes de confirmar.");
   }
   const updated = await db.update(appointments).set({ status: "Agendado", paymentConfirmationToken: null }).where(and(
     eq(appointments.id, id), eq(appointments.organizationId, access.organizationId), eq(appointments.status, existing.status),
