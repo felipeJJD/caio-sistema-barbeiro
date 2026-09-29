@@ -37,21 +37,29 @@ const DEFAULT_OFFER: StoredOffer = {
   annualDiscountBps: 2000,
 };
 
+function discountedPrice(basePriceCents: number, months: number, discountBps: number) {
+  return Math.round(basePriceCents * months * (10000 - discountBps) / 10000);
+}
+
 export function withPlans(offer: StoredOffer): PlatformBillingOffer {
+  const pixPlans: PixPlanOffer[] = [
+    { code: "monthly", label: "Mensal", months: 1, periodDays: offer.pixPeriodDays, priceCents: offer.pixPriceCents, discountBps: 0 },
+    { code: "quarterly", label: "Trimestral", months: 3, periodDays: 90, priceCents: discountedPrice(offer.pixPriceCents, 3, offer.quarterlyDiscountBps), discountBps: offer.quarterlyDiscountBps },
+    { code: "semiannual", label: "Semestral", months: 6, periodDays: 180, priceCents: discountedPrice(offer.pixPriceCents, 6, offer.semiannualDiscountBps), discountBps: offer.semiannualDiscountBps },
+    { code: "annual", label: "Anual", months: 12, periodDays: 365, priceCents: discountedPrice(offer.pixPriceCents, 12, offer.annualDiscountBps), discountBps: offer.annualDiscountBps },
+  ];
   return {
     ...offer,
     barberPixPriceCents: offer.pixPriceCents,
-    pixPlans: [
-      { code: "monthly", label: "Mensal", months: 1, periodDays: offer.pixPeriodDays, priceCents: offer.pixPriceCents, discountBps: 0 },
-    ],
-    barberPixPlans: [
-      { code: "monthly", label: "Mensal", months: 1, periodDays: offer.pixPeriodDays, priceCents: offer.pixPriceCents, discountBps: 0 },
-    ],
+    pixPlans,
+    barberPixPlans: pixPlans,
   };
 }
 
-export function getPixPlan(offer: PlatformBillingOffer) {
-  return offer.pixPlans[0];
+export function getPixPlan(offer: PlatformBillingOffer, planCode: string | null | undefined = "monthly") {
+  const plan = offer.pixPlans.find((candidate) => candidate.code === planCode);
+  if (!plan) throw new Error("Período de assinatura inválido.");
+  return plan;
 }
 
 export async function getPlatformBillingOffer(): Promise<PlatformBillingOffer> {
@@ -69,11 +77,22 @@ export async function getPlatformBillingOffer(): Promise<PlatformBillingOffer> {
 
 export async function savePlatformBillingOffer(access: AccessContext, input: {
   pixPriceCents: number;
+  quarterlyDiscountBps: number;
+  semiannualDiscountBps: number;
+  annualDiscountBps: number;
 }) {
   requirePlatformAdmin(access);
   const pixPriceCents = Math.round(Number(input.pixPriceCents));
   if (!Number.isInteger(pixPriceCents) || pixPriceCents < 100 || pixPriceCents > 1000000) {
     throw new Error("Informe um preço Pix entre R$ 1,00 e R$ 10.000,00.");
+  }
+  const discounts = {
+    quarterlyDiscountBps: Number(input.quarterlyDiscountBps),
+    semiannualDiscountBps: Number(input.semiannualDiscountBps),
+    annualDiscountBps: Number(input.annualDiscountBps),
+  };
+  if (Object.values(discounts).some((value) => !Number.isInteger(value) || value < 0 || value > 5000)) {
+    throw new Error("Informe descontos entre 0% e 50%.");
   }
   const db = await getDb();
   const now = new Date().toISOString();
@@ -82,14 +101,12 @@ export async function savePlatformBillingOffer(access: AccessContext, input: {
     pixPriceCents,
     barberPixPriceCents: pixPriceCents,
     pixPeriodDays: DEFAULT_OFFER.pixPeriodDays,
-    quarterlyDiscountBps: 0,
-    semiannualDiscountBps: 0,
-    annualDiscountBps: 0,
+    ...discounts,
     updatedByTeamMemberId: access.teamMemberId,
     updatedAt: now,
   }).onConflictDoUpdate({
     target: platformBillingSettings.id,
-    set: { pixPriceCents, barberPixPriceCents: pixPriceCents, updatedByTeamMemberId: access.teamMemberId, updatedAt: now },
+    set: { pixPriceCents, barberPixPriceCents: pixPriceCents, ...discounts, updatedByTeamMemberId: access.teamMemberId, updatedAt: now },
   });
   return getPlatformBillingOffer();
 }

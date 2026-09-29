@@ -3,15 +3,14 @@ import type { AccessContext } from "./access";
 import { requireOwner } from "./access";
 import { getDb } from "./index";
 import { notifyOwnersOfSubscriptionPayment } from "./notifications";
-import { getPixPlan, getPlatformBillingOffer } from "./platform-billing";
+import { getPixPlan, getPlatformBillingOffer, type PixPlanCode } from "./platform-billing";
 import { getPlatformSecret, mercadoPagoSecretNames } from "./platform-secrets";
 import { affiliateCommissions, organizations, subscriptionPayments } from "./schema";
 import { recordAffiliateCommission } from "./affiliates";
 import { getAffiliateAccessToken, getOrganizationAffiliateSplit } from "./mercado-pago-affiliates";
 
 const PIX_EXPIRATION_MINUTES = 30;
-const PIX_FALLBACK_URL = "https://mpago.la/2yinhJS";
-const DEFAULT_PUBLIC_APP_URL = "https://clube-fiel-v11.kaylon-estefani2016.chatgpt.site";
+const DEFAULT_PUBLIC_APP_URL = "https://cortouanotou.com.br";
 
 type MercadoPagoPayment = {
   id?: number | string;
@@ -46,9 +45,7 @@ export type PixPaymentView = {
   accessUntil: string | null;
 };
 
-export class BillingConfigurationError extends Error {
-  readonly fallbackUrl = PIX_FALLBACK_URL;
-}
+export class BillingConfigurationError extends Error {}
 
 class MercadoPagoRequestError extends Error {
   constructor(readonly statusCode: number) {
@@ -195,14 +192,14 @@ async function applyProviderPayment(order: StoredPayment, payment: MercadoPagoPa
   return fresh;
 }
 
-export async function createPixPayment(access: AccessContext) {
+export async function createPixPayment(access: AccessContext, planCode: PixPlanCode = "monthly") {
   requireOwner(access);
   const config = await billingConfig();
   if (!config.accessToken) throw new BillingConfigurationError("A integração Pix ainda precisa ser conectada ao Mercado Pago.");
 
   const db = await getDb();
   const offer = await getPlatformBillingOffer();
-  const plan = getPixPlan(offer);
+  const plan = getPixPlan(offer, planCode);
   const now = new Date().toISOString();
   const reusable = (await db.select().from(subscriptionPayments).where(and(
     eq(subscriptionPayments.organizationId, access.organizationId),
@@ -346,8 +343,4 @@ export async function validateMercadoPagoWebhookSignature(request: Request, data
   );
   const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
   return secureEqual(bytesToHex(signed), parts.v1.toLowerCase());
-}
-
-export function pixFallbackUrl() {
-  return PIX_FALLBACK_URL;
 }
