@@ -113,6 +113,32 @@ test("sem serviço combinado, não reserva só barba ou só corte",async()=>{
   assert.equal(globalThis.__caSlots.length,0);
 });
 
+test("negação de barba mantém somente corte e nunca seleciona o combo",async()=>{
+  const [reply]=await chat(["quero corte sem barba amanhã às 10 com Eduardo"]);
+  assert.equal(reply.memory.service,"Corte");
+  assert.equal(reply.memory.barber,"Eduardo");
+  assert.equal(reply.memory.time,"10:00");
+  assert.ok(globalThis.__caSlots.some(slot=>slot.serviceId===11));
+  assert.ok(!globalThis.__caSlots.some(slot=>slot.serviceId===13));
+});
+
+test("correção 'barba não quero só o cabelo' troca só o serviço e preserva contexto",async()=>{
+  const [first,second]=await chat(["quero corte + barba amanhã às 10 com Eduardo","barba não quero só o cabelo"]);
+  assert.equal(first.memory.service,"Corte + barba");
+  assert.equal(second.memory.service,"Corte");
+  assert.equal(second.memory.date,first.memory.date);
+  assert.equal(second.memory.barber,"Eduardo");
+  assert.equal(second.memory.time,"10:00");
+});
+
+test("correção 'na verdade às 11' muda só o horário",async()=>{
+  const [first,second]=await chat(["quero corte amanhã às 10 com Eduardo","na verdade às 11"]);
+  assert.equal(second.memory.service,"Corte");
+  assert.equal(second.memory.date,first.memory.date);
+  assert.equal(second.memory.barber,"Eduardo");
+  assert.equal(second.memory.time,"11:00");
+});
+
 test("'Ok' após solicitar Pix recebe resposta breve sem alegar pagamento",async()=>{
   const reply=await composeReply(
     {organizationId:context.organization.id,text:"Ok",phone:"550000000",providerMessageId:"pix",receivedAt:"",messageRowId:0},

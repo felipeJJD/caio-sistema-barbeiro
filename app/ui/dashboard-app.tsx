@@ -1312,12 +1312,37 @@ function History({ data: baseData, post, pending }: { data: DashboardData; post:
 
 function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) {
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingMode, setEditingMode] = useState<"details" | "reschedule">("details");
+  const [focusedId, setFocusedId] = useState<number | null>(null);
+  const focusedFromNotificationRef = useRef(0);
   const [completingId, setCompletingId] = useState<number | null>(null);
   const editorRef = useEditorAutoScroll<HTMLDivElement>(editingId);
   const editing = data.appointments.find((item) => item.id === editingId);
   const completingAppointment = data.appointments.find((item) => item.id === completingId);
   const activeAppointments = data.appointments.filter((item) => item.status !== "Concluído" && item.status !== "Atendido");
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = event.currentTarget; const fields = new FormData(form); const ok = await post({ action: "appointment", id: editingId ?? 0, appointmentDate: String(fields.get("appointmentDate")), appointmentTime: String(fields.get("appointmentTime")), clientName: String(fields.get("clientName")), phone: String(fields.get("phone")), serviceId: Number(fields.get("serviceId")), barberId: Number(fields.get("barberId")), notes: String(fields.get("notes")) }, editing ? "Agendamento atualizado. Se estava pendente, ainda precisa de confirmação." : "Horário incluído na agenda."); if (ok) { setEditingId(null); form.reset(); } }
+  useEffect(() => {
+    const id = Number(new URLSearchParams(window.location.search).get("appointment") || 0);
+    if (!Number.isInteger(id) || id <= 0 || focusedFromNotificationRef.current === id || !data.appointments.some((item) => item.id === id)) return;
+    focusedFromNotificationRef.current = id;
+    setFocusedId(id);
+    const frame = window.requestAnimationFrame(() => document.getElementById("appointment-" + id)?.scrollIntoView({ behavior:"smooth", block:"center" }));
+    const timer = window.setTimeout(() => setFocusedId((current) => current === id ? null : current), 6500);
+    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, [data.appointments]);
+  function editDetails(id: number) { setEditingMode("details"); setEditingId(id); }
+  function reschedule(id: number) { setEditingMode("reschedule"); setEditingId(id); }
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const fields = new FormData(form);
+    const payload: Record<string, string | number | boolean> = editing
+      ? editingMode === "reschedule"
+        ? { action:"appointment-reschedule", id:editing.id, appointmentDate:String(fields.get("appointmentDate")), appointmentTime:String(fields.get("appointmentTime")), barberId:Number(fields.get("barberId")) }
+        : { action:"appointment-update-details", id:editing.id, clientName:String(fields.get("clientName")), phone:String(fields.get("phone")), serviceId:Number(fields.get("serviceId")), notes:String(fields.get("notes")) }
+      : { action:"appointment", id:0, appointmentDate:String(fields.get("appointmentDate")), appointmentTime:String(fields.get("appointmentTime")), clientName:String(fields.get("clientName")), phone:String(fields.get("phone")), serviceId:Number(fields.get("serviceId")), barberId:Number(fields.get("barberId")), notes:String(fields.get("notes")) };
+    const ok = await post(payload, editing ? editingMode === "reschedule" ? "Horário remarcado. Pendências e pagamento foram preservados." : "Dados do agendamento atualizados sem alterar horário ou confirmação." : "Horário incluído na agenda.");
+    if (ok) { setEditingId(null); form.reset(); }
+  }
   async function cancel(id: number) { if (window.confirm("Cancelar este agendamento? Ele continuará no histórico como cancelado.")) { const ok = await post({ action: "cancel-appointment", id }, "Agendamento cancelado e mantido no histórico."); if (ok && editingId === id) setEditingId(null); } }
   async function confirm(appointment: Appointment) {
     await post(
@@ -1356,10 +1381,10 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
         </div>
       </div>
       <div className="appointment-list">
-        {activeAppointments.map((item) => <article className={item.status === "Cancelado" ? "appointment canceled" : item.status === "Aguardando" || item.status === "Aguardando pagamento" ? "appointment awaiting" : "appointment"} key={item.id}>
+        {activeAppointments.map((item) => <article id={"appointment-" + item.id} className={(item.status === "Cancelado" ? "appointment canceled" : item.status === "Aguardando" || item.status === "Aguardando pagamento" ? "appointment awaiting" : "appointment") + (focusedId === item.id ? " notification-focus" : "")} key={item.id}>
           <time>{item.appointmentTime}<small>{date(item.appointmentDate)}</small></time>
           <div className="avatar">{initials(item.clientName)}</div>
-          <div className="appointment-info"><strong>{item.clientName}</strong><p>{item.paymentChoice === "Mensalista" ? "Mensalista" : item.serviceName} com {item.barberName}</p><small>{item.phone}{item.notes ? ` · ${item.notes}` : ""}</small><small>{item.paymentChoice === "Mensalista" ? "Uso do plano mensal · conferir cadastro" : `Pagamento escolhido: ${item.paymentChoice}`}</small>{item.reminderSentAt && <small className="appointment-reminder-status">✓ {reminderSentLabel(item.reminderSentAt)}</small>}</div>
+          <div className="appointment-info"><strong>{item.clientName}</strong><p>{item.paymentChoice === "Mensalista" ? "Mensalista" : item.serviceName} com {item.barberName}</p><small>{date(item.appointmentDate)} às {item.appointmentTime}</small><small>{item.phone}{item.notes ? ` · ${item.notes}` : ""}</small><small>{item.paymentChoice === "Mensalista" ? "Uso do plano mensal · conferir cadastro" : `Pagamento escolhido: ${item.paymentChoice}`}</small><small className="appointment-state-note">{item.status === "Agendado" ? "Horário confirmado" : item.status === "Aguardando pagamento" ? "Pagamento pendente · ainda não confirmado" : item.status === "Aguardando" && item.paymentChoice === "Pix" ? "Pix informado · confira o recebimento antes de confirmar" : item.status === "Aguardando" ? "Pedido pendente · confirme o horário" : item.status === "Cancelado" ? "Cancelado · use Remarcar para reativar" : item.status}</small>{item.reminderSentAt && <small className="appointment-reminder-status">✓ {reminderSentLabel(item.reminderSentAt)}</small>}</div>
           <span className={`status ${item.status.toLowerCase()}`}>{item.status === "Aguardando" && item.paymentChoice === "Pix" ? "Pix informado · conferir" : item.status}</span>
           <div className="appointment-actions">
             {(data.viewer.isOwner || item.barberId === data.viewer.teamMemberId) && item.status === "Aguardando" && item.paymentChoice !== "Pix" && <button className="confirm whatsapp-confirm" disabled={pending} title="Confirmar este horário" onClick={() => confirm(item)}>Confirmar horário</button>}
@@ -1367,7 +1392,8 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
             {item.status === "Agendado" && whatsappPhone(item.phone) && <a className="whatsapp-message" href={whatsappConfirmationUrl(item, data.viewer.organizationName)} target="_blank" rel="noreferrer"><AppIcon name="whatsapp" /> Avisar no WhatsApp</a>}
             {item.status === "Agendado" && whatsappPhone(item.phone) && <button className={item.reminderSentAt ? "reminder sent" : "reminder"} disabled={pending} title={item.reminderSentAt ? reminderSentLabel(item.reminderSentAt) : "Abrir lembrete no WhatsApp"} onClick={() => sendReminder(item)}>{item.reminderSentAt ? "Reenviar lembrete" : "Enviar lembrete"}</button>}
             {(item.status === "Agendado" || item.status === "Concluído") && <button className="complete-appointment" disabled={pending} onClick={() => setCompletingId(item.id)}>Concluir atendimento</button>}
-            <button onClick={() => setEditingId(item.id)}>{item.status === "Cancelado" || item.status === "Aguardando pagamento" || item.status === "Aguardando" ? "Remarcar" : "Editar"}</button>
+            <button className="reschedule-appointment" disabled={pending} onClick={() => reschedule(item.id)}>Remarcar</button>
+            {item.status !== "Cancelado" && <button disabled={pending} onClick={() => editDetails(item.id)}>Editar dados</button>}
             {item.status !== "Cancelado" && <button className="danger" onClick={() => cancel(item.id)}>Cancelar</button>}
             <button className="trash" title="Apagar agendamento" aria-label={`Apagar agendamento de ${item.clientName}`} onClick={() => remove(item.id)}><AppIcon name="trash" /></button>
           </div>
@@ -1376,16 +1402,13 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
       </div>
     </div>
     <div className={`panel form-card compact editor-scroll-target${editing ? " is-editing" : ""}`} ref={editorRef} tabIndex={-1}>
-      <SectionTitle title={editing ? "Editar ou remarcar" : "Novo horário"} copy={editing ? "Altere os dados e salve. Pedidos e Pix pendentes continuam pendentes; um cancelado volta como agendado." : "Adicione um cliente à agenda."} />
-      <form className="app-form" onSubmit={submit} key={editing?.id ?? "new-appointment"}>
-        <Field label="Data"><input name="appointmentDate" type="date" defaultValue={editing?.appointmentDate ?? today} required /></Field>
-        <Field label="Horário"><input name="appointmentTime" type="time" step="60" defaultValue={editing?.appointmentTime ?? ""} required /></Field>
-        <Field label="Cliente"><input name="clientName" placeholder="Nome" defaultValue={editing?.clientName ?? ""} required /></Field>
-        <Field label="Telefone"><input name="phone" placeholder="(41) 99999-9999" defaultValue={editing?.phone ?? ""} /></Field>
-        <Field label="Serviço"><select name="serviceId" defaultValue={editing?.serviceId ?? data.services[0]?.id}>{editing && !data.services.some((item) => item.id === editing.serviceId) && <option value={editing.serviceId}>{editing.serviceName} · excluído</option>}{data.services.filter((item) => item.active || item.id === editing?.serviceId).map((item) => <option value={item.id} key={item.id}>{item.name}{data.agendaSettings.useServiceDuration ? ` · ${item.durationMinutes} min` : ""}</option>)}</select></Field>
-        <Field label="Barbeiro"><select name="barberId" defaultValue={editing?.barberId ?? data.team[0]?.id}>{data.team.filter((item) => item.active || item.id === editing?.barberId).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></Field>
-        <Field label="Observações"><textarea name="notes" placeholder="Opcional" defaultValue={editing?.notes ?? ""} /></Field>
-        <button className="primary-button" disabled={pending}>{pending ? "Verificando horário..." : editing ? "Salvar alterações" : "Agendar horário"}</button>
+      <SectionTitle title={!editing ? "Novo horário" : editingMode === "reschedule" ? "Remarcar horário" : "Editar dados"} copy={!editing ? "Adicione um cliente à agenda." : editingMode === "reschedule" ? "Mude apenas data, horário ou profissional. Serviço, pagamento e pendências são preservados." : "Altere cliente, telefone, serviço ou observações sem mexer na confirmação do horário."} />
+      {editing && <div className="appointment-editor-summary"><strong>{editing.clientName}</strong><span>{editing.serviceName} · {editing.barberName}</span><small>{date(editing.appointmentDate)} às {editing.appointmentTime} · {editing.status} · {editing.paymentChoice || "Pagamento não informado"}</small></div>}
+      <form className="app-form" onSubmit={submit} key={(editing?.id ?? "new-appointment") + "-" + editingMode}>
+        {(!editing || editingMode === "reschedule") && <><Field label="Data"><input name="appointmentDate" type="date" defaultValue={editing?.appointmentDate ?? today} required /></Field><Field label="Horário"><input name="appointmentTime" type="time" step="60" defaultValue={editing?.appointmentTime ?? ""} required /></Field></>}
+        {(!editing || editingMode === "details") && <><Field label="Cliente"><input name="clientName" placeholder="Nome" defaultValue={editing?.clientName ?? ""} required /></Field><Field label="Telefone"><input name="phone" placeholder="(41) 99999-9999" defaultValue={editing?.phone ?? ""} /></Field><Field label="Serviço"><select name="serviceId" defaultValue={editing?.serviceId ?? data.services[0]?.id}>{editing && !data.services.some((item) => item.id === editing.serviceId) && <option value={editing.serviceId}>{editing.serviceName} · excluído</option>}{data.services.filter((item) => item.active || item.id === editing?.serviceId).map((item) => <option value={item.id} key={item.id}>{item.name}{data.agendaSettings.useServiceDuration ? ` · ${item.durationMinutes} min` : ""}</option>)}</select></Field><Field label="Observações"><textarea name="notes" placeholder="Opcional" defaultValue={editing?.notes ?? ""} /></Field></>}
+        {(!editing || editingMode === "reschedule") && <Field label="Barbeiro"><select name="barberId" defaultValue={editing?.barberId ?? data.team[0]?.id}>{data.team.filter((item) => item.active || item.id === editing?.barberId).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></Field>}
+        <button className="primary-button" disabled={pending}>{pending ? "Verificando..." : !editing ? "Agendar horário" : editingMode === "reschedule" ? "Confirmar remarcação" : "Salvar dados"}</button>
         {editing && <button type="button" className="cancel-button" onClick={() => setEditingId(null)}>Fechar edição</button>}
       </form>
     </div>
