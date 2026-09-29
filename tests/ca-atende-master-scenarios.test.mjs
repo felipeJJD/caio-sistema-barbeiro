@@ -215,7 +215,7 @@ for(const service of serviceNames) for(const prefix of pricePrefixes) scenario("
 
 const menuCases=[
   ["Ver opções","menu"],["VER OPÇÕES","menu"],["Menu","menu"],["Opcoes","menu"],
-  ["Agendar horário","booking_method"],["AGENDAR HORÁRIO","booking_method"],
+  ["Agendar horário","awaiting_service"],["AGENDAR HORÁRIO","awaiting_service"],
   ["Agendar pelo link",""],["agendar pelo link",""],
   ["Ver horários disponíveis","awaiting_availability_details"],
   ["Preços e serviços",""],["PREÇOS E SERVIÇOS",""],
@@ -403,19 +403,20 @@ for(const template of slangTemplates) for(const person of aiPeople) {
   });
 }
 
-test("saudação real inclui link público e botão Ver opções sem usar IA",async()=>{
+test("saudação real conversa primeiro e mantém Ver opções sem usar IA",async()=>{
   const [answer]=await chat(["bom dia"]);
-  assert.match(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
+  assert.match(answer.reply,/Como posso te ajudar/);
+  assert.doesNotMatch(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
   assert.match(answer.reply,/Ver opções/);
   assert.deepEqual(answer.choices,["Ver opções"]);
   assert.equal(globalThis.__caAiCalls,0);
 });
 
-test("saudação personalizada também recebe o link se o texto customizado esquecer dele",async()=>{
+test("saudação personalizada não força link quando a barbearia não colocou {link}",async()=>{
   const custom={...context,settings:{...context.settings,greetingText:"Olá! Bem-vindo à {barbearia}."}};
   const [answer]=await chat(["bom dia"],custom);
   assert.match(answer.reply,/Olá! Bem-vindo à Barbearia Cenários\./);
-  assert.match(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
+  assert.doesNotMatch(answer.reply,/https:\/\/cortouanotou\.com\.br\/agendar\/cenarios/);
 });
 
 test("Caderno Mestre contém exatamente 320 cenários automáticos",()=>{
