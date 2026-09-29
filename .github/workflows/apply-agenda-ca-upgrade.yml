@@ -17,10 +17,8 @@ jobs:
         with:
           node-version: 24.13.0
           cache: npm
-      - name: Corrigir aplicador temporário
-        run: node scripts/fix-agenda-applicator.mjs
       - name: Aplicar mudanças focadas
-        run: node scripts/apply-agenda-ca-upgrade.mjs
+        run: python3 scripts/apply-agenda-ca-upgrade.py
       - name: Instalar dependências
         run: npm ci --no-audit --no-fund
       - name: Typecheck
@@ -33,8 +31,8 @@ jobs:
         run: npm test
       - name: Carga
         run: npm run test:load
-      - name: Limpar aplicador temporário
-        run: rm -f scripts/apply-agenda-ca-upgrade.mjs scripts/fix-agenda-applicator.mjs .github/workflows/apply-agenda-ca-upgrade.yml
+      - name: Limpar aplicadores temporários
+        run: rm -f scripts/apply-agenda-ca-upgrade.mjs scripts/fix-agenda-applicator.mjs scripts/apply-agenda-ca-upgrade.py .github/workflows/apply-agenda-ca-upgrade.yml
       - name: Gravar resultado validado
         run: |
           git config user.name "github-actions[bot]"
