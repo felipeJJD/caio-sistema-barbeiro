@@ -96,10 +96,35 @@ function findNamedItem<T extends { name: string }>(message: string, requested: s
   return null;
 }
 
-function findServiceByMessage(message: string, items: CaAtendeRuntimeContext["services"]) {
+function singleService(items: CaAtendeRuntimeContext["services"], wanted: "cut" | "beard") {
+  return items.find((item) => {
+    const name = normalizeCaAtendeText(item.name);
+    if (wanted === "cut") return /\b(corte|cabelo)\b/.test(name) && !/\bbarba\b/.test(name);
+    return /\bbarba\b/.test(name) && !/\b(corte|cabelo)\b/.test(name);
+  }) ?? null;
+}
+
+function serviceIntentSignals(message: string) {
   const text = normalizeCaAtendeText(message);
-  if (/\b(cortar|corte|cabelo)\b/.test(text) && /\bbarba\b/.test(text)) {
-    const combined = items.find(item => /corte/.test(normalizeCaAtendeText(item.name)) && /barba/.test(normalizeCaAtendeText(item.name)));
+  const mentionsCut = /\b(cortar|corte|cabelo|cabeca)\b/.test(text);
+  const mentionsBeard = /\b(barba|barbear|barbinha)\b/.test(text);
+  const rejectBeard = /\bsem\s+(?:a\s+)?barba\b/.test(text)
+    || /\bnao\s+(?:quero|preciso|vou querer|faz|fazer)\s+(?:a\s+)?barba\b/.test(text)
+    || /\bbarba\s+nao(?:\s+(?:quero|preciso))?\b/.test(text)
+    || /\b(?:so|somente|apenas)\s+(?:o\s+)?(?:corte|cabelo)\b/.test(text);
+  const rejectCut = /\bsem\s+(?:o\s+)?(?:corte|cabelo)\b/.test(text)
+    || /\bnao\s+(?:quero|preciso|vou querer|faz|fazer)\s+(?:o\s+)?(?:corte|cabelo)\b/.test(text)
+    || /\b(?:corte|cabelo)\s+nao(?:\s+(?:quero|preciso))?\b/.test(text)
+    || /\b(?:so|somente|apenas)\s+(?:a\s+)?barba\b/.test(text);
+  return { text, mentionsCut, mentionsBeard, rejectBeard, rejectCut };
+}
+
+function findServiceByMessage(message: string, items: CaAtendeRuntimeContext["services"]) {
+  const { text, mentionsCut, mentionsBeard, rejectBeard, rejectCut } = serviceIntentSignals(message);
+  if (mentionsCut && rejectBeard && !rejectCut) return singleService(items, "cut");
+  if (mentionsBeard && rejectCut && !rejectBeard) return singleService(items, "beard");
+  if (mentionsCut && mentionsBeard && !rejectBeard && !rejectCut) {
+    const combined = items.find(item => /\b(corte|cabelo)\b/.test(normalizeCaAtendeText(item.name)) && /\bbarba\b/.test(normalizeCaAtendeText(item.name)));
     if (combined) return combined;
     // Do not silently replace a requested combination with only one service.
     return null;
@@ -512,8 +537,23 @@ export async function composeReply(
   if (highConfidenceCommercialOffer(event.text) && context.settings.spamFilterEnabled) {
     return { reply:"", intent:"spam", state:"suspected_offer", memory:oldMemory, source:"rule", spam:true };
   }
-  if (stage === "booking_pix_pending" && /^(ok|blz|beleza|obrigado|obrigada|certo|combinado)$/.test(normalized)) {
+  const acknowledgement = /^(ok|blz|beleza|obrigado|obrigada|certo|combinado)$/.test(normalized);
+  if (stage === "booking_pix_pending" && acknowledgement) {
     return { reply:"Combinado! O horário aguarda o Pix e a conferência da barbearia.", intent:"booking", state:"", memory:{}, source:"rule" };
+  }
+  if (acknowledgement && stage === "awaiting_confirmation") {
+    return { reply:"Certo. Para fechar esse horário, escreva “confirmar” ou escolha Confirmar.", intent:oldMemory.intent || "booking", state:stage, memory:oldMemory, source:"rule", dataSource:"agenda", choices:["Confirmar", "Escolher outro horário", "Trocar profissional", "Cancelar"] };
+  }
+  if (acknowledgement && stage === "awaiting_payment") {
+    const payments = await bookingPaymentChoices(context);
+    return { reply:"Certo. Só falta me dizer como prefere pagar.", intent:"booking", state:stage, memory:oldMemory, source:"rule", choices:payments, dataSource:"agenda" };
+  }
+  if (acknowledgement && (stage === "awaiting_service" || stage === "awaiting_professional" || stage === "awaiting_booking_details" || stage === "awaiting_booking_choice" || stage === "awaiting_availability_details")) {
+    const reply = stage === "awaiting_service" ? "Certo. Qual serviço você quer?"
+      : stage === "awaiting_professional" ? "Certo. Qual profissional você prefere?"
+        : stage === "awaiting_booking_choice" ? "Certo. Qual horário você prefere?"
+          : "Certo. Continuamos daqui — me diga só o detalhe que falta.";
+    return { reply, intent:oldMemory.intent || "booking", state:stage, memory:oldMemory, source:"rule", dataSource:"agenda" };
   }
   if (normalized === "ver opcoes" || normalized === "opcoes" || normalized === "menu") return menuDecision(context);
   if (normalized === "agendar horario" || normalized === "agendar pelo link") {
@@ -621,7 +661,8 @@ export async function composeReply(
     if (!oldMemory.service) return { reply:"Qual serviço você quer?", intent:"booking", state:"awaiting_service", memory:oldMemory, source:"rule", choices:serviceChoices(context) };
     if (!oldMemory.date) return { reply:"Combinado, vou olhar todos os profissionais. Qual dia você prefere?", intent:oldMemory.intent || "booking", state:"awaiting_booking_details", memory:{ ...oldMemory, barber:"" }, source:"rule", choices:["Hoje", "Amanhã"] };
   }
-  if (/\b(cortar|corte|cabelo)\b/.test(normalized) && /\bbarba\b/.test(normalized) && !findServiceByMessage(event.text, context.services)) {
+  const serviceSignals = serviceIntentSignals(event.text);
+  if (serviceSignals.mentionsCut && serviceSignals.mentionsBeard && !serviceSignals.rejectBeard && !serviceSignals.rejectCut && !findServiceByMessage(event.text, context.services)) {
     return { reply:"Não encontrei corte com barba como um serviço único aqui. Qual serviço você prefere?", intent:"booking", state:"awaiting_service", memory:{ ...oldMemory, intent:"booking", service:"" }, source:"rule", choices:serviceChoices(context) };
   }
   const interpreted = await interpretationFor(event.text, context, oldMemory);

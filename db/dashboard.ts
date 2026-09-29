@@ -647,6 +647,33 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
   } else await db.insert(appointments).values({ ...values, organizationId: access.organizationId });
 }
 
+export async function updateAppointmentDetails(access: AccessContext, input: { id: number; clientName: string; phone?: string; serviceId: number; notes?: string }) {
+  const db = await getDb();
+  const existing = (await db.select().from(appointments).where(and(eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId))).limit(1))[0];
+  if (!existing) throw new Error("Agendamento não encontrado.");
+  requireOwnBarber(access, existing.barberId);
+  if (existing.status === "Cancelado") throw new Error("Este horário está cancelado. Use Remarcar para reativá-lo.");
+  const previousReminder = existing.reminderSentAt;
+  await saveAppointment(access, {
+    id: existing.id, appointmentDate: existing.appointmentDate, appointmentTime: existing.appointmentTime,
+    clientName: input.clientName, phone: input.phone ?? "", serviceId: input.serviceId, barberId: existing.barberId, notes: input.notes ?? "",
+  });
+  if (previousReminder) await db.update(appointments).set({ reminderSentAt: previousReminder }).where(and(
+    eq(appointments.id, existing.id), eq(appointments.organizationId, access.organizationId), eq(appointments.status, existing.status),
+  ));
+}
+
+export async function rescheduleAppointmentFromAgenda(access: AccessContext, input: { id: number; appointmentDate: string; appointmentTime: string; barberId: number }) {
+  const db = await getDb();
+  const existing = (await db.select().from(appointments).where(and(eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId))).limit(1))[0];
+  if (!existing) throw new Error("Agendamento não encontrado.");
+  requireOwnBarber(access, existing.barberId);
+  await saveAppointment(access, {
+    id: existing.id, appointmentDate: input.appointmentDate, appointmentTime: input.appointmentTime,
+    clientName: existing.clientName, phone: existing.phone, serviceId: existing.serviceId, barberId: input.barberId, notes: existing.notes,
+  });
+}
+
 export async function cancelAppointment(access: AccessContext, id: number) {
   const db = await getDb();
   const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0];
