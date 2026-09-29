@@ -17,7 +17,7 @@ type GalleryImage = {
 type TeamMember = { id: number; name: string; active: boolean };
 
 const labels = {
-  cover: { title: "Foto de capa", help: "A primeira imagem da página pública", limit: 1 },
+  cover: { title: "Foto de capa", help: "Aparece na página pública e na prévia do link no WhatsApp. Use o logo da barbearia.", limit: 1 },
   barber: { title: "Foto do profissional", help: "Aparece na escolha do barbeiro", limit: 1 },
   shop: { title: "Espaço da barbearia", help: "Fachada, cadeiras e ambiente", limit: 6 },
   work: { title: "Trabalhos realizados", help: "Portfólio de cortes por profissional", limit: 8 },

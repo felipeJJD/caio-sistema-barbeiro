@@ -12,11 +12,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   if (!data) return { title: "Agendamento online | Cortou Anotou" };
   const title = `Agende seu horário | ${data.organization.name}`;
   const description = `Escolha o serviço, o profissional, o dia e o horário disponível em ${data.organization.name}.`;
+  const cover = data.gallery.find((image) => image.kind === "cover");
+  const preview = `https://cortouanotou.com.br/api/public-booking/preview/${encodeURIComponent(data.organization.slug)}?v=${cover?.id ?? 0}`;
   return {
     title,
     description,
-    openGraph: { title, description, images: [] },
-    twitter: { title, description, images: [] },
+    openGraph: { title, description, type: "website", url: `https://cortouanotou.com.br/agendar/${encodeURIComponent(data.organization.slug)}`, images: [{ url: preview, width: 1200, height: 630, alt: `Agendamento online da ${data.organization.name}` }] },
+    twitter: { card: "summary_large_image", title, description, images: [preview] },
   };
 }
 
