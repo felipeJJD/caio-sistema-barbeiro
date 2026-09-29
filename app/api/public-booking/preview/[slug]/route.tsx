@@ -4,7 +4,7 @@ import { galleryImageRecord } from "../../../../../db/public-gallery";
 
 export const dynamic = "force-dynamic";
 
-type ImageObject = { arrayBuffer(): Promise<ArrayBuffer> };
+type ImageObject = { body: ReadableStream };
 type ImageBucket = { get(key: string): Promise<ImageObject | null> };
 
 export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
@@ -23,7 +23,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
       const bucket = (env as unknown as { BUCKET?: ImageBucket }).BUCKET;
       const object = await bucket?.get(record.objectKey);
       if (object && ["image/jpeg", "image/png", "image/webp"].includes(record.contentType)) {
-        coverSource = `data:${record.contentType};base64,${Buffer.from(await object.arrayBuffer()).toString("base64")}`;
+        coverSource = `data:${record.contentType};base64,${Buffer.from(await new Response(object.body).arrayBuffer()).toString("base64")}`;
       }
     }
   }
