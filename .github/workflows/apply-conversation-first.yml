@@ -1,0 +1,193 @@
+name: Aplicar conversa primeiro no C.A. Atende
+
+on:
+  push:
+    branches:
+      - feat/ca-atende-conversation-first
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/ca-atende-conversation-first
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - name: Aplicar mudanças focadas
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: esperado 1 trecho, encontrado {count}: {old[:100]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "db/ca-atende.ts",
+              '''function defaultGreeting(context: CaAtendeRuntimeContext) {
+  const link = bookingLink(context.organization.slug);
+  const custom = context.settings.greetingText.trim();
+  if (custom) {
+    const rendered = custom
+      .replaceAll("{barbearia}", context.organization.name)
+      .replaceAll("{link}", link)
+      .trim();
+    const withLink = rendered.includes(link)
+      ? rendered
+      : `${rendered}\\n\\nPara agendar seu horário: ${link}`;
+    return withLink.slice(0,3500);
+  }
+  return `Olá! Seja bem-vindo à ${context.organization.name}. Para agendar seu horário é só acessar: ${link}\\n\\nSe preferir outro assunto, toque em “Ver opções” ou escreva o que precisa.`;
+}''',
+              '''function defaultGreeting(context: CaAtendeRuntimeContext) {
+  const link = bookingLink(context.organization.slug);
+  const custom = context.settings.greetingText.trim();
+  if (custom) {
+    return custom
+      .replaceAll("{barbearia}", context.organization.name)
+      .replaceAll("{link}", link)
+      .trim()
+      .slice(0,3500);
+  }
+  return `Olá! Seja bem-vindo à ${context.organization.name}. Como posso te ajudar? Pode escrever do seu jeito ou tocar em “Ver opções”.`;
+}'''
+          )
+
+          replace_once(
+              "db/ca-atende.ts",
+              '''  // Greeting + link is intentionally local and free. For the rest of natural
+  // conversation, AI is the primary interpreter; rules remain a safe fallback.''',
+              '''  // Greeting and the guided menu are intentionally local and free. For the rest of natural
+  // conversation, AI is the primary interpreter; rules remain a safe fallback.'''
+          )
+
+          replace_once(
+              "db/ca-atende.ts",
+              '''const mainChoices = ["Agendar horário", "Ver horários disponíveis", "Preços e serviços", "Cancelar ou remarcar", "Falar com a barbearia"];
+const bookingChoices = ["Agendar pelo link", "Quero ajuda por aqui"];''',
+              '''const mainChoices = ["Agendar horário", "Ver horários disponíveis", "Preços e serviços", "Cancelar ou remarcar", "Falar com a barbearia"];'''
+          )
+
+          replace_once(
+              "db/ca-atende.ts",
+              '''  if (normalized === "agendar horario" || normalized === "agendar pelo link") {
+    if (normalized === "agendar pelo link") {
+      return { reply:bookingLink(context.organization.slug), intent:"booking", state:"", memory:{}, source:"rule" };
+    }
+    return { reply:"Como prefere agendar?", intent:"booking", state:"booking_method", memory:{ intent:"booking" }, source:"rule", choices:bookingChoices };
+  }''',
+              '''  if (normalized === "agendar pelo link") {
+    return { reply:bookingLink(context.organization.slug), intent:"booking", state:"", memory:{}, source:"rule" };
+  }
+  if (normalized === "agendar horario") {
+    return { reply:"Claro. Qual serviço você quer?", intent:"booking", state:"awaiting_service", memory:{ intent:"booking" }, source:"rule", choices:serviceChoices(context) };
+  }'''
+          )
+
+          needle = '''      if (desiredTime) {
+        const exact = slots.filter(slot => slot.time === desiredTime);'''
+          replacement = '''      if (preservedIntent === "booking" && !desiredTime && !afterTime && !beforeTime) {
+        return {
+          reply:"Qual horário você prefere? Pode responder do seu jeito, por exemplo: “15h”, “de manhã” ou “depois das 14h”.",
+          intent:preservedIntent,
+          state:"awaiting_booking_choice",
+          memory:{ ...nextMemory, afterTime:"", beforeTime:"" },
+          source:interpreted.source,
+          dataSource:"agenda",
+        };
+      }
+
+      if (desiredTime) {
+        const exact = slots.filter(slot => slot.time === desiredTime);'''
+          replace_once("db/ca-atende.ts", needle, replacement)
+
+          replace_once(
+              "tests/ca-atende-conversations.test.mjs",
+              '''test("saudação, opções e link público passam pelo mesmo motor sem IA",async()=>{
+  const [hello,menu,booking,link]=await chat(["oi boa tarde","Ver opções","Agendar horário","Agendar pelo link"]);
+  assert.match(hello.reply,/Barbearia Exemplo/);
+  assert.deepEqual(hello.choices,["Ver opções"]);
+  assert.equal(menu.choices.length,5);
+  assert.deepEqual(booking.choices,["Agendar pelo link","Quero ajuda por aqui"]);
+  assert.equal(link.reply,"https://cortouanotou.com.br/agendar/exemplo");
+  assert.equal(globalThis.__caAiCalls,0);
+});''',
+              '''test("saudação conversa primeiro, menu inicia o agendamento e link continua opcional",async()=>{
+  const [hello,menu,booking,link]=await chat(["oi boa tarde","Ver opções","Agendar horário","Agendar pelo link"]);
+  assert.match(hello.reply,/Barbearia Exemplo/);
+  assert.match(hello.reply,/Como posso te ajudar/);
+  assert.doesNotMatch(hello.reply,/https:\\/\\/cortouanotou/);
+  assert.deepEqual(hello.choices,["Ver opções"]);
+  assert.equal(menu.choices.length,5);
+  assert.equal(booking.state,"awaiting_service");
+  assert.match(booking.reply,/Qual serviço/);
+  assert.deepEqual(booking.choices,["Corte","Barba"]);
+  assert.equal(link.reply,"https://cortouanotou.com.br/agendar/exemplo");
+  assert.equal(globalThis.__caAiCalls,0);
+});'''
+          )
+
+          replace_once(
+              "tests/ca-atende-conversations.test.mjs",
+              '''test("conversa guiada mantém serviço, data e profissional até confirmação segura",async()=>{
+  const [start,service,barber,day,hour,confirmation]=await chat(["Agendar horário","Quero ajuda por aqui","Corte","Eduardo","amanhã","10"]);
+  assert.equal(service.state,"awaiting_service");
+  assert.equal(barber.state,"awaiting_professional");
+  assert.equal(day.memory.barber,"Eduardo");
+  assert.equal(hour.memory.service,"Corte");
+  assert.equal(confirmation.state,"awaiting_confirmation");
+  assert.equal(confirmation.memory.time,"10:00");
+  assert.deepEqual(confirmation.choices,["Confirmar","Escolher outro horário","Trocar profissional","Cancelar"]);
+  assert.ok(globalThis.__caAiCalls>=1);
+  assert.ok(globalThis.__caSlots.every(slot=>slot.slug==="exemplo" && slot.serviceId===11));
+});''',
+              '''test("conversa guiada avança sozinha e pergunta o horário sem despejar a agenda",async()=>{
+  const [start,service,barber,day,confirmation]=await chat(["Agendar horário","Corte","Eduardo","amanhã","10"]);
+  assert.equal(start.state,"awaiting_service");
+  assert.equal(service.state,"awaiting_professional");
+  assert.equal(barber.memory.service,"Corte");
+  assert.equal(day.state,"awaiting_booking_choice");
+  assert.equal(day.memory.barber,"Eduardo");
+  assert.match(day.reply,/Qual horário você prefere/);
+  assert.doesNotMatch(day.reply,/10:00.*11:00.*17:30/);
+  assert.equal(confirmation.state,"awaiting_confirmation");
+  assert.equal(confirmation.memory.time,"10:00");
+  assert.deepEqual(confirmation.choices,["Confirmar","Escolher outro horário","Trocar profissional","Cancelar"]);
+  assert.ok(globalThis.__caAiCalls>=1);
+  assert.ok(globalThis.__caSlots.every(slot=>slot.slug==="exemplo" && slot.serviceId===11));
+});'''
+          )
+          PY
+      - name: Instalar dependências
+        run: npm ci --no-audit --no-fund
+      - name: Verificar tipos
+        run: npm run typecheck
+      - name: Verificar lint
+        run: npm run lint
+      - name: Build de produção
+        run: npm run build
+      - name: Testes automatizados
+        run: npm test
+      - name: Teste de carga
+        run: npm run test:load
+      - name: Gravar somente após validação
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-conversation-first.yml
+          git add db/ca-atende.ts tests/ca-atende-conversations.test.mjs
+          git commit -m "C.A. Atende prioriza conversa no agendamento"
+          git push origin feat/ca-atende-conversation-first
