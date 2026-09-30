@@ -8,6 +8,7 @@ type PublicationStatus = "queued" | "sending" | "sent" | "failed" | "cancelled";
 type StatusPublication = {
   id: number;
   text: string;
+  audiencePhone: string;
   status: PublicationStatus;
   scheduledAt: string;
   sentAt: string | null;
@@ -57,12 +58,29 @@ function publicationLabel(status: PublicationStatus) {
   return "Falhou";
 }
 
+function phoneDigits(value: string) {
+  return value.replace(/\D/g, "").slice(0, 13);
+}
+
+function formatPhone(value: string) {
+  const raw = phoneDigits(value);
+  const local = raw.startsWith("55") && raw.length > 11 ? raw.slice(2) : raw;
+  const ddd = local.slice(0, 2);
+  const first = local.slice(2, 7);
+  const last = local.slice(7, 11);
+  if (!ddd) return "";
+  if (local.length <= 2) return `(${ddd}`;
+  if (local.length <= 7) return `(${ddd}) ${first}`;
+  return `(${ddd}) ${first}-${last}`;
+}
+
 export function WhatsappStatusPublications() {
   const [state, setState] = useState<StatusPublicationState | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [text, setText] = useState("");
+  const [audiencePhone, setAudiencePhone] = useState("");
   const [scheduledLocal, setScheduledLocal] = useState(() => localDateTimeValue());
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -89,7 +107,12 @@ export function WhatsappStatusPublications() {
 
   async function save(action: "publish-now" | "schedule") {
     const cleanText = text.trim();
+    const cleanAudiencePhone = phoneDigits(audiencePhone);
     if (!cleanText || saving) return;
+    if (cleanAudiencePhone.length < 10) {
+      setFeedback("Informe um número de WhatsApp válido para visualizar o Status de teste.");
+      return;
+    }
     let scheduledAt = "";
     if (action === "schedule") {
       const date = new Date(scheduledLocal);
@@ -105,7 +128,7 @@ export function WhatsappStatusPublications() {
       const response = await fetch("/api/whatsapp/status-publications", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action, text: cleanText, scheduledAt }),
+        body: JSON.stringify({ action, text: cleanText, audiencePhone: cleanAudiencePhone, scheduledAt }),
       });
       const payload = await response.json() as ApiPayload;
       if (!response.ok || !payload.statusPublications) throw new Error(payload.error ?? "Não foi possível salvar a publicação.");
@@ -147,6 +170,7 @@ export function WhatsappStatusPublications() {
   }
 
   if (loading || !state || state.connectionStatus !== "connected") return null;
+  const audienceReady = phoneDigits(audiencePhone).length >= 10;
 
   return <section className="whatsapp-page ws-page">
     <style>{`
@@ -163,12 +187,13 @@ export function WhatsappStatusPublications() {
       .ws-label{display:block;margin:10px 0 5px;font-size:9px;font-weight:900;color:#766d5d;letter-spacing:.06em}
       .ws-textarea{width:100%;min-height:94px;resize:vertical;border:1px solid #deddd5;border-radius:10px;background:#fff;padding:10px 11px;font-size:16px;line-height:1.35;color:#202720}
       .ws-counter{text-align:right;margin-top:3px;color:#93978f;font-size:9px}
-      .ws-datetime{width:100%;min-height:42px;border:1px solid #deddd5;border-radius:10px;background:#fff;padding:0 10px;font-size:16px;color:#202720}
+      .ws-input,.ws-datetime{width:100%;min-height:42px;border:1px solid #deddd5;border-radius:10px;background:#fff;padding:0 10px;font-size:16px;color:#202720}
+      .ws-audience-help{margin:5px 0 0;color:#737970;font-size:9px;line-height:1.4}.ws-audience-help strong{color:#3d674a}
       .ws-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}.ws-actions button{min-height:42px;border-radius:10px;font-size:11px;font-weight:900}.ws-now{border:0;background:#202720;color:#fff}.ws-schedule{border:1px solid #202720;background:#fff;color:#202720}.ws-actions button:disabled{opacity:.45}
       .ws-feedback{margin:10px 0 0;padding:8px 9px;border-radius:8px;background:#fff1ef;color:#9b3c32;font-size:10px;line-height:1.4}
       .ws-history-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid #efeee8}.ws-history-head strong{font-size:11px}.ws-history-head button{border:0;background:transparent;color:#5c675d;font-size:10px;font-weight:800;padding:5px}
       .ws-empty{margin:10px 0 0;color:#8a8f87;font-size:10px}
-      .ws-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:10px 0;border-top:1px solid #efeee8}.ws-item:first-of-type{margin-top:4px}.ws-item-main{min-width:0}.ws-item-text{font-size:11px;line-height:1.35;color:#2a302b;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ws-item-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px;color:#858a82;font-size:9px}.ws-badge{padding:3px 6px;border-radius:999px;background:#f1f2ef;font-weight:900}.ws-badge.sent{background:#e8f4eb;color:#34764d}.ws-badge.failed{background:#fff1ef;color:#9b3c32}.ws-badge.cancelled{background:#f3f3f1;color:#7d817a}.ws-error{margin-top:4px;color:#9b3c32;font-size:9px;line-height:1.35}.ws-cancel{align-self:center;border:1px solid #deddd5;background:#fff;border-radius:8px;padding:7px 8px;font-size:9px;font-weight:900;color:#5b615a}
+      .ws-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:10px 0;border-top:1px solid #efeee8}.ws-item:first-of-type{margin-top:4px}.ws-item-main{min-width:0}.ws-item-text{font-size:11px;line-height:1.35;color:#2a302b;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ws-item-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px;color:#858a82;font-size:9px}.ws-badge{padding:3px 6px;border-radius:999px;background:#f1f2ef;font-weight:900}.ws-badge.sent{background:#e8f4eb;color:#34764d}.ws-badge.failed{background:#fff1ef;color:#9b3c32}.ws-badge.cancelled{background:#f3f3f1;color:#7d817a}.ws-error{margin-top:4px;color:#9b3c32;font-size:9px;line-height:1.35}.ws-audience-meta{margin-top:4px;color:#737970;font-size:9px}.ws-cancel{align-self:center;border:1px solid #deddd5;background:#fff;border-radius:8px;padding:7px 8px;font-size:9px;font-weight:900;color:#5b615a}
       @media(max-width:680px){.ws-page{margin:0 -1px 8px}.ws-card{border-radius:12px}.ws-head{padding:11px 12px}.ws-body{padding:0 12px 12px}.ws-actions{grid-template-columns:1fr}.ws-lab{font-size:7px}}
     `}</style>
     <div className="ws-card">
@@ -179,16 +204,19 @@ export function WhatsappStatusPublications() {
         <span className={`ws-arrow ${open ? "" : "closed"}`} aria-hidden="true">›</span>
       </button>
       {open && <div className="ws-body">
-        <div className="ws-note">Nesta versão de teste o C|A publica texto no Status para os contatos sincronizados pela Evolution. Não há repetição automática e imagem/vídeo continuam desligados.</div>
+        <div className="ws-note">O C|A vai usar o canal de <strong>Status do WhatsApp</strong>. O número de teste abaixo serve somente para definir quem poderá visualizar esse Status. <strong>Não será enviada mensagem privada para ele.</strong></div>
         <div className="ws-quick">{quickTexts.map((item) => <button type="button" key={item.label} onClick={() => setText(item.text)}>{item.label}</button>)}</div>
         <label className="ws-label" htmlFor="ws-status-text">TEXTO DO STATUS</label>
         <textarea id="ws-status-text" className="ws-textarea" maxLength={500} value={text} onChange={(event) => setText(event.target.value)} placeholder="Escreva o que você quer publicar no Status..." />
         <div className="ws-counter">{text.length}/500</div>
+        <label className="ws-label" htmlFor="ws-status-audience">NÚMERO PARA VISUALIZAR O TESTE</label>
+        <input id="ws-status-audience" className="ws-input" type="tel" inputMode="tel" autoComplete="tel" value={audiencePhone} onChange={(event) => setAudiencePhone(formatPhone(event.target.value))} placeholder="(41) 99999-9999" />
+        <p className="ws-audience-help"><strong>Não envia mensagem.</strong> Esse número apenas entra na audiência do Status para confirmarmos que a publicação apareceu.</p>
         <label className="ws-label" htmlFor="ws-status-time">DATA E HORÁRIO</label>
         <input id="ws-status-time" className="ws-datetime" type="datetime-local" value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} />
         <div className="ws-actions">
-          <button type="button" className="ws-now" disabled={!state.canPublish || saving || !text.trim()} onClick={() => void save("publish-now")}>{saving ? "Processando..." : "Publicar agora"}</button>
-          <button type="button" className="ws-schedule" disabled={!state.canPublish || saving || !text.trim()} onClick={() => void save("schedule")}>Programar publicação</button>
+          <button type="button" className="ws-now" disabled={!state.canPublish || saving || !text.trim() || !audienceReady} onClick={() => void save("publish-now")}>{saving ? "Processando..." : "Publicar agora"}</button>
+          <button type="button" className="ws-schedule" disabled={!state.canPublish || saving || !text.trim() || !audienceReady} onClick={() => void save("schedule")}>Programar publicação</button>
         </div>
         {!state.canPublish && <div className="ws-feedback">{state.reason}</div>}
         {feedback && <div className="ws-feedback" role="alert">{feedback}</div>}
@@ -197,6 +225,7 @@ export function WhatsappStatusPublications() {
           <div className="ws-item-main">
             <div className="ws-item-text">{item.text}</div>
             <div className="ws-item-meta"><span className={`ws-badge ${item.status}`}>{publicationLabel(item.status)}</span><span>{item.status === "sent" && item.sentAt ? formatDate(item.sentAt) : formatDate(item.scheduledAt)}</span></div>
+            {item.audiencePhone && <div className="ws-audience-meta">Audiência de teste: {formatPhone(item.audiencePhone)}</div>}
             {item.status === "failed" && item.errorText && <div className="ws-error">{item.errorText}</div>}
           </div>
           {item.status === "queued" && <button type="button" className="ws-cancel" onClick={() => void cancel(item.id)} disabled={saving}>Cancelar</button>}
