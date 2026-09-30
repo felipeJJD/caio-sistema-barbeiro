@@ -2,13 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [dashboard, whatsappShell, whatsappCore, whatsappStatus] = await Promise.all([
+const [dashboard, whatsappUi] = await Promise.all([
   readFile(new URL("../app/ui/dashboard-app.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/ui/whatsapp-automation.tsx", import.meta.url), "utf8"),
-  readFile(new URL("../app/ui/whatsapp-automation-core.tsx", import.meta.url), "utf8"),
-  readFile(new URL("../app/ui/whatsapp-status-publications.tsx", import.meta.url), "utf8"),
 ]);
-const whatsappUi = `${whatsappShell}\n${whatsappCore}\n${whatsappStatus}`;
 
 test("proprietário possui área WhatsApp na navegação e no roteamento interno", () => {
   assert.match(dashboard, /label: "WhatsApp", section: "WhatsApp"/);
@@ -87,13 +84,4 @@ test("painel compacto mantém ajustes específicos para iPhone", () => {
   assert.match(whatsappUi, /@media\(max-width:680px\)/);
   assert.match(whatsappUi, /\.wa2-reminder select\{min-height:36px;max-width:136px/);
   assert.match(whatsappUi, /font-size:16px/);
-});
-
-test("laboratório de Status fica dentro do WhatsApp e começa somente com texto", () => {
-  assert.match(whatsappUi, /Publicações de Status/);
-  assert.match(whatsappUi, /Publicar agora/);
-  assert.match(whatsappUi, /Programar publicação/);
-  assert.match(whatsappUi, /\/api\/whatsapp\/status-publications/);
-  assert.match(whatsappUi, /maxLength=\{500\}/);
-  assert.doesNotMatch(whatsappStatus, /type="file"/);
 });

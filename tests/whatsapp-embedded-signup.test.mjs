@@ -8,7 +8,7 @@ const [dbWhatsapp, dbEvolution, connectRoute, evolutionRoute, settingsRoute, ui,
   readFile(new URL("../app/api/whatsapp/connect/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/evolution/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/settings/route.ts", import.meta.url), "utf8"),
-  readFile(new URL("../app/ui/whatsapp-automation-core.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/ui/whatsapp-automation.tsx", import.meta.url), "utf8"),
   readFile(new URL("../drizzle/0044_whatsapp_embedded_signup.sql", import.meta.url), "utf8"),
   readFile(new URL("../.env.example", import.meta.url), "utf8"),
 ]);
