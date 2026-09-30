@@ -247,15 +247,8 @@ export function WhatsappAutomation() {
     }
   }
 
-  async function submitReminder(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await saveSettings({ reminderHoursBefore: Number(form.get("reminderHoursBefore") ?? 3) }, "Horário do lembrete atualizado.");
-  }
-
   const connected = Boolean(data && data.connection.provider === "evolution" && data.connection.status === "connected");
   const hasMessageAccess = Boolean(data?.entitlement.hasAccess);
-  const isPlatformAdminAccess = data?.entitlement.source === "platform_admin";
   const canEnable = Boolean(connected && hasMessageAccess);
   const codeGroups = pairingCode.replace(/\s/g, "").match(/.{1,4}/g)?.join(" ") ?? pairingCode;
 
@@ -267,25 +260,21 @@ export function WhatsappAutomation() {
     <div className="whatsapp-hero panel">
       <div className="whatsapp-hero-copy">
         <span className="whatsapp-kicker">C.A. ATENDE · WHATSAPP</span>
-        <h2>WhatsApp da sua barbearia</h2>
-        <p>Conecte o número e escolha quais mensagens o C.A. Atende pode enviar.</p>
-      </div>
-      <div className={connected ? "whatsapp-connection-badge connected" : "whatsapp-connection-badge"}>
-        <i />
-        <span>{connected ? "CONECTADO" : statusLabel(connectionState).toUpperCase()}</span>
+        <h2>WhatsApp</h2>
+        <p>Gerencie seu atendimento automático.</p>
       </div>
     </div>
 
     {feedback && <div className="notice error whatsapp-feedback" role="alert">{feedback}</div>}
 
     {connected && <section className="panel whatsapp-simple-status">
-      <div><strong>WhatsApp conectado</strong><span>{formatPhone(data.connection.displayPhoneNumber)} · {isPlatformAdminAccess ? "Acesso administrativo completo" : hasMessageAccess ? "Incluído na assinatura" : "Assinatura encerrada"}</span></div>
-      <small>{data.usage.sentThisMonth.toLocaleString("pt-BR")} mensagens enviadas neste mês</small>
+      <div><strong>WhatsApp conectado</strong><span>{formatPhone(data.connection.displayPhoneNumber)}</span></div>
+      <small>{data.usage.sentThisMonth.toLocaleString("pt-BR")} mensagens este mês</small>
     </section>}
 
     {data.bookingUrl && <section className="panel whatsapp-booking-link">
-      <div><strong>Link para clientes agendarem</strong><a href={data.bookingUrl} target="_blank" rel="noreferrer">{data.bookingUrl}</a></div>
-      <button type="button" onClick={() => void navigator.clipboard.writeText(data.bookingUrl).then(() => showAppToast("Link copiado.")).catch(() => setFeedback("Não foi possível copiar o link."))}>Copiar link</button>
+      <div><strong>Link para agendamento</strong><a href={data.bookingUrl} target="_blank" rel="noreferrer">{data.bookingUrl}</a></div>
+      <button type="button" onClick={() => void navigator.clipboard.writeText(data.bookingUrl).then(() => showAppToast("Link copiado.")).catch(() => setFeedback("Não foi possível copiar o link."))}>Copiar</button>
     </section>}
 
     {!connected && <section className="panel whatsapp-connect-card whatsapp-connect-live">
@@ -311,9 +300,9 @@ export function WhatsappAutomation() {
 
     <section className="panel whatsapp-automation-panel">
       <div className="whatsapp-panel-heading">
-        <div><span>AUTOMAÇÕES</span><h3>O que o Cortou Anotou pode enviar sozinho</h3><p>Você escolhe cada automação. Nada é enviado sem conexão e acesso ativos.</p></div>
+        <div><span>AUTOMAÇÕES</span></div>
         <label className={canEnable ? "whatsapp-master-switch" : "whatsapp-master-switch disabled"}>
-          <span><strong>{data.settings.enabled ? "Automações ligadas" : "Automações desligadas"}</strong><small>{canEnable ? "Controle geral dos envios" : !connected ? "Conecte o WhatsApp primeiro" : "Renove sua assinatura para ligar"}</small></span>
+          <span><strong>{data.settings.enabled ? "Automações ligadas" : "Automações desligadas"}</strong><small>{canEnable ? "Pausa ou libera todos os envios" : !connected ? "Conecte o WhatsApp primeiro" : "Renove sua assinatura para ligar"}</small></span>
           <input type="checkbox" checked={data.settings.enabled} disabled={!canEnable || saving} onChange={(event) => void saveSettings({ enabled: event.target.checked }, event.target.checked ? "Automações do WhatsApp ligadas." : "Automações do WhatsApp pausadas.")} />
           <i />
         </label>
@@ -322,31 +311,30 @@ export function WhatsappAutomation() {
       <div className="whatsapp-rule-list">
         <label className="whatsapp-rule">
           <span className="whatsapp-rule-symbol">✓</span>
-          <span><strong>Confirmação do agendamento</strong><small>Envia quando um horário entra como confirmado na agenda.</small></span>
+          <span><strong>Confirmação do agendamento</strong><small>Envia ao confirmar o horário.</small></span>
           <input type="checkbox" checked={data.settings.confirmationEnabled} disabled={saving} onChange={(event) => void saveSettings({ confirmationEnabled: event.target.checked })} />
           <i />
         </label>
 
         <div className="whatsapp-rule reminder">
           <span className="whatsapp-rule-symbol">◷</span>
-          <span><strong>Lembrete antes do horário</strong><small>Ajuda a reduzir esquecimentos e faltas.</small></span>
+          <span><strong>Lembrete do horário</strong><small>Escolha quanto tempo antes.</small></span>
           <label className="whatsapp-inline-switch"><input type="checkbox" checked={data.settings.reminderEnabled} disabled={saving} onChange={(event) => void saveSettings({ reminderEnabled: event.target.checked })} /><i /></label>
-          <form onSubmit={submitReminder}>
-            <label><span>Enviar</span><select name="reminderHoursBefore" defaultValue={data.settings.reminderHoursBefore} disabled={saving || !data.settings.reminderEnabled}>{reminderOptions.map((hours) => <option value={hours} key={hours}>{hours === 1 ? "1 hora antes" : `${hours} horas antes`}</option>)}</select></label>
-            <button disabled={saving || !data.settings.reminderEnabled}>Salvar</button>
+          <form onSubmit={(event) => event.preventDefault()}>
+            <label><span>Enviar</span><select aria-label="Quando enviar o lembrete" value={data.settings.reminderHoursBefore} disabled={saving || !data.settings.reminderEnabled} onChange={(event) => void saveSettings({ reminderHoursBefore: Number(event.target.value) }, "Lembrete atualizado.")}>{reminderOptions.map((hours) => <option value={hours} key={hours}>{hours === 1 ? "1 hora antes" : `${hours} horas antes`}</option>)}</select></label>
           </form>
         </div>
 
         <label className="whatsapp-rule">
           <span className="whatsapp-rule-symbol">×</span>
-          <span><strong>Aviso de cancelamento</strong><small>O cliente recebe a atualização quando o horário é cancelado.</small></span>
+          <span><strong>Aviso de cancelamento</strong><small>Envia quando um horário for cancelado.</small></span>
           <input type="checkbox" checked={data.settings.cancellationEnabled} disabled={saving} onChange={(event) => void saveSettings({ cancellationEnabled: event.target.checked })} />
           <i />
         </label>
 
         <label className="whatsapp-rule">
           <span className="whatsapp-rule-symbol">↻</span>
-          <span><strong>Aviso de remarcação</strong><small>Atualiza o cliente e reposiciona o lembrete para o novo horário.</small></span>
+          <span><strong>Aviso de remarcação</strong><small>Envia quando o horário mudar.</small></span>
           <input type="checkbox" checked={data.settings.rescheduleEnabled} disabled={saving} onChange={(event) => void saveSettings({ rescheduleEnabled: event.target.checked })} />
           <i />
         </label>
@@ -357,11 +345,11 @@ export function WhatsappAutomation() {
       <div className="whatsapp-assistant-badge">C.A.</div>
       <div className="whatsapp-assistant-copy">
         <span>C.A. ATENDE</span>
-        <h3>Atendimento inteligente por IA</h3>
-        <p>Responde perguntas de forma objetiva, consulta serviços e horários reais e encaminha para você quando necessário.</p>
+        <h3>Atendimento por IA</h3>
+        <p>Responde clientes e consulta horários automaticamente.</p>
       </div>
       <label className={canEnable && data.settings.enabled ? "whatsapp-bot-switch" : "whatsapp-bot-switch disabled"}>
-        <span><strong>{data.settings.botEnabled ? "C.A. Atende ligado" : "C.A. Atende desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasMessageAccess ? "Renove a assinatura" : !data.settings.enabled ? "Ligue as automações primeiro" : "Respostas rápidas com seus dados reais"}</small></span>
+        <span><strong>{data.settings.botEnabled ? "Ligado" : "Desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasMessageAccess ? "Renove a assinatura" : !data.settings.enabled ? "Ligue as automações primeiro" : "Atendimento automático"}</small></span>
         <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled: event.target.checked }, event.target.checked ? "C.A. Atende com IA ligado." : "C.A. Atende desligado.")} />
         <i />
       </label>
@@ -380,9 +368,14 @@ export function WhatsappAutomation() {
       </div>
     </section>}
 
-    {connected && <section className="panel whatsapp-danger-zone">
-      <div><strong>Desconectar WhatsApp</strong><small>As automações param imediatamente. Seus agendamentos e histórico continuam intactos.</small></div>
-      <button type="button" onClick={() => void disconnect()} disabled={saving}>Desconectar</button>
-    </section>}
+    {connected && <details className="panel whatsapp-advanced-settings" style={{ overflow: "hidden" }}>
+      <summary style={{ cursor: "pointer", listStyle: "none", padding: "18px 20px", fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <span>Configurações avançadas</span><span aria-hidden="true">›</span>
+      </summary>
+      <div className="whatsapp-danger-zone" style={{ margin: 0, border: 0, borderTop: "1px solid var(--line)", borderRadius: 0, boxShadow: "none" }}>
+        <div><strong>{formatPhone(data.connection.displayPhoneNumber)}</strong><small>Desconectar pausa as automações. Agendamentos e histórico continuam intactos.</small></div>
+        <button type="button" onClick={() => void disconnect()} disabled={saving}>Desconectar WhatsApp</button>
+      </div>
+    </details>}
   </section>;
 }

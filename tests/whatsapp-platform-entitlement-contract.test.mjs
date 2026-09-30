@@ -30,7 +30,7 @@ test("C.A. Atende and both outbound queues use the same entitlement", () => {
 test("platform admin is perpetual; expired customers cannot send", () => {
   assert.match(entitlement, /if \(input\.platformAdmin\) return/);
   assert.match(entitlement, /Date\.parse\(input\.trialEndsAt\) <= Date\.now\(\)/);
-  assert.match(ui, /Acesso administrativo completo/);
+  assert.match(ui, /source: "platform_admin" \| "subscription" \| "trial" \| "none"/);
   assert.match(ui, /data\?\.entitlement\.hasAccess/);
   assert.doesNotMatch(ui, /source === "package"/);
 });
