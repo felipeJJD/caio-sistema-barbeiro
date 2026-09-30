@@ -20,7 +20,7 @@ const [botDb, whatsappDb, webhookRoute, ui, migration, aiMigration, aiUsageDb] =
   readFile(new URL("../db/ca-atende.ts", import.meta.url), "utf8"),
   readFile(new URL("../db/whatsapp.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/webhook/route.ts", import.meta.url), "utf8"),
-  readFile(new URL("../app/ui/whatsapp-automation-core.tsx", import.meta.url), "utf8"),
+  readFile(new URL("../app/ui/whatsapp-automation.tsx", import.meta.url), "utf8"),
   readFile(new URL("../drizzle/0045_ca_atende_economy.sql", import.meta.url), "utf8"),
   readFile(new URL("../drizzle/0046_ai_first_usage.sql", import.meta.url), "utf8"),
   readFile(new URL("../db/ai-usage.ts", import.meta.url), "utf8"),
