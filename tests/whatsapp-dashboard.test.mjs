@@ -2,10 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [dashboard, whatsappUi, stylesheet] = await Promise.all([
+const [dashboard, whatsappUi] = await Promise.all([
   readFile(new URL("../app/ui/dashboard-app.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/ui/whatsapp-automation.tsx", import.meta.url), "utf8"),
-  readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
 ]);
 
 test("proprietário possui área WhatsApp na navegação e no roteamento interno", () => {
@@ -16,7 +15,6 @@ test("proprietário possui área WhatsApp na navegação e no roteamento interno
 });
 
 test("aba mostra conexão, link de agendamento e automações sem pacotes", () => {
-  assert.match(whatsappUi, /C\.A\. ATENDE · WHATSAPP/);
   assert.match(whatsappUi, /WhatsApp conectado/);
   assert.match(whatsappUi, /Link para agendamento/);
   assert.doesNotMatch(whatsappUi, /PACOTE DE MENSAGENS/);
@@ -26,11 +24,20 @@ test("aba mostra conexão, link de agendamento e automações sem pacotes", () =
   assert.match(whatsappUi, /Aviso de remarcação/);
 });
 
+test("painel conectado é realmente compacto e não repete cartões de apresentação", () => {
+  assert.doesNotMatch(whatsappUi, /whatsapp-hero panel/);
+  assert.doesNotMatch(whatsappUi, /Gerencie seu atendimento automático\./);
+  assert.match(whatsappUi, /wa2-status/);
+  assert.match(whatsappUi, /wa2-list/);
+  assert.match(whatsappUi, /wa2-ai/);
+  assert.match(whatsappUi, /data\.settings\.reminderEnabled && <select/);
+});
+
 test("painel principal evita explicações e ações raras em excesso", () => {
   assert.doesNotMatch(whatsappUi, /O que o Cortou Anotou pode enviar sozinho/);
   assert.doesNotMatch(whatsappUi, />Salvar<\/button>/);
   assert.match(whatsappUi, /Configurações avançadas/);
-  assert.match(whatsappUi, /<details className="panel whatsapp-advanced-settings"/);
+  assert.match(whatsappUi, /<details className="panel whatsapp-advanced-settings wa2-advanced"/);
   assert.match(whatsappUi, /Lembrete atualizado\./);
 });
 
@@ -72,8 +79,8 @@ test("fila humana mantém o bot em silêncio até o proprietário encerrar", () 
   assert.match(whatsappUi, /Encerrar atendimento/);
 });
 
-test("painel possui ajustes responsivos específicos para iPhone/mobile", () => {
-  assert.match(stylesheet, /C\.A\. Atende — painel de WhatsApp do proprietário/);
-  assert.match(stylesheet, /@media\(max-width:680px\)\{\.whatsapp-page/);
-  assert.match(stylesheet, /\.whatsapp-rule\.reminder select\{width:100%;font-size:16px\}/);
+test("painel compacto mantém ajustes específicos para iPhone", () => {
+  assert.match(whatsappUi, /@media\(max-width:680px\)/);
+  assert.match(whatsappUi, /\.wa2-reminder select\{min-height:36px;max-width:136px/);
+  assert.match(whatsappUi, /font-size:16px/);
 });
