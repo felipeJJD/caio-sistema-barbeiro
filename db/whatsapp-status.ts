@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, lte } from "drizzle-orm";
+import { normalizeWhatsappPhone } from "../lib/whatsapp";
 import type { AccessContext } from "./access";
 import { requireOwner } from "./access";
 import { getDb } from "./index";
@@ -18,7 +19,7 @@ const MAX_FUTURE_MS = 30 * 24 * 60 * 60_000;
 
 type StatusPayload = {
   text?: string;
-  allContacts?: boolean;
+  audiencePhone?: string;
   backgroundColor?: string;
   font?: number;
 };
@@ -55,6 +56,12 @@ async function assertStatusAvailable(organizationId: number) {
   return connection;
 }
 
+function requireAudiencePhone(value: string) {
+  const phone = normalizeWhatsappPhone(value);
+  if (!phone) throw new Error("Informe um número de WhatsApp válido para visualizar o Status de teste.");
+  return phone;
+}
+
 export async function getWhatsappStatusPublicationState(access: AccessContext) {
   requireOwner(access);
   const db = await getDb();
@@ -75,6 +82,7 @@ export async function getWhatsappStatusPublicationState(access: AccessContext) {
       return {
         id: row.id,
         text: String(payload.text ?? ""),
+        audiencePhone: String(payload.audiencePhone ?? ""),
         status: publicStatus(row.status),
         scheduledAt: row.scheduledAt,
         sentAt: row.sentAt,
@@ -86,12 +94,13 @@ export async function getWhatsappStatusPublicationState(access: AccessContext) {
   };
 }
 
-export async function createWhatsappStatusPublication(access: AccessContext, input: { text: string; scheduledAt?: string; publishNow?: boolean }) {
+export async function createWhatsappStatusPublication(access: AccessContext, input: { text: string; audiencePhone: string; scheduledAt?: string; publishNow?: boolean }) {
   requireOwner(access);
   await assertStatusAvailable(access.organizationId);
   const text = String(input.text ?? "").trim();
   if (!text) throw new Error("Escreva o texto do Status.");
   if (text.length > MAX_STATUS_TEXT) throw new Error(`O texto pode ter no máximo ${MAX_STATUS_TEXT} caracteres nesta versão de teste.`);
+  const audiencePhone = requireAudiencePhone(input.audiencePhone);
 
   const nowMs = Date.now();
   const scheduled = input.publishNow ? new Date(nowMs) : new Date(String(input.scheduledAt ?? ""));
@@ -111,7 +120,7 @@ export async function createWhatsappStatusPublication(access: AccessContext, inp
     dedupeKey: `status:${access.organizationId}:${randomUUID()}`,
     status: STATUS_QUEUED,
     scheduledAt: scheduled.toISOString(),
-    payloadJson: JSON.stringify({ text, allContacts: true, backgroundColor: "#0b3b2e", font: 1 }),
+    payloadJson: JSON.stringify({ text, audiencePhone, backgroundColor: "#0b3b2e", font: 1 }),
     createdAt: now,
     updatedAt: now,
   }).returning({ id: whatsappMessages.id });
@@ -159,9 +168,10 @@ function evolutionError(raw: string, status: number) {
   return `Evolution respondeu HTTP ${status}`;
 }
 
-async function sendEvolutionStatusText(instance: string, text: string) {
+async function sendEvolutionStatusText(instance: string, text: string, audiencePhone: string) {
   const config = evolutionConfig();
   if (!/^https:\/\//.test(config.url) || config.apiKey.length < 24) throw new Error("A Evolution ainda não está pronta para publicar Status.");
+  const phone = requireAudiencePhone(audiencePhone);
   const response = await fetch(`${config.url}/message/sendStatus/${encodeURIComponent(instance)}`, {
     method: "POST",
     cache: "no-store",
@@ -170,7 +180,8 @@ async function sendEvolutionStatusText(instance: string, text: string) {
     body: JSON.stringify({
       type: "text",
       content: text,
-      allContacts: true,
+      allContacts: false,
+      statusJidList: [`${phone}@s.whatsapp.net`],
       backgroundColor: "#0b3b2e",
       font: 1,
     }),
@@ -220,7 +231,8 @@ export async function processWhatsappStatusQueue(options: { organizationId?: num
       const payload = readStatusPayload(message.payloadJson);
       const text = String(payload.text ?? "").trim();
       if (!text) throw new Error("O texto desta publicação está vazio.");
-      await sendEvolutionStatusText(connection.phoneNumberId, text);
+      const audiencePhone = requireAudiencePhone(String(payload.audiencePhone ?? ""));
+      await sendEvolutionStatusText(connection.phoneNumberId, text, audiencePhone);
       const sentAt = new Date().toISOString();
       await db.update(whatsappMessages).set({
         status: STATUS_SENT,
