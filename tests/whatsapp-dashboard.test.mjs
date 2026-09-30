@@ -18,12 +18,20 @@ test("proprietário possui área WhatsApp na navegação e no roteamento interno
 test("aba mostra conexão, link de agendamento e automações sem pacotes", () => {
   assert.match(whatsappUi, /C\.A\. ATENDE · WHATSAPP/);
   assert.match(whatsappUi, /WhatsApp conectado/);
-  assert.match(whatsappUi, /Link para clientes agendarem/);
+  assert.match(whatsappUi, /Link para agendamento/);
   assert.doesNotMatch(whatsappUi, /PACOTE DE MENSAGENS/);
   assert.match(whatsappUi, /Confirmação do agendamento/);
-  assert.match(whatsappUi, /Lembrete antes do horário/);
+  assert.match(whatsappUi, /Lembrete do horário/);
   assert.match(whatsappUi, /Aviso de cancelamento/);
   assert.match(whatsappUi, /Aviso de remarcação/);
+});
+
+test("painel principal evita explicações e ações raras em excesso", () => {
+  assert.doesNotMatch(whatsappUi, /O que o Cortou Anotou pode enviar sozinho/);
+  assert.doesNotMatch(whatsappUi, />Salvar<\/button>/);
+  assert.match(whatsappUi, /Configurações avançadas/);
+  assert.match(whatsappUi, /<details className="panel whatsapp-advanced-settings"/);
+  assert.match(whatsappUi, /Lembrete atualizado\./);
 });
 
 test("conexão Evolution acontece dentro do próprio menu sem campos técnicos", () => {
@@ -51,7 +59,7 @@ test("chave geral exige conexão e direito de uso do WhatsApp", () => {
 });
 
 test("C.A. Atende só liga com conexão, direito de uso e automações", () => {
-  assert.match(whatsappUi, /Atendimento inteligente por IA/);
+  assert.match(whatsappUi, /Atendimento por IA/);
   assert.match(whatsappUi, /checked=\{data\.settings\.botEnabled\}/);
   assert.match(whatsappUi, /!hasMessageAccess \? "Renove a assinatura"/);
   assert.match(whatsappUi, /disabled=\{!canEnable \|\| !data\.settings\.enabled \|\| saving\}/);
