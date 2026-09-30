@@ -256,126 +256,218 @@ export function WhatsappAutomation() {
 
   if (!data) return <section className="whatsapp-page"><div className="panel whatsapp-empty-state"><span>!</span><h2>Não foi possível abrir o WhatsApp</h2><p>{feedback ?? "Tente novamente em alguns instantes."}</p><button type="button" className="primary-button" onClick={() => void load()}>Tentar novamente</button></div></section>;
 
-  return <section className="whatsapp-page">
-    <div className="whatsapp-hero panel">
-      <div className="whatsapp-hero-copy">
-        <span className="whatsapp-kicker">C.A. ATENDE · WHATSAPP</span>
-        <h2>WhatsApp</h2>
-        <p>Gerencie seu atendimento automático.</p>
-      </div>
-    </div>
+  return <section className="whatsapp-page wa2-page">
+    <style>{`
+      .wa2-page{display:grid;gap:10px;max-width:760px;margin:0 auto;padding-bottom:14px}
+      .wa2-card{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 2px 7px #25270c06;overflow:hidden}
+      .wa2-status{padding:14px 15px 12px}
+      .wa2-status-top{display:flex;align-items:center;gap:10px}
+      .wa2-dot{width:10px;height:10px;border-radius:50%;background:#439661;box-shadow:0 0 0 4px #e7f4eb;flex:0 0 auto}
+      .wa2-status-copy{min-width:0;flex:1}
+      .wa2-status-copy strong,.wa2-status-copy small{display:block}
+      .wa2-status-copy strong{font-size:14px;line-height:1.15}
+      .wa2-status-copy small{margin-top:3px;color:#747a72;font-size:12px}
+      .wa2-usage{flex:0 0 auto;padding:6px 8px;border-radius:999px;background:#f4f2ea;color:#6d6759;font-size:10px;font-weight:800;white-space:nowrap}
+      .wa2-link{display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:11px;border-top:1px solid #efeee8}
+      .wa2-link-copy{min-width:0;flex:1}
+      .wa2-link-copy strong,.wa2-link-copy small{display:block}
+      .wa2-link-copy strong{font-size:12px}
+      .wa2-link-copy small{margin-top:3px;color:#858a82;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .wa2-link-actions{display:flex;gap:6px;flex:0 0 auto}
+      .wa2-link-actions a,.wa2-link-actions button{min-height:34px;border:1px solid #deddd5;border-radius:9px;background:#fff;color:#2f352f;padding:0 10px;font-size:11px;font-weight:800;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+      .wa2-link-actions button{background:#202720;color:#fff;border-color:#202720}
+      .wa2-settings-head{display:flex;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid #efeee8}
+      .wa2-settings-title{min-width:0;flex:1}
+      .wa2-settings-title strong,.wa2-settings-title small{display:block}
+      .wa2-settings-title strong{font-size:13px}
+      .wa2-settings-title small{margin-top:3px;color:#858a82;font-size:10px}
+      .wa2-list{padding:0 15px}
+      .wa2-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;min-height:58px;border-top:1px solid #efeee8}
+      .wa2-row:first-child{border-top:0}
+      .wa2-row-main{min-width:0;display:flex;align-items:center;gap:10px}
+      .wa2-icon{width:30px;height:30px;flex:0 0 30px;border-radius:9px;background:#f6edd9;color:#9a7026;display:grid;place-items:center;font-size:12px;font-weight:900}
+      .wa2-row-copy{min-width:0}
+      .wa2-row-copy strong,.wa2-row-copy small{display:block}
+      .wa2-row-copy strong{font-size:12px;line-height:1.2}
+      .wa2-row-copy small{margin-top:3px;color:#8a8f87;font-size:10px;line-height:1.25}
+      .wa2-toggle{position:relative;width:42px;height:25px;display:inline-flex;flex:0 0 42px}
+      .wa2-toggle input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+      .wa2-toggle>span{width:42px;height:25px;border-radius:999px;background:#e5e7e2;box-shadow:inset 0 0 0 1px #d9dcd5;transition:.18s;position:relative}
+      .wa2-toggle>span:after{content:"";position:absolute;width:19px;height:19px;left:3px;top:3px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0002;transition:.18s}
+      .wa2-toggle input:checked+span{background:#439661;box-shadow:inset 0 0 0 1px #439661}
+      .wa2-toggle input:checked+span:after{transform:translateX(17px)}
+      .wa2-toggle input:disabled+span{opacity:.45}
+      .wa2-reminder{padding:10px 0;min-height:58px}
+      .wa2-reminder-tools{display:flex;align-items:center;justify-content:flex-end;gap:7px}
+      .wa2-reminder select{min-height:36px;max-width:136px;border:1px solid #deddd5;border-radius:9px;background:#fff;padding:0 28px 0 9px;color:#2a302b;font-size:16px;font-weight:700}
+      .wa2-ai{background:#fcfbf7}
+      .wa2-ai .wa2-icon{background:#222822;color:#d8a641;font-size:9px;letter-spacing:.04em}
+      .wa2-human{padding:14px 15px}
+      .wa2-human h3{margin:0;font-size:13px}
+      .wa2-human>p{margin:4px 0 10px;color:#858a82;font-size:10px;line-height:1.35}
+      .wa2-human-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #efeee8}
+      .wa2-human-item>div{min-width:0;flex:1}
+      .wa2-human-item strong,.wa2-human-item small,.wa2-human-item em{display:block}
+      .wa2-human-item strong{font-size:11px}.wa2-human-item small,.wa2-human-item em{margin-top:3px;color:#858a82;font-size:9px;font-style:normal}
+      .wa2-human-item button{border:0;border-radius:8px;background:#202720;color:#fff;padding:8px 9px;font-size:10px;font-weight:800}
+      .wa2-advanced{border-radius:12px!important;box-shadow:none!important}
+      .wa2-advanced summary{cursor:pointer;list-style:none;padding:13px 15px;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:12px}
+      .wa2-advanced summary::-webkit-details-marker{display:none}
+      .wa2-connect{padding:16px}
+      .wa2-connect-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+      .wa2-connect-head>span{width:34px;height:34px;border-radius:10px;background:#f6edd9;color:#9a7026;display:grid;place-items:center;font-weight:900}
+      .wa2-connect-head strong,.wa2-connect-head small{display:block}.wa2-connect-head strong{font-size:13px}.wa2-connect-head small{margin-top:3px;color:#858a82;font-size:10px}
+      .wa2-connect .app-form{padding:0;display:grid;gap:9px}.wa2-connect .field{gap:5px}.wa2-connect .field>span{font-size:8px;font-weight:900;color:#83704b;letter-spacing:.08em}
+      .wa2-connect input{width:100%;min-height:44px;border:1px solid #deddd5;border-radius:10px;padding:0 12px;font-size:16px;background:#fff}
+      .wa2-connect button{min-height:42px;border:0;border-radius:10px;background:#202720;color:#fff;font-size:12px;font-weight:900}
+      .wa2-pairing{margin-top:12px;padding:12px;border-radius:10px;background:#f6f3e9;text-align:center}.wa2-pairing strong,.wa2-pairing code,.wa2-pairing p{display:block}.wa2-pairing strong{font-size:11px}.wa2-pairing code{margin:9px 0;font-size:22px;font-weight:900;letter-spacing:.08em}.wa2-pairing p{margin:0;color:#777c74;font-size:10px;line-height:1.4}
+      @media(max-width:680px){
+        .wa2-page{gap:8px;margin:0 -1px;padding-bottom:8px}
+        .wa2-card{border-radius:12px}
+        .wa2-status{padding:12px}
+        .wa2-settings-head{padding:11px 12px}
+        .wa2-list{padding:0 12px}
+        .wa2-row{min-height:54px;gap:8px}
+        .wa2-icon{width:28px;height:28px;flex-basis:28px}
+        .wa2-link{gap:7px}.wa2-link-actions a{display:none}.wa2-link-actions button{min-height:32px;padding:0 9px}
+        .wa2-usage{font-size:9px;padding:5px 7px}
+        .wa2-reminder-tools{gap:5px}.wa2-reminder select{max-width:126px}
+        .wa2-advanced summary{padding:12px;font-size:11px}
+      }
+    `}</style>
 
     {feedback && <div className="notice error whatsapp-feedback" role="alert">{feedback}</div>}
 
-    {connected && <section className="panel whatsapp-simple-status">
-      <div><strong>WhatsApp conectado</strong><span>{formatPhone(data.connection.displayPhoneNumber)}</span></div>
-      <small>{data.usage.sentThisMonth.toLocaleString("pt-BR")} mensagens este mês</small>
-    </section>}
-
-    {data.bookingUrl && <section className="panel whatsapp-booking-link">
-      <div><strong>Link para agendamento</strong><a href={data.bookingUrl} target="_blank" rel="noreferrer">{data.bookingUrl}</a></div>
-      <button type="button" onClick={() => void navigator.clipboard.writeText(data.bookingUrl).then(() => showAppToast("Link copiado.")).catch(() => setFeedback("Não foi possível copiar o link."))}>Copiar</button>
-    </section>}
-
-    {!connected && <section className="panel whatsapp-connect-card whatsapp-connect-live">
-      <div className="whatsapp-connect-icon">◎</div>
-      <div className="whatsapp-connect-copy">
-        <span>CONECTAR WHATSAPP</span>
-        <h3>Use o seu próprio número</h3>
-        <p>Digite o número e gere um código. Depois coloque esse código no WhatsApp desse mesmo celular.</p>
-      </div>
-      <div className="whatsapp-connect-actions">
-        <form onSubmit={connectEvolution} className="app-form">
-          <label className="field"><span>NÚMERO DO WHATSAPP</span><input inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="(41) 99999-9999" /></label>
-          <button type="submit" className="whatsapp-connect-primary" disabled={!evolutionReady || connecting || phoneDigits(phone).length < 10}>{connecting ? "Gerando código..." : "Gerar código"}</button>
-          {!evolutionReady && <small>A conexão está sendo preparada no servidor. Tente novamente em alguns instantes.</small>}
-        </form>
-        {pairingCode && <div className="whatsapp-pairing-code" role="status" aria-live="polite">
-          <strong>Seu código de conexão</strong>
-          <code>{codeGroups}</code>
-          <p>No WhatsApp: Configurações → Aparelhos conectados → Conectar aparelho → Conectar usando número de telefone. Digite o código acima.</p>
-        </div>}
-      </div>
-    </section>}
-
-    <section className="panel whatsapp-automation-panel">
-      <div className="whatsapp-panel-heading">
-        <div><span>AUTOMAÇÕES</span></div>
-        <label className={canEnable ? "whatsapp-master-switch" : "whatsapp-master-switch disabled"}>
-          <span><strong>{data.settings.enabled ? "Automações ligadas" : "Automações desligadas"}</strong><small>{canEnable ? "Pausa ou libera todos os envios" : !connected ? "Conecte o WhatsApp primeiro" : "Renove sua assinatura para ligar"}</small></span>
-          <input type="checkbox" checked={data.settings.enabled} disabled={!canEnable || saving} onChange={(event) => void saveSettings({ enabled: event.target.checked }, event.target.checked ? "Automações do WhatsApp ligadas." : "Automações do WhatsApp pausadas.")} />
-          <i />
-        </label>
-      </div>
-
-      <div className="whatsapp-rule-list">
-        <label className="whatsapp-rule">
-          <span className="whatsapp-rule-symbol">✓</span>
-          <span><strong>Confirmação do agendamento</strong><small>Envia ao confirmar o horário.</small></span>
-          <input type="checkbox" checked={data.settings.confirmationEnabled} disabled={saving} onChange={(event) => void saveSettings({ confirmationEnabled: event.target.checked })} />
-          <i />
-        </label>
-
-        <div className="whatsapp-rule reminder">
-          <span className="whatsapp-rule-symbol">◷</span>
-          <span><strong>Lembrete do horário</strong><small>Escolha quanto tempo antes.</small></span>
-          <label className="whatsapp-inline-switch"><input type="checkbox" checked={data.settings.reminderEnabled} disabled={saving} onChange={(event) => void saveSettings({ reminderEnabled: event.target.checked })} /><i /></label>
-          <form onSubmit={(event) => event.preventDefault()}>
-            <label><span>Enviar</span><select aria-label="Quando enviar o lembrete" value={data.settings.reminderHoursBefore} disabled={saving || !data.settings.reminderEnabled} onChange={(event) => void saveSettings({ reminderHoursBefore: Number(event.target.value) }, "Lembrete atualizado.")}>{reminderOptions.map((hours) => <option value={hours} key={hours}>{hours === 1 ? "1 hora antes" : `${hours} horas antes`}</option>)}</select></label>
-          </form>
+    {connected ? <>
+      <section className="wa2-card wa2-status">
+        <div className="wa2-status-top">
+          <span className="wa2-dot" aria-hidden="true" />
+          <div className="wa2-status-copy">
+            <strong>WhatsApp conectado</strong>
+            <small>{formatPhone(data.connection.displayPhoneNumber)}</small>
+          </div>
+          <span className="wa2-usage">{data.usage.sentThisMonth.toLocaleString("pt-BR")} envios este mês</span>
         </div>
 
-        <label className="whatsapp-rule">
-          <span className="whatsapp-rule-symbol">×</span>
-          <span><strong>Aviso de cancelamento</strong><small>Envia quando um horário for cancelado.</small></span>
-          <input type="checkbox" checked={data.settings.cancellationEnabled} disabled={saving} onChange={(event) => void saveSettings({ cancellationEnabled: event.target.checked })} />
-          <i />
-        </label>
+        {data.bookingUrl && <div className="wa2-link">
+          <div className="wa2-link-copy">
+            <strong>Link para agendamento</strong>
+            <small>{data.bookingUrl}</small>
+          </div>
+          <div className="wa2-link-actions">
+            <a href={data.bookingUrl} target="_blank" rel="noreferrer">Abrir</a>
+            <button type="button" onClick={() => void navigator.clipboard.writeText(data.bookingUrl).then(() => showAppToast("Link copiado.")).catch(() => setFeedback("Não foi possível copiar o link."))}>Copiar link</button>
+          </div>
+        </div>}
+      </section>
 
-        <label className="whatsapp-rule">
-          <span className="whatsapp-rule-symbol">↻</span>
-          <span><strong>Aviso de remarcação</strong><small>Envia quando o horário mudar.</small></span>
-          <input type="checkbox" checked={data.settings.rescheduleEnabled} disabled={saving} onChange={(event) => void saveSettings({ rescheduleEnabled: event.target.checked })} />
-          <i />
-        </label>
-      </div>
-    </section>
+      <section className="wa2-card whatsapp-automation-panel">
+        <div className="wa2-settings-head">
+          <div className="wa2-settings-title">
+            <strong>Automações</strong>
+            <small>{canEnable ? (data.settings.enabled ? "Ligadas" : "Pausadas") : "Indisponíveis no momento"}</small>
+          </div>
+          <label className="wa2-toggle whatsapp-master-switch" aria-label="Ligar ou pausar todas as automações">
+            <input type="checkbox" checked={data.settings.enabled} disabled={!canEnable || saving} onChange={(event) => void saveSettings({ enabled: event.target.checked }, event.target.checked ? "Automações do WhatsApp ligadas." : "Automações do WhatsApp pausadas.")} />
+            <span aria-hidden="true" />
+          </label>
+        </div>
 
-    <section className="panel whatsapp-assistant-preview whatsapp-assistant-ready">
-      <div className="whatsapp-assistant-badge">C.A.</div>
-      <div className="whatsapp-assistant-copy">
-        <span>C.A. ATENDE</span>
-        <h3>Atendimento por IA</h3>
-        <p>Responde clientes e consulta horários automaticamente.</p>
-      </div>
-      <label className={canEnable && data.settings.enabled ? "whatsapp-bot-switch" : "whatsapp-bot-switch disabled"}>
-        <span><strong>{data.settings.botEnabled ? "Ligado" : "Desligado"}</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasMessageAccess ? "Renove a assinatura" : !data.settings.enabled ? "Ligue as automações primeiro" : "Atendimento automático"}</small></span>
-        <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled: event.target.checked }, event.target.checked ? "C.A. Atende com IA ligado." : "C.A. Atende desligado.")} />
-        <i />
-      </label>
-    </section>
+        <div className="wa2-list whatsapp-rule-list">
+          <div className="wa2-row whatsapp-rule">
+            <div className="wa2-row-main">
+              <span className="wa2-icon">✓</span>
+              <div className="wa2-row-copy"><strong>Confirmação do agendamento</strong><small>Ao confirmar o horário</small></div>
+            </div>
+            <label className="wa2-toggle" aria-label="Confirmação do agendamento">
+              <input type="checkbox" checked={data.settings.confirmationEnabled} disabled={saving} onChange={(event) => void saveSettings({ confirmationEnabled: event.target.checked })} />
+              <span aria-hidden="true" />
+            </label>
+          </div>
 
-    {data.humanHandoffs.length > 0 && <section className="panel whatsapp-human-queue">
-      <div className="whatsapp-human-queue-heading"><span>ATENDIMENTO HUMANO</span><h3>Clientes esperando uma pessoa</h3><p>O bot fica em silêncio nesses contatos até você encerrar o atendimento aqui.</p></div>
-      <div className="whatsapp-human-list">
+          <div className="wa2-row wa2-reminder whatsapp-rule reminder">
+            <div className="wa2-row-main">
+              <span className="wa2-icon">◷</span>
+              <div className="wa2-row-copy"><strong>Lembrete do horário</strong><small>{data.settings.reminderEnabled ? `${data.settings.reminderHoursBefore}h antes` : "Desligado"}</small></div>
+            </div>
+            <div className="wa2-reminder-tools">
+              {data.settings.reminderEnabled && <select aria-label="Quando enviar o lembrete" value={data.settings.reminderHoursBefore} disabled={saving} onChange={(event) => void saveSettings({ reminderHoursBefore: Number(event.target.value) }, "Lembrete atualizado.")}>{reminderOptions.map((hours) => <option value={hours} key={hours}>{hours === 1 ? "1 hora" : `${hours} horas`}</option>)}</select>}
+              <label className="wa2-toggle whatsapp-inline-switch" aria-label="Lembrete do horário">
+                <input type="checkbox" checked={data.settings.reminderEnabled} disabled={saving} onChange={(event) => void saveSettings({ reminderEnabled: event.target.checked })} />
+                <span aria-hidden="true" />
+              </label>
+            </div>
+          </div>
+
+          <div className="wa2-row whatsapp-rule">
+            <div className="wa2-row-main">
+              <span className="wa2-icon">×</span>
+              <div className="wa2-row-copy"><strong>Aviso de cancelamento</strong><small>Quando um horário for cancelado</small></div>
+            </div>
+            <label className="wa2-toggle" aria-label="Aviso de cancelamento">
+              <input type="checkbox" checked={data.settings.cancellationEnabled} disabled={saving} onChange={(event) => void saveSettings({ cancellationEnabled: event.target.checked })} />
+              <span aria-hidden="true" />
+            </label>
+          </div>
+
+          <div className="wa2-row whatsapp-rule">
+            <div className="wa2-row-main">
+              <span className="wa2-icon">↻</span>
+              <div className="wa2-row-copy"><strong>Aviso de remarcação</strong><small>Quando o horário mudar</small></div>
+            </div>
+            <label className="wa2-toggle" aria-label="Aviso de remarcação">
+              <input type="checkbox" checked={data.settings.rescheduleEnabled} disabled={saving} onChange={(event) => void saveSettings({ rescheduleEnabled: event.target.checked })} />
+              <span aria-hidden="true" />
+            </label>
+          </div>
+
+          <div className="wa2-row wa2-ai whatsapp-assistant-preview whatsapp-assistant-ready">
+            <div className="wa2-row-main">
+              <span className="wa2-icon">C.A.</span>
+              <div className="wa2-row-copy"><strong>Atendimento por IA</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasMessageAccess ? "Renove a assinatura" : !data.settings.enabled ? "Ligue as automações primeiro" : data.settings.botEnabled ? "C.A. Atende ligado" : "Responde clientes automaticamente"}</small></div>
+            </div>
+            <label className="wa2-toggle whatsapp-bot-switch" aria-label="C.A. Atende">
+              <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled: event.target.checked }, event.target.checked ? "C.A. Atende com IA ligado." : "C.A. Atende desligado.")} />
+              <span aria-hidden="true" />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      {data.humanHandoffs.length > 0 && <section className="wa2-card wa2-human whatsapp-human-queue">
+        <h3>Clientes esperando uma pessoa</h3>
+        <p>O bot fica em silêncio nesses contatos até você encerrar o atendimento aqui.</p>
         {data.humanHandoffs.map((item) => {
           const ending = item.phone.replace(/\D/g, "").slice(-4);
-          return <div className="whatsapp-human-item" key={item.phone}>
+          return <div className="wa2-human-item whatsapp-human-item" key={item.phone}>
             <div><strong>WhatsApp final {ending || "----"}</strong><small>{item.lastInboundPreview || "Cliente pediu atendimento humano."}</small>{item.humanRequestedAt && <em>{formatDate(item.humanRequestedAt)}</em>}</div>
             <button type="button" onClick={() => void resumeHandoff(item.phone)} disabled={saving}>Encerrar atendimento</button>
           </div>;
         })}
-      </div>
-    </section>}
+      </section>}
 
-    {connected && <details className="panel whatsapp-advanced-settings" style={{ overflow: "hidden" }}>
-      <summary style={{ cursor: "pointer", listStyle: "none", padding: "18px 20px", fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <span>Configurações avançadas</span><span aria-hidden="true">›</span>
-      </summary>
-      <div className="whatsapp-danger-zone" style={{ margin: 0, border: 0, borderTop: "1px solid var(--line)", borderRadius: 0, boxShadow: "none" }}>
-        <div><strong>{formatPhone(data.connection.displayPhoneNumber)}</strong><small>Desconectar pausa as automações. Agendamentos e histórico continuam intactos.</small></div>
-        <button type="button" onClick={() => void disconnect()} disabled={saving}>Desconectar WhatsApp</button>
+      <details className="panel whatsapp-advanced-settings wa2-advanced">
+        <summary><span>Configurações avançadas</span><span aria-hidden="true">›</span></summary>
+        <div className="whatsapp-danger-zone" style={{ margin: 0, border: 0, borderTop: "1px solid var(--line)", borderRadius: 0, boxShadow: "none" }}>
+          <div><strong>{formatPhone(data.connection.displayPhoneNumber)}</strong><small>Desconectar pausa as automações. Agendamentos e histórico continuam intactos.</small></div>
+          <button type="button" onClick={() => void disconnect()} disabled={saving}>Desconectar WhatsApp</button>
+        </div>
+      </details>
+    </> : <section className="wa2-card wa2-connect whatsapp-connect-card whatsapp-connect-live">
+      <div className="wa2-connect-head">
+        <span>WA</span>
+        <div><strong>CONECTAR WHATSAPP</strong><small>{statusLabel(connectionState)} · use o seu próprio número</small></div>
       </div>
-    </details>}
+      <form onSubmit={connectEvolution} className="app-form">
+        <label className="field"><span>NÚMERO DO WHATSAPP</span><input inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="(41) 99999-9999" /></label>
+        <button type="submit" disabled={!evolutionReady || connecting || phoneDigits(phone).length < 10}>{connecting ? "Gerando código..." : "Gerar código"}</button>
+        {!evolutionReady && <small>A conexão está sendo preparada no servidor. Tente novamente em alguns instantes.</small>}
+      </form>
+      {pairingCode && <div className="wa2-pairing whatsapp-pairing-code" role="status" aria-live="polite">
+        <strong>Seu código de conexão</strong>
+        <code>{codeGroups}</code>
+        <p>No WhatsApp: Configurações → Aparelhos conectados → Conectar aparelho → Conectar usando número de telefone.</p>
+      </div>}
+    </section>}
   </section>;
 }
