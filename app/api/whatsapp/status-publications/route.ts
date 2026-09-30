@@ -31,13 +31,14 @@ export async function POST(request: Request) {
 
     const data = await request.json() as Record<string, unknown>;
     const action = String(data.action ?? "");
+    const audiencePhone = String(data.audiencePhone ?? "");
     let publicationId: number | undefined;
 
     if (action === "publish-now") {
-      publicationId = await createWhatsappStatusPublication(access, { text: String(data.text ?? ""), publishNow: true });
+      publicationId = await createWhatsappStatusPublication(access, { text: String(data.text ?? ""), audiencePhone, publishNow: true });
       await processWhatsappStatusQueue({ organizationId: access.organizationId, messageId: publicationId, limit: 1 });
     } else if (action === "schedule") {
-      publicationId = await createWhatsappStatusPublication(access, { text: String(data.text ?? ""), scheduledAt: String(data.scheduledAt ?? "") });
+      publicationId = await createWhatsappStatusPublication(access, { text: String(data.text ?? ""), audiencePhone, scheduledAt: String(data.scheduledAt ?? "") });
     } else if (action === "cancel") {
       await cancelWhatsappStatusPublication(access, Number(data.id));
     } else {
