@@ -276,32 +276,33 @@ export function WhatsappAutomation() {
       .wa2-link-actions{display:flex;gap:6px;flex:0 0 auto}
       .wa2-link-actions a,.wa2-link-actions button{min-height:34px;border:1px solid #deddd5;border-radius:9px;background:#fff;color:#2f352f;padding:0 10px;font-size:11px;font-weight:800;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
       .wa2-link-actions button{background:#202720;color:#fff;border-color:#202720}
-      .wa2-settings-head{display:flex;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid #efeee8}
-      .wa2-settings-title{min-width:0;flex:1}
+      .wa2-settings-head{display:grid;grid-template-columns:minmax(0,1fr) 42px;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid #efeee8}
+      .wa2-settings-title{min-width:0}
       .wa2-settings-title strong,.wa2-settings-title small{display:block}
       .wa2-settings-title strong{font-size:13px}
       .wa2-settings-title small{margin-top:3px;color:#858a82;font-size:10px}
       .wa2-list{padding:0 15px}
-      .wa2-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;min-height:58px;border-top:1px solid #efeee8}
+      .wa2-row{display:grid;grid-template-columns:minmax(0,1fr) 42px;align-items:center;column-gap:12px;min-height:58px;border-top:1px solid #efeee8}
       .wa2-row:first-child{border-top:0}
-      .wa2-row-main{min-width:0;display:flex;align-items:center;gap:10px}
+      .wa2-row-main{min-width:0;display:flex;align-items:center;gap:10px;padding:10px 0}
       .wa2-icon{width:30px;height:30px;flex:0 0 30px;border-radius:9px;background:#f6edd9;color:#9a7026;display:grid;place-items:center;font-size:12px;font-weight:900}
       .wa2-row-copy{min-width:0}
       .wa2-row-copy strong,.wa2-row-copy small{display:block}
       .wa2-row-copy strong{font-size:12px;line-height:1.2}
       .wa2-row-copy small{margin-top:3px;color:#8a8f87;font-size:10px;line-height:1.25}
-      .wa2-toggle{position:relative;width:42px;height:25px;display:inline-flex;flex:0 0 42px}
-      .wa2-toggle input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
-      .wa2-toggle>span{width:42px;height:25px;border-radius:999px;background:#e5e7e2;box-shadow:inset 0 0 0 1px #d9dcd5;transition:.18s;position:relative}
-      .wa2-toggle>span:after{content:"";position:absolute;width:19px;height:19px;left:3px;top:3px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0002;transition:.18s}
-      .wa2-toggle input:checked+span{background:#439661;box-shadow:inset 0 0 0 1px #439661}
-      .wa2-toggle input:checked+span:after{transform:translateX(17px)}
-      .wa2-toggle input:disabled+span{opacity:.45}
-      .wa2-reminder{padding:10px 0;min-height:58px}
-      .wa2-reminder-tools{display:flex;align-items:center;justify-content:flex-end;gap:7px}
+      .wa2-toggle{position:relative!important;width:42px!important;height:25px!important;display:inline-flex!important;align-items:center!important;justify-content:flex-start!important;flex:0 0 42px!important;margin:0!important;padding:0!important;border:0!important;border-radius:999px!important;background:transparent!important;box-shadow:none!important;overflow:visible!important}
+      .wa2-toggle input{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;margin:0!important}
+      .wa2-toggle>span{display:block!important;position:relative!important;width:42px!important;height:25px!important;min-width:42px!important;min-height:25px!important;margin:0!important;padding:0!important;border:0!important;border-radius:999px!important;background:#e5e7e2!important;box-shadow:inset 0 0 0 1px #d9dcd5!important;transition:.18s!important}
+      .wa2-toggle>span:after{content:""!important;position:absolute!important;width:19px!important;height:19px!important;left:3px!important;top:3px!important;border-radius:50%!important;background:#fff!important;box-shadow:0 1px 3px #0002!important;transition:.18s!important}
+      .wa2-toggle input:checked+span{background:#439661!important;box-shadow:inset 0 0 0 1px #439661!important}
+      .wa2-toggle input:checked+span:after{transform:translateX(17px)!important}
+      .wa2-toggle input:disabled+span{opacity:.45!important}
+      .wa2-reminder{padding-bottom:0}
+      .wa2-reminder-setting{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-2px 0 10px 40px;padding:8px 10px;border-radius:9px;background:#f8f7f2}
+      .wa2-reminder-setting>span{color:#747a72;font-size:10px;font-weight:800}
       .wa2-reminder select{min-height:36px;max-width:136px;border:1px solid #deddd5;border-radius:9px;background:#fff;padding:0 28px 0 9px;color:#2a302b;font-size:16px;font-weight:700}
-      .wa2-ai{background:#fcfbf7}
-      .wa2-ai .wa2-icon{background:#222822;color:#d8a641;font-size:9px;letter-spacing:.04em}
+      .wa2-ai{background:#fff}
+      .wa2-ai .wa2-icon{background:#f6edd9;color:#9a7026;font-size:9px;letter-spacing:.04em}
       .wa2-human{padding:14px 15px}
       .wa2-human h3{margin:0;font-size:13px}
       .wa2-human>p{margin:4px 0 10px;color:#858a82;font-size:10px;line-height:1.35}
@@ -327,11 +328,13 @@ export function WhatsappAutomation() {
         .wa2-status{padding:12px}
         .wa2-settings-head{padding:11px 12px}
         .wa2-list{padding:0 12px}
-        .wa2-row{min-height:54px;gap:8px}
+        .wa2-row{min-height:54px;column-gap:10px}
+        .wa2-row-main{gap:10px;padding:9px 0}
         .wa2-icon{width:28px;height:28px;flex-basis:28px}
         .wa2-link{gap:7px}.wa2-link-actions a{display:none}.wa2-link-actions button{min-height:32px;padding:0 9px}
         .wa2-usage{font-size:9px;padding:5px 7px}
-        .wa2-reminder-tools{gap:5px}.wa2-reminder select{max-width:126px}
+        .wa2-reminder-setting{margin-left:38px;padding:7px 9px}
+        .wa2-reminder select{max-width:126px}
         .wa2-advanced summary{padding:12px;font-size:11px}
       }
     `}</style>
@@ -361,20 +364,20 @@ export function WhatsappAutomation() {
         </div>}
       </section>
 
-      <section className="wa2-card whatsapp-automation-panel">
+      <section className="wa2-card">
         <div className="wa2-settings-head">
           <div className="wa2-settings-title">
             <strong>Automações</strong>
             <small>{canEnable ? (data.settings.enabled ? "Ligadas" : "Pausadas") : "Indisponíveis no momento"}</small>
           </div>
-          <label className="wa2-toggle whatsapp-master-switch" aria-label="Ligar ou pausar todas as automações">
+          <label className="wa2-toggle" aria-label="Ligar ou pausar todas as automações">
             <input type="checkbox" checked={data.settings.enabled} disabled={!canEnable || saving} onChange={(event) => void saveSettings({ enabled: event.target.checked }, event.target.checked ? "Automações do WhatsApp ligadas." : "Automações do WhatsApp pausadas.")} />
             <span aria-hidden="true" />
           </label>
         </div>
 
-        <div className="wa2-list whatsapp-rule-list">
-          <div className="wa2-row whatsapp-rule">
+        <div className="wa2-list">
+          <div className="wa2-row">
             <div className="wa2-row-main">
               <span className="wa2-icon">✓</span>
               <div className="wa2-row-copy"><strong>Confirmação do agendamento</strong><small>Ao confirmar o horário</small></div>
@@ -385,21 +388,22 @@ export function WhatsappAutomation() {
             </label>
           </div>
 
-          <div className="wa2-row wa2-reminder whatsapp-rule reminder">
+          <div className="wa2-row wa2-reminder">
             <div className="wa2-row-main">
               <span className="wa2-icon">◷</span>
               <div className="wa2-row-copy"><strong>Lembrete do horário</strong><small>{data.settings.reminderEnabled ? `${data.settings.reminderHoursBefore}h antes` : "Desligado"}</small></div>
             </div>
-            <div className="wa2-reminder-tools">
-              {data.settings.reminderEnabled && <select aria-label="Quando enviar o lembrete" value={data.settings.reminderHoursBefore} disabled={saving} onChange={(event) => void saveSettings({ reminderHoursBefore: Number(event.target.value) }, "Lembrete atualizado.")}>{reminderOptions.map((hours) => <option value={hours} key={hours}>{hours === 1 ? "1 hora" : `${hours} horas`}</option>)}</select>}
-              <label className="wa2-toggle whatsapp-inline-switch" aria-label="Lembrete do horário">
-                <input type="checkbox" checked={data.settings.reminderEnabled} disabled={saving} onChange={(event) => void saveSettings({ reminderEnabled: event.target.checked })} />
-                <span aria-hidden="true" />
-              </label>
-            </div>
+            <label className="wa2-toggle" aria-label="Lembrete do horário">
+              <input type="checkbox" checked={data.settings.reminderEnabled} disabled={saving} onChange={(event) => void saveSettings({ reminderEnabled: event.target.checked })} />
+              <span aria-hidden="true" />
+            </label>
+            {data.settings.reminderEnabled && <div className="wa2-reminder-setting">
+              <span>Enviar lembrete</span>
+              <select aria-label="Quando enviar o lembrete" value={data.settings.reminderHoursBefore} disabled={saving} onChange={(event) => void saveSettings({ reminderHoursBefore: Number(event.target.value) }, "Lembrete atualizado.")}>{reminderOptions.map((hours) => <option value={hours} key={hours}>{hours === 1 ? "1 hora antes" : `${hours} horas antes`}</option>)}</select>
+            </div>}
           </div>
 
-          <div className="wa2-row whatsapp-rule">
+          <div className="wa2-row">
             <div className="wa2-row-main">
               <span className="wa2-icon">×</span>
               <div className="wa2-row-copy"><strong>Aviso de cancelamento</strong><small>Quando um horário for cancelado</small></div>
@@ -410,7 +414,7 @@ export function WhatsappAutomation() {
             </label>
           </div>
 
-          <div className="wa2-row whatsapp-rule">
+          <div className="wa2-row">
             <div className="wa2-row-main">
               <span className="wa2-icon">↻</span>
               <div className="wa2-row-copy"><strong>Aviso de remarcação</strong><small>Quando o horário mudar</small></div>
@@ -421,12 +425,12 @@ export function WhatsappAutomation() {
             </label>
           </div>
 
-          <div className="wa2-row wa2-ai whatsapp-assistant-preview whatsapp-assistant-ready">
+          <div className="wa2-row wa2-ai">
             <div className="wa2-row-main">
               <span className="wa2-icon">C.A.</span>
               <div className="wa2-row-copy"><strong>Atendimento por IA</strong><small>{!connected ? "Conecte o WhatsApp primeiro" : !hasMessageAccess ? "Renove a assinatura" : !data.settings.enabled ? "Ligue as automações primeiro" : data.settings.botEnabled ? "C.A. Atende ligado" : "Responde clientes automaticamente"}</small></div>
             </div>
-            <label className="wa2-toggle whatsapp-bot-switch" aria-label="C.A. Atende">
+            <label className="wa2-toggle" aria-label="C.A. Atende">
               <input type="checkbox" checked={data.settings.botEnabled} disabled={!canEnable || !data.settings.enabled || saving} onChange={(event) => void saveSettings({ botEnabled: event.target.checked }, event.target.checked ? "C.A. Atende com IA ligado." : "C.A. Atende desligado.")} />
               <span aria-hidden="true" />
             </label>
