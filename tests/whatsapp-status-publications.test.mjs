@@ -2,18 +2,29 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [statusDb, statusRoute, jobsRoute, worker] = await Promise.all([
+const [statusDb, statusRoute, statusUi, jobsRoute, worker] = await Promise.all([
   readFile(new URL("../db/whatsapp-status.ts", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/status-publications/route.ts", import.meta.url), "utf8"),
+  readFile(new URL("../app/ui/whatsapp-status-publications.tsx", import.meta.url), "utf8"),
   readFile(new URL("../app/api/whatsapp/jobs/route.ts", import.meta.url), "utf8"),
   readFile(new URL("../scripts/whatsapp-worker.mjs", import.meta.url), "utf8"),
 ]);
 
-test("Status usa endpoint próprio da Evolution e audiência de contatos sincronizados", () => {
+test("Status usa endpoint próprio da Evolution com audiência explícita e nunca sendText", () => {
   assert.match(statusDb, /\/message\/sendStatus\//);
   assert.match(statusDb, /type: "text"/);
-  assert.match(statusDb, /allContacts: true/);
+  assert.match(statusDb, /allContacts: false/);
+  assert.match(statusDb, /statusJidList:/);
   assert.match(statusDb, /status@broadcast/);
+  assert.doesNotMatch(statusDb, /\/message\/sendText\//);
+});
+
+test("publicação exige número de teste e persiste a audiência para o agendamento", () => {
+  assert.match(statusDb, /audiencePhone/);
+  assert.match(statusDb, /normalizeWhatsappPhone/);
+  assert.match(statusRoute, /audiencePhone/);
+  assert.match(statusUi, /NÚMERO PARA VISUALIZAR O TESTE/);
+  assert.match(statusUi, /Não envia mensagem/);
 });
 
 test("fila de Status é isolada da fila normal e não faz retry cego", () => {
