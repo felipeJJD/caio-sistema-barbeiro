@@ -30,7 +30,8 @@ test("painel conectado é realmente compacto e não repete cartões de apresenta
   assert.match(whatsappUi, /wa2-status/);
   assert.match(whatsappUi, /wa2-list/);
   assert.match(whatsappUi, /wa2-ai/);
-  assert.match(whatsappUi, /data\.settings\.reminderEnabled && <select/);
+  assert.match(whatsappUi, /data\.settings\.reminderEnabled && <div className="wa2-reminder-setting">/);
+  assert.match(whatsappUi, /aria-label="Quando enviar o lembrete"/);
 });
 
 test("painel principal evita explicações e ações raras em excesso", () => {
