@@ -28,18 +28,21 @@ test("interpretação natural usa IA antes do fallback comum de regras", () => {
   assert.match(bot, /state,/);
 });
 
-test("guarda inteligente evita repetir saudação e link na conversa ativa", () => {
-  assert.match(smart, /ACTIVE_CONVERSATION_MS/);
+test("guarda inteligente evita repetir saudação e link somente em conversa realmente ativa", () => {
+  assert.match(smart, /ACTIVE_CONVERSATION_MS = 30 \* 60 \* 1000/);
   assert.match(smart, /rule\.intent === "greeting"/);
-  assert.match(smart, /Fala! Pode mandar o que você precisa\./);
+  assert.match(smart, /Oi! Pode falar, como posso te ajudar\?/);
+  assert.match(smart, /activeConversation\(conversation\?\.lastBotReplyAt, conversation\?\.botState\)/);
   assert.match(smart, /Se preferir, pode falar comigo por aqui que eu te ajudo\./);
   assert.match(smart, /recentConversation/);
 });
 
-test("assunto humano ou incompreensível encerra a automação em vez de cair no link", () => {
+test("humano explícito faz handoff; incompreensível pede esclarecimento antes", () => {
   assert.match(smart, /explicitBarbershopRequest/);
-  assert.match(smart, /ai\.intent === "human"/);
+  assert.match(smart, /ai\?\.intent === "human"/);
   assert.match(smart, /ai\.intent === "unknown"/);
+  assert.match(smart, /queueClarification/);
+  assert.match(smart, /state: "smart_clarify"/);
   assert.match(smart, /pauseReason: "human_takeover"/);
   assert.match(smart, /notifyOwnersOfWhatsappHandoff/);
 });
