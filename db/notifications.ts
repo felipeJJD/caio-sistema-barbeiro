@@ -410,22 +410,10 @@ export async function notifyOwnersOfWhatsappHandoff(input: {
   phone: string;
   preview: string;
 }) {
-  try {
-    const digits = input.phone.replace(/\D/g, "");
-    const ending = digits.slice(-4);
-    await deliverNotification({
-      organizationId: input.organizationId,
-      kind: "whatsapp-human-handoff",
-      title: "Cliente pediu atendimento humano",
-      body: `${ending ? `WhatsApp final ${ending}: ` : ""}${input.preview.slice(0,140) || "Abra o WhatsApp para responder."}`,
-      target: "/?section=WhatsApp",
-      relatedRecordId: input.messageId,
-      tag: `whatsapp-handoff-${input.messageId}`,
-      topic: `whatsapp-handoff:${input.messageId}`,
-    });
-  } catch (error) {
-    pushError("whatsapp-handoff", { organizationId: input.organizationId, messageId: input.messageId }, error);
-  }
+  // Decisão de produto: o handoff humano pausa o C.A. Atende e transfere a conversa,
+  // mas não deve criar notificação interna nem push para o proprietário.
+  // Mantemos esta função como no-op para preservar compatibilidade com fluxos antigos.
+  void input;
 }
 
 export async function notifyOwnersOfPublicBooking(booking: PublicBookingNotification) {
