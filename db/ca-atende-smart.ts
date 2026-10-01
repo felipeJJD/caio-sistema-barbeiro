@@ -6,6 +6,7 @@ import {
 } from "../lib/ca-atende";
 import { interpretCaAtendeWithAi } from "../lib/ca-atende-model";
 import { processCaAtendeInboundSafely } from "./ca-atende";
+import { getCaAtendeFlowState, startCaAtendeFlow } from "./ca-atende-flow";
 import { recordAiUsageSafely } from "./ai-usage";
 import { getDb } from "./index";
 import { notifyOwnersOfWhatsappHandoff } from "./notifications";
@@ -24,8 +25,6 @@ import {
   queueWhatsappTextReply,
   type WhatsappInboundTextEvent,
 } from "./whatsapp";
-
-const ACTIVE_CONVERSATION_MS = 30 * 60 * 1000;
 
 type RecentMessage = {
   role: "cliente" | "barbearia";
@@ -120,12 +119,6 @@ async function recentConversation(organizationId: number, phone: string, current
     .slice(0, 8)
     .reverse()
     .map(({ role, text }) => ({ role, text }));
-}
-
-function activeConversation(lastBotReplyAt: string | null | undefined, botState: string | null | undefined) {
-  if (!lastBotReplyAt || !String(botState ?? "").trim()) return false;
-  const timestamp = Date.parse(lastBotReplyAt);
-  return Number.isFinite(timestamp) && timestamp >= Date.now() - ACTIVE_CONVERSATION_MS;
 }
 
 function explicitBarbershopRequest(value: string) {
@@ -225,6 +218,7 @@ async function queueSmartReply(input: {
   state?: string;
   intent?: string;
   resetConversation?: boolean;
+  startFlow?: boolean;
 }) {
   const queued = await queueWhatsappTextReply({
     organizationId: input.event.organizationId,
@@ -236,6 +230,13 @@ async function queueSmartReply(input: {
 
   const db = await getDb();
   const now = new Date().toISOString();
+  if (input.startFlow) {
+    try {
+      await startCaAtendeFlow(input.event.organizationId, input.event.phone, new Date(now));
+    } catch (error) {
+      console.error("ca_atende_flow_start_failed", { type: error instanceof Error ? error.name : "Unknown" });
+    }
+  }
   await db.insert(whatsappConversations).values({
     organizationId: input.event.organizationId,
     phone: input.event.phone,
@@ -306,24 +307,24 @@ function queueClarification(event: WhatsappInboundTextEvent, context: NonNullabl
 }
 
 export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEvent) {
-  const [context, conversation] = await Promise.all([
+  const [context, conversation, flow] = await Promise.all([
     smartContext(event.organizationId),
     currentConversation(event.organizationId, event.phone),
+    getCaAtendeFlowState(event.organizationId, event.phone),
   ]);
   if (!context?.enabled || paused(conversation)) return processCaAtendeInboundSafely(event);
 
-  const isActive = activeConversation(conversation?.lastBotReplyAt, conversation?.botState);
-
-  // Porta de entrada padrão: toda conversa nova recebe primeiro a saudação da
-  // barbearia, o link público real e a escolha entre autoatendimento e humano.
-  // A mensagem original não é usada para pular essa etapa.
-  if (!isActive) {
+  // A tag interna "iniciou o fluxo" dura cinco dias a partir da abertura.
+  // Enquanto estiver ativa, nenhuma mensagem repete a saudação completa ou o link.
+  // Depois de expirar, a próxima mensagem inicia um ciclo novo e renova a tag.
+  if (!flow.active) {
     return queueSmartReply({
       event,
       text: greetingText(context.organization.name, context.organization.slug, context.greetingText),
       state: "entry_choice",
       intent: "greeting",
       resetConversation: true,
+      startFlow: true,
     });
   }
 
@@ -338,8 +339,7 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
 
   const rule = classifyCaAtendeByRule(event.text);
 
-  // Um novo cumprimento dentro da porta de entrada apenas repete as escolhas.
-  // Em uma conversa já em andamento, o cumprimento recebe uma resposta curta.
+  // Durante os cinco dias do fluxo, um novo cumprimento nunca repete a abertura.
   if (rule.intent === "greeting") {
     const text = conversation?.botState === "entry_choice"
       ? entryChoiceText(context.organization.name)
