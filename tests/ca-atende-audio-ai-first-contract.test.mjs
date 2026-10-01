@@ -42,14 +42,14 @@ test("porta de entrada usa tag de cinco dias antes de interpretar a mensagem", (
   assert.ok(welcomeGate >= 0 && rule > welcomeGate, "a primeira mensagem do ciclo deve passar pela porta de entrada antes da intenção");
 });
 
-test("humano explícito faz handoff; incompreensível pede esclarecimento antes", () => {
+test("humano explícito faz handoff sem push; incompreensível pede esclarecimento antes", () => {
   assert.match(smart, /explicitBarbershopRequest/);
   assert.match(smart, /ai\?\.intent === "human"/);
   assert.match(smart, /ai\.intent === "unknown"/);
   assert.match(smart, /queueClarification/);
   assert.match(smart, /state: "smart_clarify"/);
   assert.match(smart, /pauseReason: "human_takeover"/);
-  assert.match(smart, /notifyOwnersOfWhatsappHandoff/);
+  assert.doesNotMatch(smart, /notifyOwnersOfWhatsappHandoff/);
 });
 
 test("pedido de pessoa por nome ou apelido é humano, mas escolher profissional para serviço não é", () => {

@@ -9,7 +9,6 @@ import { processCaAtendeInboundSafely } from "./ca-atende";
 import { getCaAtendeFlowState, startCaAtendeFlow } from "./ca-atende-flow";
 import { recordAiUsageSafely } from "./ai-usage";
 import { getDb } from "./index";
-import { notifyOwnersOfWhatsappHandoff } from "./notifications";
 import {
   organizations,
   services,
@@ -272,14 +271,8 @@ async function queueSmartReply(input: {
     },
   });
 
-  if (input.handoff) {
-    await notifyOwnersOfWhatsappHandoff({
-      organizationId: input.event.organizationId,
-      messageId: input.event.messageRowId,
-      phone: input.event.phone,
-      preview: input.event.text,
-    });
-  }
+  // O handoff continua pausando o C.A. Atende e transferindo a conversa,
+  // mas não gera notificação interna/push para o proprietário.
 
   // Para conexões Meta esta chamada envia a resposta. Em Evolution ela não
   // consome a fila; o endpoint Evolution processa a fila logo após o retorno.
