@@ -219,6 +219,7 @@ export function mergeCaAtendeMemory(memory: CaAtendeContextMemory, next: Partial
     paymentChoice: next.paymentChoice || memory.paymentChoice || "",
     appointmentId: next.appointmentId !== undefined ? next.appointmentId : (memory.appointmentId || 0),
     manageAction: next.manageAction !== undefined ? next.manageAction : (memory.manageAction || ""),
+    lastChoices: next.lastChoices ?? memory.lastChoices ?? [],
     afterTime: next.afterTime || memory.afterTime || "",
     beforeTime: next.beforeTime || memory.beforeTime || "",
   };
