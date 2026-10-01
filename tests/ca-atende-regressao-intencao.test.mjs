@@ -16,9 +16,12 @@ async function load(entry) {
 }
 
 const helper = await load("../lib/ca-atende.ts");
-const [smartDb, model] = await Promise.all([
+const [smartDb, flowDb, model, migration, journal] = await Promise.all([
   readFile(new URL("../db/ca-atende-smart.ts", import.meta.url), "utf8"),
+  readFile(new URL("../db/ca-atende-flow.ts", import.meta.url), "utf8"),
   readFile(new URL("../lib/ca-atende-model.ts", import.meta.url), "utf8"),
+  readFile(new URL("../drizzle/0051_ca_atende_flow_tags.sql", import.meta.url), "utf8"),
+  readFile(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"),
 ]);
 
 test("regressão: pedidos naturais de corte são agendamento, nunca atendimento humano", () => {
@@ -38,25 +41,35 @@ test("negação não vira agendamento por engano", () => {
   assert.notEqual(helper.classifyCaAtendeByRule("não quero cortar o cabelo").intent, "booking");
 });
 
-test("conversa antiga não fica ativa por um dia inteiro", () => {
-  assert.match(smartDb, /ACTIVE_CONVERSATION_MS = 30 \* 60 \* 1000/);
-  assert.doesNotMatch(smartDb, /24 \* 60 \* 60 \* 1000/);
+test("fluxo de boas-vindas usa tag persistente com validade fixa de cinco dias", () => {
+  assert.match(flowDb, /CA_ATENDE_FLOW_TTL_MS = 5 \* 24 \* 60 \* 60 \* 1000/);
+  assert.match(flowDb, /startedAt/);
+  assert.match(flowDb, /expiresAt/);
+  assert.match(smartDb, /getCaAtendeFlowState/);
+  assert.match(smartDb, /if \(!flow\.active\)/);
+  assert.match(smartDb, /startFlow: true/);
+  assert.doesNotMatch(smartDb, /ACTIVE_CONVERSATION_MS/);
 });
 
-test("conversa só é ativa se ainda existir estado real do bot", () => {
-  assert.match(smartDb, /function activeConversation\(lastBotReplyAt:[^,]+, botState:/);
-  assert.match(smartDb, /!String\(botState \?\? ""\)\.trim\(\)/);
-  assert.match(smartDb, /activeConversation\(conversation\?\.lastBotReplyAt, conversation\?\.botState\)/);
+test("migration da tag de fluxo é aditiva e registrada no journal", () => {
+  assert.match(migration, /CREATE TABLE `ca_atende_flow_tags`/);
+  assert.match(migration, /PRIMARY KEY\(`organization_id`, `phone`\)/);
+  assert.match(migration, /`started_at` text NOT NULL/);
+  assert.match(migration, /`expires_at` text NOT NULL/);
+  assert.match(journal, /0051_ca_atende_flow_tags/);
+  assert.doesNotMatch(migration, /DROP TABLE|DELETE FROM|TRUNCATE/i);
+});
+
+test("mensagens dentro da janela não repetem saudação completa nem link", () => {
+  assert.match(smartDb, /Enquanto estiver ativa, nenhuma mensagem repete a saudação completa ou o link/);
+  assert.match(smartDb, /Durante os cinco dias do fluxo, um novo cumprimento nunca repete a abertura/);
+  assert.match(smartDb, /Oi! Pode falar, como posso te ajudar\?/);
 });
 
 test("mensagem desconhecida pede esclarecimento antes de notificar atendimento humano", () => {
   assert.match(smartDb, /state: "smart_clarify"/);
   assert.match(smartDb, /Não entendi certinho/);
   assert.match(smartDb, /conversation\?\.botState === "smart_clarify"/);
-});
-
-test("cumprimento em conversa recente é curto sem repetir link", () => {
-  assert.match(smartDb, /Oi! Pode falar, como posso te ajudar\?/);
 });
 
 test("modelo recebe regra explícita para serviço de barbearia não virar humano", () => {
