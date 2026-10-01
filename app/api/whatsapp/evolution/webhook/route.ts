@@ -5,7 +5,7 @@ import {
   validEvolutionWebhookAuthorization,
 } from "../../../../../db/evolution-whatsapp";
 import { isEvolutionAudioWebhook, transcribeEvolutionAudioWebhook } from "../../../../../db/evolution-audio";
-import { processCaAtendeInboundSafely } from "../../../../../db/ca-atende";
+import { processCaAtendeSmartInboundSafely } from "../../../../../db/ca-atende-smart";
 import { queueWhatsappTextReply } from "../../../../../db/whatsapp";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
         }
 
         for (const event of events) {
-          await processCaAtendeInboundSafely(event);
+          await processCaAtendeSmartInboundSafely(event);
           // A fila filtra o provedor antes do envio; apenas a Evolution pode
           // processar as respostas desta conexão.
           await processEvolutionWhatsappQueue({ organizationId:event.organizationId, limit:2 });
