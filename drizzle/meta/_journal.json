@@ -351,6 +351,13 @@
       "when": 1790262000000,
       "tag": "0049_affiliate_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1790870000000,
+      "tag": "0050_platform_trial_settings",
+      "breakpoints": true
     }
   ]
 }
