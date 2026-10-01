@@ -18,15 +18,17 @@ test("proprietário consegue editar e restaurar a saudação pelo painel do What
   assert.match(ui, /\{link\}/);
 });
 
-test("saudação personalizada é respeitada sem anexar link automaticamente", () => {
+test("saudação personalizada preserva o texto e garante link e escolhas padrão", () => {
   const greetingStart = smart.indexOf("function greetingText");
   const greetingEnd = smart.indexOf("function handoffText", greetingStart);
   const greeting = smart.slice(greetingStart, greetingEnd);
   assert.match(greeting, /custom\.trim\(\)/);
   assert.match(greeting, /replaceAll\("\{barbearia\}"/);
   assert.match(greeting, /replaceAll\("\{link\}"/);
-  assert.doesNotMatch(greeting, /includes\(link\)/);
-  assert.doesNotMatch(greeting, /Para agendar:/);
+  assert.match(greeting, /if \(!intro\.includes\(link\)\)/);
+  assert.match(greeting, /Para agendar seu horário, use nosso link/);
+  assert.match(greeting, /1 - Continuar por aqui/);
+  assert.match(greeting, /2 - Falar com alguém da barbearia/);
 });
 
 test("API existente continua salvando greetingText somente pela área autenticada", () => {

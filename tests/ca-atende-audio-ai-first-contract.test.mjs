@@ -28,20 +28,35 @@ test("interpretação natural usa IA antes do fallback comum de regras", () => {
   assert.match(bot, /state,/);
 });
 
-test("guarda inteligente evita repetir saudação e link na conversa ativa", () => {
-  assert.match(smart, /ACTIVE_CONVERSATION_MS/);
-  assert.match(smart, /rule\.intent === "greeting"/);
-  assert.match(smart, /Fala! Pode mandar o que você precisa\./);
-  assert.match(smart, /Se preferir, pode falar comigo por aqui que eu te ajudo\./);
-  assert.match(smart, /recentConversation/);
+test("porta de entrada usa tag de cinco dias antes de interpretar a mensagem", () => {
+  assert.match(smart, /getCaAtendeFlowState/);
+  assert.match(smart, /if \(!flow\.active\)/);
+  assert.match(smart, /startFlow: true/);
+  assert.match(smart, /state: "entry_choice"/);
+  assert.match(smart, /resetConversation: true/);
+  assert.match(smart, /Para agendar seu horário, use nosso link/);
+  assert.match(smart, /1 - Continuar por aqui/);
+  assert.match(smart, /2 - Falar com alguém da barbearia/);
+  const welcomeGate = smart.indexOf("if (!flow.active)");
+  const rule = smart.indexOf("const rule = classifyCaAtendeByRule", welcomeGate);
+  assert.ok(welcomeGate >= 0 && rule > welcomeGate, "a primeira mensagem do ciclo deve passar pela porta de entrada antes da intenção");
 });
 
-test("assunto humano ou incompreensível encerra a automação em vez de cair no link", () => {
+test("humano explícito faz handoff; incompreensível pede esclarecimento antes", () => {
   assert.match(smart, /explicitBarbershopRequest/);
-  assert.match(smart, /ai\.intent === "human"/);
+  assert.match(smart, /ai\?\.intent === "human"/);
   assert.match(smart, /ai\.intent === "unknown"/);
+  assert.match(smart, /queueClarification/);
+  assert.match(smart, /state: "smart_clarify"/);
   assert.match(smart, /pauseReason: "human_takeover"/);
   assert.match(smart, /notifyOwnersOfWhatsappHandoff/);
+});
+
+test("pedido de pessoa por nome ou apelido é humano, mas escolher profissional para serviço não é", () => {
+  assert.match(model, /quero falar com o João/);
+  assert.match(model, /me passa pro tigrão/);
+  assert.match(model, /quero cortar com João/);
+  assert.match(model, /Fala tigrão/);
 });
 
 test("cancelamento, remarcação, spam e humano mantêm proteção determinística", () => {

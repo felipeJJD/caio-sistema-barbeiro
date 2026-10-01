@@ -164,6 +164,21 @@ export function highConfidenceCommercialOffer(value: string) {
   return seller && category;
 }
 
+function negatedOnlyServiceBooking(text: string) {
+  if (!/^(?:nao|nem)\b/.test(text)) return false;
+  if (/\b(mas|so|porem|na verdade)\b/.test(text)) return false;
+  const positiveMarkers = text.match(/\b(quero|queria|gostaria|preciso|vou|irei|pretendo|posso|bora|vamos|agendar|marcar)\b/g) ?? [];
+  return positiveMarkers.length <= 1;
+}
+
+function clearServiceBookingIntent(text: string) {
+  if (negatedOnlyServiceBooking(text)) return false;
+  const service = "(?:cortar|corte|cabelo|barba|barbear|sobrancelha|sobrancelhas|pezinho|pe zinho|acabamento|luzes|pigmentacao)";
+  const desire = new RegExp(`\\b(quero|queria|gostaria|preciso|vou|irei|pretendo|posso|bora|vamos|to querendo|estou querendo)\\b.{0,45}\\b${service}\\b`);
+  const action = new RegExp(`\\b(fazer|marcar)\\s+(?:o|a|um|uma)?\\s*${service}\\b`);
+  return desire.test(text) || action.test(text);
+}
+
 export function classifyCaAtendeByRule(value: string): CaAtendeInterpretation {
   const text = normalizeCaAtendeText(value);
   const date = extractCaAtendeDate(value);
@@ -177,7 +192,8 @@ export function classifyCaAtendeByRule(value: string): CaAtendeInterpretation {
   if (/\b(cancelar|cancela|cancelamento|desmarcar|desmarca)\b/.test(text)) return { intent:"cancel", date, time, service:"", barber:"", source:"rule" };
   if (/\b(remarcar|remarca|mudar meu horario|trocar meu horario|mudar o horario|trocar o horario)\b/.test(text)) return { intent:"reschedule", date, time, service:"", barber:"", source:"rule" };
   if (/\b(preco|precos|valor|valores|vlr|quanto custa|quanto e|quanto ta|qual valor|tabela)\b/.test(text) || /\bqto custa\b/.test(text)) return { intent:"prices", date, time, service:"", barber:"", source:"rule" };
-  if (/\b(agendar|agenda|marcar|marca um horario|marcar horario|quero cortar|quero fazer a barba|quero corte|quero barba|quero cabelo|preciso de corte|preciso de barba)\b/.test(text)) return { intent:"booking", date, time, service:"", barber:"", source:"rule" };
+  const legacyBooking = /\b(agendar|agenda|marcar|marca um horario|marcar horario|quero cortar|quero fazer a barba|quero corte|quero barba|quero cabelo|preciso de corte|preciso de barba)\b/.test(text);
+  if ((legacyBooking && !negatedOnlyServiceBooking(text)) || clearServiceBookingIntent(text)) return { intent:"booking", date, time, service:"", barber:"", source:"rule" };
   if (/\b(horario|horarios|hr|hrs|vaga|vagas|encaixe|disponivel|disponibilidade|tem hora|tem horario|tem hr)\b/.test(text) || /^tem\s+(?:corte|barba|cabelo)\b/.test(text)) return { intent:"availability", date, time, service:"", barber:"", source:"rule" };
   if (text.length <= 70 && /^(oi+|ola+|opa+|e ai|eai|eae|bom dia|bomdia|bo dia|boa tarde|boatarde|boua tarde|boa noite|boanoite|tudo bem|oi tudo bem|ola tudo bem|salve|fala)/.test(text)) {
     return { intent:"greeting", date, time, service:"", barber:"", source:"rule" };
