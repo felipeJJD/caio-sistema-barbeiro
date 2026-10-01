@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { handleWhatsappWebhook } from "../../../../db/whatsapp";
-import { processCaAtendeInboundSafely } from "../../../../db/ca-atende";
+import { processCaAtendeSmartInboundSafely } from "../../../../db/ca-atende-smart";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     const result = await handleWhatsappWebhook(payload);
     if (result.inboundTextEvents.length) {
       after(async () => {
-        for (const event of result.inboundTextEvents) await processCaAtendeInboundSafely(event);
+        for (const event of result.inboundTextEvents) await processCaAtendeSmartInboundSafely(event);
       });
     }
     return Response.json({ ok: true, received: result.received, statuses: result.statuses });
