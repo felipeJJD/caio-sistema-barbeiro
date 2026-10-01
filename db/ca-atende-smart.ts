@@ -155,13 +155,13 @@ function greetingText(organizationName: string, slug: string, custom: string) {
   if (!intro.includes(link)) blocks.push(`Para agendar seu horário, use nosso link:\n${link}`);
   const hasBothChoices = /\bcontinuar por aqui\b/.test(normalizedIntro) && /\bfalar com (alguem|a barbearia)\b/.test(normalizedIntro);
   if (!hasBothChoices) {
-    blocks.push("Se preferir, posso te ajudar por aqui.\n1 - Continuar por aqui\n2 - Falar com alguém da barbearia");
+    blocks.push("Se preferir, posso te ajudar por aqui.\n1️⃣ 💬 Continuar por aqui\n2️⃣ 👤 Falar com alguém da barbearia");
   }
   return blocks.join("\n\n").slice(0, 3500);
 }
 
 function entryChoiceText(organizationName: string) {
-  return `Pode escolher como prefere continuar:\n1 - Continuar por aqui\n2 - Falar com alguém da ${organizationName}`;
+  return `Pode escolher como prefere continuar:\n1️⃣ 💬 Continuar por aqui\n2️⃣ 👤 Falar com alguém da ${organizationName}`;
 }
 
 function handoffText(organizationName: string, custom: string) {
@@ -170,7 +170,16 @@ function handoffText(organizationName: string, custom: string) {
 }
 
 function clarificationText(organizationName: string) {
-  return `Não entendi certinho. Você quer agendar, ver horários, saber preços ou falar com alguém da ${organizationName}?`;
+  return `Não entendi certinho. Escolha uma opção ou escreva do seu jeito:\n1️⃣ 📅 Agendar horário\n2️⃣ 🕒 Ver horários disponíveis\n3️⃣ 💈 Preços e serviços\n4️⃣ 👤 Falar com alguém da ${organizationName}`;
+}
+
+function clarificationChoice(value: string) {
+  const text = normalizeCaAtendeText(value);
+  if (/^(1|opcao 1|primeira opcao)$/.test(text)) return "booking" as const;
+  if (/^(2|opcao 2|segunda opcao)$/.test(text)) return "availability" as const;
+  if (/^(3|opcao 3|terceira opcao)$/.test(text)) return "prices" as const;
+  if (/^(4|opcao 4|quarta opcao)$/.test(text)) return "human" as const;
+  return "" as const;
 }
 
 async function smartContext(organizationId: number) {
@@ -328,6 +337,16 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
     if (wantsAutomatedEntryChoice(event.text)) {
       return processCaAtendeInboundSafely({ ...event, text: "Ver opções" });
     }
+  }
+
+  // A lista de esclarecimento também tem números próprios. Eles só valem enquanto
+  // o C.A. está exatamente nessa etapa e nunca interferem nos números de agenda.
+  if (conversation?.botState === "smart_clarify") {
+    const choice = clarificationChoice(event.text);
+    if (choice === "human") return queueHumanHandoff(event, context);
+    if (choice === "booking") return processCaAtendeInboundSafely({ ...event, text: "Agendar horário" });
+    if (choice === "availability") return processCaAtendeInboundSafely({ ...event, text: "Ver horários disponíveis" });
+    if (choice === "prices") return processCaAtendeInboundSafely({ ...event, text: "Preços e serviços" });
   }
 
   const rule = classifyCaAtendeByRule(event.text);
