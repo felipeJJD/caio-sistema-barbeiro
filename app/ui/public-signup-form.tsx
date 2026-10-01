@@ -12,12 +12,15 @@ export function PublicSignupForm({
   signupSource,
   referralCode = "",
   initialAccountType = "barbershop",
+  trialDays,
 }: {
   signupSource: string;
   referralCode?: string;
   initialAccountType?: AccountType;
+  trialDays: number;
 }) {
   const accountType = initialAccountType;
+  const trialLabel = `${trialDays} ${trialDays === 1 ? "dia" : "dias"}`;
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [password, setPassword] = useState("");
@@ -90,7 +93,7 @@ export function PublicSignupForm({
         <div className="public-form-heading">
           <span>ÚLTIMA ETAPA</span>
           <h2>Confirme seu e-mail.</h2>
-          <p>Enviamos um link para <strong>{verificationEmail}</strong>. Abra a mensagem para liberar seus 14 dias grátis.</p>
+          <p>Enviamos um link para <strong>{verificationEmail}</strong>. Abra a mensagem para liberar seus {trialLabel} grátis.</p>
         </div>
         <div className="signup-email-note">
           <b>O teste ainda não começou.</b>
@@ -109,7 +112,7 @@ export function PublicSignupForm({
       )}
 
       <div className="public-form-heading">
-        <span>TESTE GRÁTIS · 14 DIAS</span>
+        <span>TESTE GRÁTIS · {trialLabel.toUpperCase()}</span>
         <h2>{accountType === "individual" ? "Crie seu controle de barbeiro." : "Crie sua barbearia agora."}</h2>
         <p>{accountType === "individual"
           ? "Um espaço simples para seus atendimentos, ganhos e agenda."
@@ -194,7 +197,7 @@ export function PublicSignupForm({
       </label>
 
       <button className="public-submit" disabled={pending}>
-        <span>{pending ? "Criando seu acesso..." : "Começar meus 14 dias grátis"}</span>
+        <span>{pending ? "Criando seu acesso..." : `Começar meus ${trialLabel} grátis`}</span>
         {!pending && <b aria-hidden="true">→</b>}
       </button>
 
@@ -203,7 +206,7 @@ export function PublicSignupForm({
         <a href={loginEmail ? `/?email=${encodeURIComponent(loginEmail)}` : "/"}>Fazer login</a>
       </div>
 
-      <small>Depois do teste, você escolhe se quer continuar. Sem cobrança automática durante os 14 dias.</small>
+      <small>Depois do teste, você escolhe se quer continuar. Sem cobrança automática durante os {trialLabel}.</small>
       <SupportContactLinks />
     </form>
   );

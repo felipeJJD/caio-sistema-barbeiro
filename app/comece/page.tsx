@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getPlatformBillingOffer } from "../../db/platform-billing";
+import { getPlatformTrialDays } from "../../db/platform-trial";
 import { SUPPORT_PHONE_DISPLAY, SUPPORT_WHATSAPP_URL } from "../../lib/support";
 import { AppIcon } from "../ui/app-icon";
 import { BrandLogo } from "../ui/brand-logo";
@@ -10,10 +11,14 @@ import { PublicSignupForm } from "../ui/public-signup-form";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Cortou Anotou | Gestão para barbearias",
-  description: "Agenda, atendimentos, equipe e financeiro da sua barbearia em um só aplicativo. Teste grátis por 14 dias.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const trialDays = await getPlatformTrialDays();
+  const trialLabel = `${trialDays} ${trialDays === 1 ? "dia" : "dias"}`;
+  return {
+    title: "Cortou Anotou | Gestão para barbearias",
+    description: `Agenda, atendimentos, equipe e financeiro da sua barbearia em um só aplicativo. Teste grátis por ${trialLabel}.`,
+  };
+}
 
 type SearchValue = string | string[] | undefined;
 
@@ -26,8 +31,9 @@ function price(cents: number) {
 }
 
 export default async function ComecePage({ searchParams }: { searchParams: Promise<Record<string, SearchValue>> }) {
-  const [params, billingOffer] = await Promise.all([searchParams, getPlatformBillingOffer()]);
+  const [params, billingOffer, trialDays] = await Promise.all([searchParams, getPlatformBillingOffer(), getPlatformTrialDays()]);
   const pixPrice = price(billingOffer.pixPriceCents);
+  const trialLabel = `${trialDays} ${trialDays === 1 ? "dia" : "dias"}`;
   const referralCode = (first(params.ref) ?? "").slice(0, 70);
   const initialAccountType = first(params.perfil) === "barbeiro" ? "individual" as const : "barbershop" as const;
   const sourceParts = [
@@ -60,7 +66,7 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
           <h1>O corte termina.<br /><em>A gestão continua.</em></h1>
           <p>Agenda, atendimentos, produtos, mensalistas, equipe e financeiro em um aplicativo simples de usar — até nos dias mais corridos.</p>
           <div className="public-hero-actions">
-            <a className="public-primary-cta" href="#cadastro">Começar 14 dias grátis <b>→</b></a>
+            <a className="public-primary-cta" href="#cadastro">Começar {trialLabel} grátis <b>→</b></a>
             <Link className="public-login-cta" href="/">Entrar</Link>
             <a className="public-learn-link" href="#produto">Conhecer o aplicativo ↓</a>
           </div>
@@ -82,9 +88,9 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
 
       <section className="public-signup-section public-signup-priority" id="cadastro">
         <div className="public-signup-copy">
-          <span>14 DIAS GRÁTIS</span>
+          <span>{trialLabel.toUpperCase()} GRÁTIS</span>
           <h2>Entre, teste na rotina<br />e decida depois.</h2>
-          <p>Crie sua conta em poucos passos e use o Cortou Anotou durante 14 dias sem cartão e sem cobrança automática.</p>
+          <p>Crie sua conta em poucos passos e use o Cortou Anotou durante {trialLabel} sem cartão e sem cobrança automática.</p>
           <ul>
             <li><b>✓</b><span>Barbearia criada automaticamente</span></li>
             <li><b>✓</b><span>Acesso completo durante o teste</span></li>
@@ -92,7 +98,7 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
           </ul>
           <div className="public-price"><small>DEPOIS DO TESTE</small><strong><sup>R$</sup> {pixPrice}</strong><span>/ mês</span></div>
         </div>
-        <PublicSignupForm signupSource={signupSource} referralCode={referralCode} initialAccountType={initialAccountType} />
+        <PublicSignupForm signupSource={signupSource} referralCode={referralCode} initialAccountType={initialAccountType} trialDays={trialDays} />
       </section>
 
       <section className="public-secondary-access" aria-label="Outras formas de acesso">
@@ -142,9 +148,9 @@ export default async function ComecePage({ searchParams }: { searchParams: Promi
         <div className="public-section-heading"><span>PERGUNTAS FREQUENTES</span><h2>Antes de começar.</h2></div>
         <div className="public-faq-list">
           <details><summary>Meus dados se misturam com os de outra barbearia?<i>+</i></summary><p>Não. Cada barbearia recebe um espaço separado para clientes, agenda, equipe, registros e financeiro.</p></details>
-          <details><summary>Vou pagar alguma coisa durante os 14 dias?<i>+</i></summary><p>Não. O teste não pede cartão. Perto do fim, o proprietário escolhe se quer pagar e continuar.</p></details>
+          <details><summary>Vou pagar alguma coisa durante os {trialLabel}?<i>+</i></summary><p>Não. O teste não pede cartão. Perto do fim, o proprietário escolhe se quer pagar e continuar.</p></details>
           <details><summary>Consigo usar no celular?<i>+</i></summary><p>Sim. O aplicativo foi pensado para funcionar bem no celular e pode ser adicionado à tela inicial.</p></details>
-          <details id="termos"><summary>Quais são os termos do teste?<i>+</i></summary><p>O teste libera o uso do sistema por 14 dias, sem cobrança automática. O usuário é responsável pelos dados inseridos e deve utilizar o aplicativo de forma legítima. A continuidade após o teste depende da escolha de um plano disponível.</p></details>
+          <details id="termos"><summary>Quais são os termos do teste?<i>+</i></summary><p>O teste libera o uso do sistema por {trialLabel}, sem cobrança automática. O usuário é responsável pelos dados inseridos e deve utilizar o aplicativo de forma legítima. A continuidade após o teste depende da escolha de um plano disponível.</p></details>
           <details id="privacidade"><summary>Como os dados do cadastro são usados?<i>+</i></summary><p>Nome, e-mail e WhatsApp são usados para criar, operar e dar suporte à conta da barbearia. As informações de origem da campanha podem ser guardadas para entender como o cliente conheceu o aplicativo.</p></details>
         </div>
       </section>
