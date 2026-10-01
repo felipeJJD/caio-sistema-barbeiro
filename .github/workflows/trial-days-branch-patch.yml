@@ -1,0 +1,47 @@
+name: Trial days branch patch
+
+on:
+  push:
+    branches:
+      - feat/trial-days-configuravel
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/trial-days-configuravel
+          fetch-depth: 0
+      - name: Align configured trial limits
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'db/auth.ts';
+          let text = fs.readFileSync(path, 'utf8');
+          const replacements = [
+            ['import { getPlatformTrialDays } from "./platform-trial";', 'import { getPlatformTrialDays, MAX_PUBLIC_TRIAL_DAYS } from "./platform-trial";'],
+            ['if (!Number.isFinite(safeDays) || safeDays < 1 || safeDays > 90) throw new Error("Escolha um teste entre 1 e 90 dias.");', 'if (!Number.isFinite(safeDays) || safeDays < 1 || safeDays > MAX_PUBLIC_TRIAL_DAYS) throw new Error(`Escolha um teste entre 1 e ${MAX_PUBLIC_TRIAL_DAYS} dias.`);'],
+            ['if (!Number.isFinite(trialDays) || trialDays < 1 || trialDays > 90) throw new Error("Escolha um teste entre 1 e 90 dias.");', 'if (!Number.isFinite(trialDays) || trialDays < 1 || trialDays > MAX_PUBLIC_TRIAL_DAYS) throw new Error(`Escolha um teste entre 1 e ${MAX_PUBLIC_TRIAL_DAYS} dias.`);'],
+          ];
+          for (const [before, after] of replacements) {
+            const count = text.split(before).length - 1;
+            if (count !== 1) throw new Error(`Expected one occurrence, found ${count}: ${before}`);
+            text = text.replace(before, after);
+          }
+          fs.writeFileSync(path, text);
+          fs.unlinkSync('.github/workflows/trial-days-branch-patch.yml');
+          NODE
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/auth.ts .github/workflows/trial-days-branch-patch.yml
+          git commit -m "Alinhar limites do teste grátis configurável"
+          git push origin HEAD:feat/trial-days-configuravel
