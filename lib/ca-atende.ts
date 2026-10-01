@@ -32,6 +32,9 @@ export type CaAtendeContextMemory = {
   paymentChoice?: string;
   appointmentId?: number;
   manageAction?: "cancel" | "reschedule" | "";
+  // Opções mostradas na última resposta. Permite responder apenas com 1, 2, 3...
+  // sem misturar o significado dos números entre etapas diferentes da conversa.
+  lastChoices?: string[];
   // The customer's explicit selection is kept separate from the last displayed options.
   afterTime?: string;
   beforeTime?: string;
