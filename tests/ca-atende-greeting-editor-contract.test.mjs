@@ -27,8 +27,8 @@ test("saudação personalizada preserva o texto e garante link e escolhas padrã
   assert.match(greeting, /replaceAll\("\{link\}"/);
   assert.match(greeting, /if \(!intro\.includes\(link\)\)/);
   assert.match(greeting, /Para agendar seu horário, use nosso link/);
-  assert.match(greeting, /1 - Continuar por aqui/);
-  assert.match(greeting, /2 - Falar com alguém da barbearia/);
+  assert.match(greeting, /1️⃣ 💬 Continuar por aqui/);
+  assert.match(greeting, /2️⃣ 👤 Falar com alguém da barbearia/);
 });
 
 test("API existente continua salvando greetingText somente pela área autenticada", () => {
