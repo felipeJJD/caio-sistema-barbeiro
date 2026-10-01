@@ -66,6 +66,7 @@ type WhatsappApiPayload = {
 };
 
 const reminderOptions = [1, 2, 3, 6, 12, 24];
+const defaultGreetingTemplate = "Olá! Seja bem-vindo à {barbearia}.\nSe quiser agendar seu horário, acesse {link}.\nSe preferir, pode falar comigo por aqui que eu te ajudo.";
 
 function statusLabel(status: string) {
   if (status === "connected" || status === "open") return "Conectado";
@@ -106,6 +107,7 @@ export function WhatsappAutomation() {
   const [pairingCode, setPairingCode] = useState("");
   const [connectionState, setConnectionState] = useState("disconnected");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [greetingDraft, setGreetingDraft] = useState(defaultGreetingTemplate);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function load(options: { background?: boolean } = {}) {
@@ -116,6 +118,7 @@ export function WhatsappAutomation() {
       const payload = await response.json() as EvolutionPayload;
       if (!response.ok || !payload.whatsapp) throw new Error(payload.error ?? "Não foi possível carregar o WhatsApp.");
       setData(payload.whatsapp);
+      setGreetingDraft(payload.whatsapp.settings.greetingText.trim() || defaultGreetingTemplate);
       setEvolutionReady(Boolean(payload.evolution?.ready));
       const state = String(payload.state ?? payload.whatsapp.connection.status ?? "disconnected");
       setConnectionState(state);
@@ -191,6 +194,7 @@ export function WhatsappAutomation() {
       const payload = await response.json() as WhatsappApiPayload;
       if (!response.ok || !payload.whatsapp) throw new Error(payload.error ?? "Não foi possível salvar o WhatsApp.");
       setData(payload.whatsapp);
+      if (next.greetingText !== undefined) setGreetingDraft(payload.whatsapp.settings.greetingText.trim() || defaultGreetingTemplate);
       showAppToast(toast);
       return true;
     } catch (error) {
@@ -303,6 +307,17 @@ export function WhatsappAutomation() {
       .wa2-reminder select{min-height:36px;max-width:136px;border:1px solid #deddd5;border-radius:9px;background:#fff;padding:0 28px 0 9px;color:#2a302b;font-size:16px;font-weight:700}
       .wa2-ai{background:#fff}
       .wa2-ai .wa2-icon{background:#f6edd9;color:#9a7026;font-size:9px;letter-spacing:.04em}
+      .wa2-greeting{box-shadow:none}
+      .wa2-greeting>summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px}
+      .wa2-greeting>summary::-webkit-details-marker{display:none}
+      .wa2-greeting-title{min-width:0;display:flex;align-items:center;gap:10px}
+      .wa2-greeting-title>span{width:30px;height:30px;flex:0 0 30px;border-radius:9px;background:#f6edd9;color:#9a7026;display:grid;place-items:center;font-size:12px;font-weight:900}
+      .wa2-greeting-title strong,.wa2-greeting-title small{display:block}.wa2-greeting-title strong{font-size:12px}.wa2-greeting-title small{margin-top:3px;color:#858a82;font-size:10px}
+      .wa2-greeting-body{display:grid;gap:9px;padding:12px 15px 15px;border-top:1px solid #efeee8}
+      .wa2-greeting-body label{font-size:10px;font-weight:900;color:#6d6759}
+      .wa2-greeting-body textarea{width:100%;min-height:132px;resize:vertical;border:1px solid #deddd5;border-radius:10px;background:#fff;padding:11px 12px;font:inherit;font-size:16px;line-height:1.4;color:#252b26}
+      .wa2-greeting-help{margin:0;color:#858a82;font-size:10px;line-height:1.4}.wa2-greeting-help code{font-size:10px;font-weight:900;color:#695630;background:#f6f3e9;border-radius:5px;padding:2px 4px}
+      .wa2-greeting-actions{display:flex;justify-content:flex-end;gap:8px}.wa2-greeting-actions button{min-height:38px;border-radius:9px;padding:0 12px;font-size:11px;font-weight:900}.wa2-greeting-reset{border:1px solid #deddd5;background:#fff;color:#303530}.wa2-greeting-save{border:0;background:#202720;color:#fff}
       .wa2-human{padding:14px 15px}
       .wa2-human h3{margin:0;font-size:13px}
       .wa2-human>p{margin:4px 0 10px;color:#858a82;font-size:10px;line-height:1.35}
@@ -335,6 +350,7 @@ export function WhatsappAutomation() {
         .wa2-usage{font-size:9px;padding:5px 7px}
         .wa2-reminder-setting{margin-left:38px;padding:7px 9px}
         .wa2-reminder select{max-width:126px}
+        .wa2-greeting>summary{padding:11px 12px}.wa2-greeting-body{padding:11px 12px 12px}.wa2-greeting-actions{display:grid;grid-template-columns:1fr 1fr}.wa2-greeting-actions button{width:100%}
         .wa2-advanced summary{padding:12px;font-size:11px}
       }
     `}</style>
@@ -437,6 +453,22 @@ export function WhatsappAutomation() {
           </div>
         </div>
       </section>
+
+      <details className="wa2-card wa2-greeting">
+        <summary>
+          <div className="wa2-greeting-title"><span>✎</span><div><strong>Editar saudação</strong><small>Primeira mensagem do C.A. Atende</small></div></div>
+          <span aria-hidden="true">›</span>
+        </summary>
+        <div className="wa2-greeting-body">
+          <label htmlFor="ca-greeting-text">MENSAGEM DE BOAS-VINDAS</label>
+          <textarea id="ca-greeting-text" maxLength={700} value={greetingDraft} disabled={saving} onChange={(event) => setGreetingDraft(event.target.value)} />
+          <p className="wa2-greeting-help">Use <code>{"{barbearia}"}</code> para o nome da barbearia e <code>{"{link}"}</code> para o link de agendamento. Se você não colocar o link, ele não será acrescentado sozinho.</p>
+          <div className="wa2-greeting-actions">
+            <button type="button" className="wa2-greeting-reset" disabled={saving} onClick={() => setGreetingDraft(defaultGreetingTemplate)}>Restaurar padrão</button>
+            <button type="button" className="wa2-greeting-save" disabled={saving || !greetingDraft.trim()} onClick={() => void saveSettings({ greetingText: greetingDraft }, "Saudação do C.A. Atende atualizada.")}>{saving ? "Salvando..." : "Salvar saudação"}</button>
+          </div>
+        </div>
+      </details>
 
       {data.humanHandoffs.length > 0 && <section className="wa2-card wa2-human whatsapp-human-queue">
         <h3>Clientes esperando uma pessoa</h3>

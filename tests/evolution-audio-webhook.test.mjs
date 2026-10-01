@@ -10,7 +10,7 @@ const fakeModules = {
     export async function processEvolutionWhatsappQueue(input){globalThis.__audioCalls.push(['send',input])}`,
   "../../../../../db/evolution-audio":`export function isEvolutionAudioWebhook(){return true}
     export async function transcribeEvolutionAudioWebhook(){globalThis.__audioCalls.push(['transcribe']);return globalThis.__audioTranscription}`,
-  "../../../../../db/ca-atende":"export async function processCaAtendeInboundSafely(input){globalThis.__audioCalls.push(['bot',input])}",
+  "../../../../../db/ca-atende-smart":"export async function processCaAtendeSmartInboundSafely(input){globalThis.__audioCalls.push(['bot',input])}",
   "../../../../../db/whatsapp":"export async function queueWhatsappTextReply(input){globalThis.__audioCalls.push(['queue',input]);return {queued:true}}",
 };
 const bundled = await build({
@@ -47,6 +47,11 @@ test("falha de áudio usa somente organização e telefone validados pelo servid
   assert.equal(globalThis.__audioCalls[1][1].organizationId,42);
   assert.equal(globalThis.__audioCalls[1][1].inboundProviderMessageId,"audio-id");
   assert.equal(globalThis.__audioCalls[2][1].organizationId,42);
+});
+
+test("áudio transcrito entra na mesma guarda inteligente do texto", async () => {
+  await dispatch({received:1,statuses:0,inboundTextEvents:[]},{kind:"transcribed",event:{organizationId:42,phone:"5541999999999",providerMessageId:"audio-id",text:"tem horário amanhã?"}});
+  assert.deepEqual(globalThis.__audioCalls.map(item=>item[0]),["transcribe","bot","send"]);
 });
 
 test("áudio já ignorado por atendimento humano não gera resposta", async () => {

@@ -118,7 +118,7 @@ test("fila reivindica mensagem antes da chamada externa para reduzir envio dupli
 test("webhook oficial responde antes de iniciar interpretação mais lenta", () => {
   assert.match(webhookRoute, /import \{ after \} from "next\/server"/);
   assert.match(webhookRoute, /after\(async \(\) =>/);
-  assert.match(webhookRoute, /processCaAtendeInboundSafely/);
+  assert.match(webhookRoute, /processCaAtendeSmartInboundSafely/);
 });
 
 test("modo econômico nasce ativo nas configurações, mas bot continua desligado por padrão", () => {
