@@ -122,8 +122,8 @@ async function recentConversation(organizationId: number, phone: string, current
     .map(({ role, text }) => ({ role, text }));
 }
 
-function activeConversation(lastBotReplyAt: string | null | undefined) {
-  if (!lastBotReplyAt) return false;
+function activeConversation(lastBotReplyAt: string | null | undefined, botState: string | null | undefined) {
+  if (!lastBotReplyAt || !String(botState ?? "").trim()) return false;
   const timestamp = Date.parse(lastBotReplyAt);
   return Number.isFinite(timestamp) && timestamp >= Date.now() - ACTIVE_CONVERSATION_MS;
 }
@@ -275,10 +275,10 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
   if (!context?.enabled || paused(conversation)) return processCaAtendeInboundSafely(event);
 
   const rule = classifyCaAtendeByRule(event.text);
-  const isActive = activeConversation(conversation?.lastBotReplyAt);
+  const isActive = activeConversation(conversation?.lastBotReplyAt, conversation?.botState);
 
   // Saudação completa para uma conversa nova. Dentro de uma conversa realmente
-  // recente, um novo "oi" recebe apenas uma resposta curta e não repete o link.
+  // recente e com estado ativo, um novo "oi" recebe resposta curta e não repete o link.
   if (rule.intent === "greeting") {
     const text = isActive
       ? "Oi! Pode falar, como posso te ajudar?"
