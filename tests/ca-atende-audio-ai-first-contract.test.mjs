@@ -28,13 +28,17 @@ test("interpretação natural usa IA antes do fallback comum de regras", () => {
   assert.match(bot, /state,/);
 });
 
-test("guarda inteligente evita repetir saudação e link somente em conversa realmente ativa", () => {
+test("porta de entrada envia saudação, link e escolha antes de interpretar a primeira mensagem", () => {
   assert.match(smart, /ACTIVE_CONVERSATION_MS = 30 \* 60 \* 1000/);
-  assert.match(smart, /rule\.intent === "greeting"/);
-  assert.match(smart, /Oi! Pode falar, como posso te ajudar\?/);
-  assert.match(smart, /activeConversation\(conversation\?\.lastBotReplyAt, conversation\?\.botState\)/);
-  assert.match(smart, /Se preferir, pode falar comigo por aqui que eu te ajudo\./);
-  assert.match(smart, /recentConversation/);
+  assert.match(smart, /if \(!isActive\)/);
+  assert.match(smart, /state: "entry_choice"/);
+  assert.match(smart, /resetConversation: true/);
+  assert.match(smart, /Para agendar seu horário, use nosso link/);
+  assert.match(smart, /1 - Continuar por aqui/);
+  assert.match(smart, /2 - Falar com alguém da barbearia/);
+  const welcomeGate = smart.indexOf("if (!isActive)");
+  const rule = smart.indexOf("const rule = classifyCaAtendeByRule", welcomeGate);
+  assert.ok(welcomeGate >= 0 && rule > welcomeGate, "a primeira mensagem deve passar pela porta de entrada antes da intenção");
 });
 
 test("humano explícito faz handoff; incompreensível pede esclarecimento antes", () => {
@@ -45,6 +49,13 @@ test("humano explícito faz handoff; incompreensível pede esclarecimento antes"
   assert.match(smart, /state: "smart_clarify"/);
   assert.match(smart, /pauseReason: "human_takeover"/);
   assert.match(smart, /notifyOwnersOfWhatsappHandoff/);
+});
+
+test("pedido de pessoa por nome ou apelido é humano, mas escolher profissional para serviço não é", () => {
+  assert.match(model, /quero falar com o João/);
+  assert.match(model, /me passa pro tigrão/);
+  assert.match(model, /quero cortar com João/);
+  assert.match(model, /Fala tigrão/);
 });
 
 test("cancelamento, remarcação, spam e humano mantêm proteção determinística", () => {
