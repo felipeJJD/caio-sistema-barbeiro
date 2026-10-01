@@ -28,17 +28,18 @@ test("interpretação natural usa IA antes do fallback comum de regras", () => {
   assert.match(bot, /state,/);
 });
 
-test("porta de entrada envia saudação, link e escolha antes de interpretar a primeira mensagem", () => {
-  assert.match(smart, /ACTIVE_CONVERSATION_MS = 30 \* 60 \* 1000/);
-  assert.match(smart, /if \(!isActive\)/);
+test("porta de entrada usa tag de cinco dias antes de interpretar a mensagem", () => {
+  assert.match(smart, /getCaAtendeFlowState/);
+  assert.match(smart, /if \(!flow\.active\)/);
+  assert.match(smart, /startFlow: true/);
   assert.match(smart, /state: "entry_choice"/);
   assert.match(smart, /resetConversation: true/);
   assert.match(smart, /Para agendar seu horário, use nosso link/);
   assert.match(smart, /1 - Continuar por aqui/);
   assert.match(smart, /2 - Falar com alguém da barbearia/);
-  const welcomeGate = smart.indexOf("if (!isActive)");
+  const welcomeGate = smart.indexOf("if (!flow.active)");
   const rule = smart.indexOf("const rule = classifyCaAtendeByRule", welcomeGate);
-  assert.ok(welcomeGate >= 0 && rule > welcomeGate, "a primeira mensagem deve passar pela porta de entrada antes da intenção");
+  assert.ok(welcomeGate >= 0 && rule > welcomeGate, "a primeira mensagem do ciclo deve passar pela porta de entrada antes da intenção");
 });
 
 test("humano explícito faz handoff; incompreensível pede esclarecimento antes", () => {
