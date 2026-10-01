@@ -57,6 +57,11 @@ function bookingLink(slug: string) {
   return `${appBaseUrl()}/agendar/${encodeURIComponent(slug)}`;
 }
 
+function safeChoices(value: unknown) {
+  if (!Array.isArray(value)) return [] as string[];
+  return value.map((item) => String(item || "").trim().slice(0, 180)).filter(Boolean).slice(0, 10);
+}
+
 function safeMemory(value: string): CaAtendeContextMemory {
   try {
     const parsed = JSON.parse(value || "{}") as CaAtendeContextMemory;
@@ -70,6 +75,7 @@ function safeMemory(value: string): CaAtendeContextMemory {
       paymentChoice: String(parsed.paymentChoice || "").slice(0,30),
       appointmentId: Math.max(0, Math.round(Number(parsed.appointmentId || 0))),
       manageAction: parsed.manageAction === "cancel" || parsed.manageAction === "reschedule" ? parsed.manageAction : "",
+      lastChoices: safeChoices(parsed.lastChoices),
       afterTime: String(parsed.afterTime || "").slice(0,5),
       beforeTime: String(parsed.beforeTime || "").slice(0,5),
     };
@@ -439,6 +445,42 @@ function wantsBookingConfirmation(value: string) {
 }
 
 const mainChoices = ["Agendar horário", "Ver horários disponíveis", "Preços e serviços", "Cancelar ou remarcar", "Falar com a barbearia"];
+const choiceNumberEmoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
+
+function rememberedChoice(value: string, choices: string[] | undefined) {
+  const safe = safeChoices(choices);
+  if (!safe.length) return "";
+  const text = normalizeCaAtendeText(value);
+  const match = /^(?:opcao\s*)?(\d{1,2})$/.exec(text);
+  if (!match) return "";
+  const index = Number(match[1]) - 1;
+  return index >= 0 && index < safe.length ? safe[index] : "";
+}
+
+function choiceIcon(choice: string) {
+  const text = normalizeCaAtendeText(choice);
+  if (/\bconfirmar|\bconfirmacao/.test(text)) return "✅";
+  if (/\bcancelar|\bcancelamento|\bdesistir/.test(text)) return "❌";
+  if (/\bremarcar|\btrocar|\balterar|\bmudar/.test(text)) return "🔄";
+  if (/\bagendar|\bmarcar/.test(text)) return "📅";
+  if (/\bfalar com|\bbarbearia|\batendente|\bhumano|\bresponsavel/.test(text)) return "👤";
+  if (/\bpreco|\bprecos|\bservico|\bservicos|\bvalor|\bvalores/.test(text)) return "💈";
+  if (/\bpix\b/.test(text)) return "💠";
+  if (/\bdinheiro|\bespecie/.test(text)) return "💵";
+  if (/\bdebito|\bcredito|\bcartao/.test(text)) return "💳";
+  if (/\bqualquer profissional/.test(text)) return "👥";
+  if (/\bhoje|\bamanha|\bsegunda|\bterca|\bquarta|\bquinta|\bsexta|\bsabado|\bdomingo|\d{1,2}\/\d{1,2}/.test(text)) return "📆";
+  if (/\b\d{1,2}:\d{2}\b|\bhorario|\bhorarios/.test(text)) return "🕒";
+  if (/\bcorte|\bcabelo/.test(text)) return "✂️";
+  if (/\bbarba|\bbarbear/.test(text)) return "🧔";
+  return "";
+}
+
+function formatChoiceLine(choice: string, index: number) {
+  const number = choiceNumberEmoji[index] ?? `${index + 1}.`;
+  const icon = choiceIcon(choice);
+  return `${number}${icon ? ` ${icon}` : ""} ${choice}`;
+}
 
 function bookingDayChoices(count = 5) {
   const today = appDate();
@@ -555,14 +597,13 @@ function humanDate(value: string) {
   return value.split("-").reverse().join("/");
 }
 
-
 function managedBookingLabel(item: WhatsappManagedBooking, index?: number) {
   const prefix = index === undefined ? "" : `${index + 1}. `;
   return `${prefix}${humanDate(item.date)} às ${item.time} · ${item.serviceName} · ${item.barberName}`;
 }
 
 function managedBookingChoices(items: WhatsappManagedBooking[]) {
-  return items.slice(0,5).map((item,index) => managedBookingLabel(item,index));
+  return items.slice(0,5).map((item) => managedBookingLabel(item));
 }
 
 function chooseManagedBooking(message: string, items: WhatsappManagedBooking[]) {
@@ -615,6 +656,8 @@ export async function composeReply(
   conversation: CaAtendeConversationSnapshot | null,
 ): Promise<CaAtendeDecision> {
   const oldMemory = safeMemory(conversation?.botContextJson ?? "{}");
+  const selectedRememberedChoice = rememberedChoice(event.text, oldMemory.lastChoices);
+  if (selectedRememberedChoice) event = { ...event, text:selectedRememberedChoice };
   const normalized = normalizeCaAtendeText(event.text);
   const stage = conversation?.botState || "";
   // Buttons in the laboratory are ordinary text inputs to this same production engine.
@@ -754,7 +797,7 @@ export async function composeReply(
     const previousService = oldMemory.service ? findNamedItem(oldMemory.service, oldMemory.service, context.services) : null;
     const selected = directService || (refersToPreviousService(event.text) ? previousService : null);
     if (selected) return { reply:`${selected.name} leva cerca de ${selected.durationMinutes} minutos.`, intent:"duration", state:stage === "awaiting_duration_service" ? "" : stage, memory:oldMemory, source:"rule", dataSource:"services" };
-    return { reply:"De qual serviço você quer saber a duração?", intent:"duration", state:"awaiting_duration_service", memory:oldMemory, source:"rule", dataSource:"services" };
+    return { reply:"De qual serviço você quer saber a duração?", intent:"duration", state:"awaiting_duration_service", memory:oldMemory, source:"rule", dataSource:"services", choices:serviceChoices(context) };
   }
   const serviceSignals = serviceIntentSignals(event.text);
   if (serviceSignals.mentionsCut && serviceSignals.mentionsBeard && !serviceSignals.rejectBeard && !serviceSignals.rejectCut && !findServiceByMessage(event.text, context.services)) {
@@ -827,7 +870,7 @@ export async function composeReply(
         dataSource:"services",
       };
     }
-    if (!wantsList) return { reply:"Qual serviço você quer saber o preço?", intent, state:"awaiting_price_service", memory:{ intent:"prices" }, source:"rule", dataSource:"services" };
+    if (!wantsList) return { reply:"Qual serviço você quer saber o preço?", intent, state:"awaiting_price_service", memory:{ intent:"prices" }, source:"rule", dataSource:"services", choices:serviceChoices(context) };
     const rows = context.services.slice(0,8).map(item => `• ${item.name}: ${formatCaAtendeMoney(item.priceCents)}`);
     const more = context.services.length > 8 ? "\nSe quiser um serviço específico, me fala o nome que eu te passo só aquele valor." : "";
     return {
@@ -1079,6 +1122,7 @@ export async function simulateCaAtende(input: {
   const testReply = decision.confirmationRequested
     ? `Perfeito. Eu entendi sua confirmação: ${decision.memory.service || "serviço"}${decision.memory.barber ? ` com ${decision.memory.barber}` : ""}, ${decision.memory.date ? humanDate(decision.memory.date) : "no dia escolhido"}${decision.memory.time ? ` às ${decision.memory.time}` : ""}. No modo teste eu não altero sua agenda, então nenhum horário real foi criado.`
     : decision.reply;
+  const stateMemory = { ...decision.memory, lastChoices:safeChoices(decision.choices) };
 
   return {
     reply: testReply,
@@ -1092,7 +1136,7 @@ export async function simulateCaAtende(input: {
     guided:Boolean(decision.choices?.length),
     state: {
       botState: decision.state,
-      memory: decision.memory,
+      memory: stateMemory,
       paused: Boolean(decision.handoff),
       unresolvedTurns: guarded.unresolvedTurns,
     },
@@ -1114,7 +1158,6 @@ export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
   const guarded = guardedDecision(rawDecision, conversation, context);
   let decision = guarded.decision;
   const now = new Date().toISOString();
-
 
   if (decision.managementRequest) {
     const request = decision.managementRequest;
@@ -1183,6 +1226,11 @@ export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
     }
   }
 
+  decision = {
+    ...decision,
+    memory:{ ...decision.memory, lastChoices:safeChoices(decision.choices) },
+  };
+
   if (decision.spam) {
     await updateConversation({
       organizationId:event.organizationId,
@@ -1200,7 +1248,7 @@ export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
     organizationId:event.organizationId,
     phone:event.phone,
     // Text equivalent until official Meta interactive payloads are reviewed and enabled.
-    text:decision.choices?.length ? `${decision.reply}\n${decision.choices.map(choice => `• ${choice}`).join("\n")}` : decision.reply,
+    text:decision.choices?.length ? `${decision.reply}\n${decision.choices.map((choice,index) => formatChoiceLine(choice,index)).join("\n")}` : decision.reply,
     inboundProviderMessageId:event.providerMessageId,
   });
   if (!queued.queued) return { handled:false, reason:queued.reason };
