@@ -43,6 +43,9 @@ function safeMemory(value: string | null | undefined): CaAtendeContextMemory {
       paymentChoice: String(parsed.paymentChoice || "").slice(0, 30),
       appointmentId: Math.max(0, Math.round(Number(parsed.appointmentId || 0))),
       manageAction: parsed.manageAction === "cancel" || parsed.manageAction === "reschedule" ? parsed.manageAction : "",
+      lastChoices: Array.isArray(parsed.lastChoices)
+        ? parsed.lastChoices.map((item) => String(item || "").trim().slice(0, 180)).filter(Boolean).slice(0, 10)
+        : [],
       afterTime: String(parsed.afterTime || "").slice(0, 5),
       beforeTime: String(parsed.beforeTime || "").slice(0, 5),
     };
@@ -155,13 +158,13 @@ function greetingText(organizationName: string, slug: string, custom: string) {
   if (!intro.includes(link)) blocks.push(`Para agendar seu horário, use nosso link:\n${link}`);
   const hasBothChoices = /\bcontinuar por aqui\b/.test(normalizedIntro) && /\bfalar com (alguem|a barbearia)\b/.test(normalizedIntro);
   if (!hasBothChoices) {
-    blocks.push("Se preferir, posso te ajudar por aqui.\n1 - Continuar por aqui\n2 - Falar com alguém da barbearia");
+    blocks.push("Se preferir, posso te ajudar por aqui.\n1️⃣ 💬 Continuar por aqui\n2️⃣ 👤 Falar com alguém da barbearia");
   }
   return blocks.join("\n\n").slice(0, 3500);
 }
 
 function entryChoiceText(organizationName: string) {
-  return `Pode escolher como prefere continuar:\n1 - Continuar por aqui\n2 - Falar com alguém da ${organizationName}`;
+  return `Pode escolher como prefere continuar:\n1️⃣ 💬 Continuar por aqui\n2️⃣ 👤 Falar com alguém da ${organizationName}`;
 }
 
 function handoffText(organizationName: string, custom: string) {
@@ -170,7 +173,26 @@ function handoffText(organizationName: string, custom: string) {
 }
 
 function clarificationText(organizationName: string) {
-  return `Não entendi certinho. Você quer agendar, ver horários, saber preços ou falar com alguém da ${organizationName}?`;
+  return `Não entendi certinho. Escolha uma opção ou escreva do seu jeito:\n1️⃣ 📅 Agendar horário\n2️⃣ 🕒 Ver horários disponíveis\n3️⃣ 💈 Preços e serviços\n4️⃣ 👤 Falar com alguém da ${organizationName}`;
+}
+
+function clarificationChoice(value: string) {
+  const text = normalizeCaAtendeText(value);
+  if (/^(1|opcao 1|primeira opcao)$/.test(text)) return "booking" as const;
+  if (/^(2|opcao 2|segunda opcao)$/.test(text)) return "availability" as const;
+  if (/^(3|opcao 3|terceira opcao)$/.test(text)) return "prices" as const;
+  if (/^(4|opcao 4|quarta opcao)$/.test(text)) return "human" as const;
+  return "" as const;
+}
+
+function hasStageNumberedChoice(value: string, memory: CaAtendeContextMemory) {
+  const choices = Array.isArray(memory.lastChoices) ? memory.lastChoices : [];
+  if (!choices.length) return false;
+  const text = normalizeCaAtendeText(value);
+  const match = /^(?:opcao\s*)?(\d{1,2})$/.exec(text);
+  if (!match) return false;
+  const index = Number(match[1]) - 1;
+  return index >= 0 && index < choices.length;
 }
 
 async function smartContext(organizationId: number) {
@@ -330,6 +352,21 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
     }
   }
 
+  // A lista de esclarecimento também tem números próprios. Eles só valem enquanto
+  // o C.A. está exatamente nessa etapa e nunca interferem nos números de agenda.
+  if (conversation?.botState === "smart_clarify") {
+    const choice = clarificationChoice(event.text);
+    if (choice === "human") return queueHumanHandoff(event, context);
+    if (choice === "booking") return processCaAtendeInboundSafely({ ...event, text: "Agendar horário" });
+    if (choice === "availability") return processCaAtendeInboundSafely({ ...event, text: "Ver horários disponíveis" });
+    if (choice === "prices") return processCaAtendeInboundSafely({ ...event, text: "Preços e serviços" });
+  }
+
+  const memory = safeMemory(conversation?.botContextJson);
+  // Uma resposta numérica de uma lista já exibida pertence ao motor determinístico
+  // daquela etapa. Ela não passa pela IA, evitando que "2" mude de significado.
+  if (hasStageNumberedChoice(event.text, memory)) return processCaAtendeInboundSafely(event);
+
   const rule = classifyCaAtendeByRule(event.text);
 
   // Durante os cinco dias do fluxo, um novo cumprimento nunca repete a abertura.
@@ -358,7 +395,7 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
     organizationName: context.organization.name,
     services: context.services,
     barbers: context.barbers,
-    memory: safeMemory(conversation?.botContextJson),
+    memory,
     state: String(conversation?.botState ?? ""),
     recentMessages,
   });

@@ -32,6 +32,9 @@ export type CaAtendeContextMemory = {
   paymentChoice?: string;
   appointmentId?: number;
   manageAction?: "cancel" | "reschedule" | "";
+  // Opções mostradas na última resposta. Permite responder apenas com 1, 2, 3...
+  // sem misturar o significado dos números entre etapas diferentes da conversa.
+  lastChoices?: string[];
   // The customer's explicit selection is kept separate from the last displayed options.
   afterTime?: string;
   beforeTime?: string;
@@ -216,6 +219,7 @@ export function mergeCaAtendeMemory(memory: CaAtendeContextMemory, next: Partial
     paymentChoice: next.paymentChoice || memory.paymentChoice || "",
     appointmentId: next.appointmentId !== undefined ? next.appointmentId : (memory.appointmentId || 0),
     manageAction: next.manageAction !== undefined ? next.manageAction : (memory.manageAction || ""),
+    lastChoices: next.lastChoices ?? memory.lastChoices ?? [],
     afterTime: next.afterTime || memory.afterTime || "",
     beforeTime: next.beforeTime || memory.beforeTime || "",
   };
