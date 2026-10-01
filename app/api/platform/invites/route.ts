@@ -6,6 +6,7 @@ import {
   restartBarbershopTrial,
   setBarbershopBlocked,
 } from "../../../../db/auth";
+import { getPlatformTrialDays } from "../../../../db/platform-trial";
 
 async function platformData(access: NonNullable<Awaited<ReturnType<typeof getSessionAccess>>>) {
   return {
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
     } else if (data.action === "end-barbershop-trial") {
       await endBarbershopTrialNow(access, Number(data.organizationId));
     } else if (data.action === "restart-barbershop-trial") {
-      await restartBarbershopTrial(access, Number(data.organizationId), 14);
+      await restartBarbershopTrial(access, Number(data.organizationId), await getPlatformTrialDays());
     } else if (data.action === "delete-barbershop") {
       await deleteBarbershop(access, Number(data.organizationId));
     } else {

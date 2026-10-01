@@ -22,6 +22,7 @@ import { BookingPaymentSettings } from "./booking-payment-settings";
 import { showAppToast } from "./app-toast";
 import { AppIcon } from "./app-icon";
 import { TeamMoneySection } from "./team-money-section";
+import { PlatformTrialSettings } from "./platform-trial-settings";
 import { WhatsappAutomation } from "./whatsapp-automation";
 import { prepareClientSaveChime } from "../../lib/client-save-chime";
 import { ClientPulse, FinanceInsights } from "./business-insights";
@@ -1918,7 +1919,7 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
     const publicUrl = `${canonicalSiteOrigin}/comece`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: "Cortou Anotou", text: "Crie sua barbearia e teste o Cortou Anotou por 14 dias.", url: publicUrl });
+        await navigator.share({ title: "Cortou Anotou", text: "Crie sua barbearia e teste o Cortou Anotou grátis.", url: publicUrl });
         showAppToast("Página pública compartilhada.");
       } else {
         await navigator.clipboard.writeText(publicUrl);
@@ -1944,9 +1945,9 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
   }
 
   async function restartTrial(shop: PlatformShop) {
-    if (!window.confirm(`Reabrir o teste de ${shop.name} por mais 14 dias?`)) return;
+    if (!window.confirm(`Reabrir o teste de ${shop.name} pelo período gratuito configurado?`)) return;
     const ok = await action({ action: "restart-barbershop-trial", organizationId: shop.id });
-    if (ok) showAppToast(`O teste de ${shop.name} foi reaberto por 14 dias.`);
+    if (ok) showAppToast(`O teste de ${shop.name} foi reaberto pelo período gratuito configurado.`);
   }
 
   async function removeBarbershop(shop: PlatformShop) {
@@ -1994,7 +1995,7 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
       ] as Array<{ label: PlatformView; icon: string; detail: string }>).map((item) => <button type="button" role="tab" aria-selected={platformView === item.label} className={platformView === item.label ? "active" : ""} key={item.label} onClick={() => setPlatformView(item.label)}><b>{item.icon}</b><span><strong>{item.label}</strong><small>{item.detail}</small></span></button>)}</div>
     </section>
     {platformView === "Resumo" && <>
-      <section className="panel platform-public-entry"><div><span>LINK ÚNICO PARA ANÚNCIOS</span><h2>Cadastro automático de novas barbearias</h2><p>Este link não expira. Cada proprietário cria sozinho sua conta, recebe 14 dias grátis e entra no próprio espaço.</p></div><div><button onClick={sharePublicSignup}>Compartilhar link público</button><a href={`${canonicalSiteOrigin}/comece`} target="_blank" rel="noreferrer">Abrir página</a></div></section>
+      <section className="panel platform-public-entry"><div><span>LINK ÚNICO PARA ANÚNCIOS</span><h2>Cadastro automático de novas barbearias</h2><p>Este link não expira. Cada proprietário cria sozinho sua conta, recebe o período grátis configurado e entra no próprio espaço.</p></div><div><button onClick={sharePublicSignup}>Compartilhar link público</button><a href={`${canonicalSiteOrigin}/comece`} target="_blank" rel="noreferrer">Abrir página</a></div></section>
       <section className="platform-stat-grid"><article><span>BARBEARIAS</span><strong>{customerShops.length}</strong><small>Clientes na plataforma</small></article><article><span>ATIVAS</span><strong>{activeShops}</strong><small>Planos em funcionamento</small></article><article><span>EM TESTE</span><strong>{activeTrials}</strong><small>Testes gratuitos ativos</small></article><article><span>BLOQUEADAS</span><strong>{blockedShops}</strong><small>Acessos suspensos</small></article></section>
       <section className="platform-overview-actions" aria-label="Atalhos da plataforma"><button type="button" onClick={() => setPlatformView("Afiliados")}><b>↗</b><span><strong>Afiliados</strong><small>Convites, indicações e comissões</small></span><em>Abrir</em></button><button type="button" onClick={() => setPlatformView("Cobrança")}><b>◇</b><span><strong>Cobrança e planos</strong><small>Mercado Pago, preço e descontos</small></span><em>Abrir</em></button><button type="button" onClick={() => setPlatformView("Barbearias")}><b>▦</b><span><strong>Barbearias clientes</strong><small>Pesquisar, bloquear ou excluir</small></span><em>Abrir</em></button></section>
     </>}
@@ -2024,6 +2025,7 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
         {pricingFeedback && <p className={pricingFeedback.includes("atualizado") ? "success" : "error"} role="status">{pricingFeedback}</p>}
       </form>
     </section>
+    <PlatformTrialSettings />
     </>}
     {platformView === "Afiliados" && <section className="panel affiliate-admin">
       <div className="affiliate-admin-heading"><div><span>PROGRAMA DE INDICAÇÃO</span><h2>Afiliados do Cortou Anotou</h2><p>Você cria o afiliado e envia um convite de acesso. Depois ele gera os próprios links e acompanha os resultados sem entrar no painel das barbearias.</p></div><div className="affiliate-summary"><article><small>INDICAÇÕES</small><strong>{affiliates.reduce((total, affiliate) => total + Number(affiliate.referrals), 0)}</strong></article><article><small>COMISSÕES GERADAS</small><strong>{money(affiliateSummary.totalCents)}</strong></article><article><small>AGUARDANDO COMISSÃO</small><strong>{money(affiliateSummary.pendingCents)}</strong></article></div></div>
@@ -2065,7 +2067,7 @@ function PlatformAdmin({ onOfferChange }: { onOfferChange: (offer: DashboardData
         const expanded = expandedShopId === shop.id;
         return <article className={`platform-customer-row${expanded ? " expanded" : ""}`} key={shop.id}>
           <button type="button" className="platform-customer-summary" onClick={() => setExpandedShopId(expanded ? null : shop.id)} aria-expanded={expanded}><span className="platform-shop-avatar">{initials(shop.name)}</span><span className="platform-customer-name"><strong>{shop.name}</strong><small>{shop.ownerName}{shop.ownerEmail ? ` · ${shop.ownerEmail}` : ""}</small></span><span className={`platform-shop-status ${status.className}`}>{status.label}</span><b aria-hidden="true">{expanded ? "−" : "+"}</b></button>
-          {expanded && <div className="platform-customer-details"><dl><div><dt>WhatsApp</dt><dd>{shop.ownerWhatsapp || "Não informado"}</dd></div><div><dt>Cadastro</dt><dd>{new Date(shop.createdAt).toLocaleDateString("pt-BR")}</dd></div><div><dt>Origem</dt><dd>{shop.signupSource || "Link público"}</dd></div>{shop.trialEndsAt && <div><dt>Fim do teste</dt><dd>{new Date(shop.trialEndsAt).toLocaleDateString("pt-BR")}</dd></div>}<div><dt>Clientes/mês informados</dt><dd>{shop.estimatedMonthlyClients > 0 ? shop.estimatedMonthlyClients : "Ainda não informado"}</dd></div><div><dt>WhatsApp/mês estimado</dt><dd>{shop.estimatedMonthlyWhatsappContacts > 0 ? shop.estimatedMonthlyWhatsappContacts : "Ainda não informado"}</dd></div><div><dt>Profissionais informados</dt><dd>{shop.estimatedProfessionals > 0 ? shop.estimatedProfessionals : "Ainda não informado"}</dd></div><div><dt>Objetivo</dt><dd>{shop.automationGoal === "management" ? "Gestão" : shop.automationGoal === "whatsapp" ? "Gestão + WhatsApp" : shop.automationGoal === "full" ? "Gestão + IA completa" : "Ainda não informado"}</dd></div></dl><div className="platform-shop-actions">{shop.status === "trial" && !shop.isBlocked && (accessPeriodEnded(shop.trialEndsAt) ? <button type="button" className="trial-restart" disabled={pending} onClick={() => restartTrial(shop)}>Reabrir teste · 14 dias</button> : <button type="button" className="trial-end" disabled={pending} onClick={() => endTrialNow(shop)}>Encerrar teste agora</button>)}<button type="button" className={shop.isBlocked ? "unblock" : "block"} disabled={pending} onClick={() => toggleBarbershop(shop)}>{shop.isBlocked ? "Desbloquear acesso" : "Bloquear acesso"}</button><button type="button" className="trash" disabled={pending} onClick={() => removeBarbershop(shop)} aria-label={`Excluir ${shop.name}`} title={`Excluir ${shop.name}`}><AppIcon name="trash" /> Excluir</button></div></div>}
+          {expanded && <div className="platform-customer-details"><dl><div><dt>WhatsApp</dt><dd>{shop.ownerWhatsapp || "Não informado"}</dd></div><div><dt>Cadastro</dt><dd>{new Date(shop.createdAt).toLocaleDateString("pt-BR")}</dd></div><div><dt>Origem</dt><dd>{shop.signupSource || "Link público"}</dd></div>{shop.trialEndsAt && <div><dt>Fim do teste</dt><dd>{new Date(shop.trialEndsAt).toLocaleDateString("pt-BR")}</dd></div>}<div><dt>Clientes/mês informados</dt><dd>{shop.estimatedMonthlyClients > 0 ? shop.estimatedMonthlyClients : "Ainda não informado"}</dd></div><div><dt>WhatsApp/mês estimado</dt><dd>{shop.estimatedMonthlyWhatsappContacts > 0 ? shop.estimatedMonthlyWhatsappContacts : "Ainda não informado"}</dd></div><div><dt>Profissionais informados</dt><dd>{shop.estimatedProfessionals > 0 ? shop.estimatedProfessionals : "Ainda não informado"}</dd></div><div><dt>Objetivo</dt><dd>{shop.automationGoal === "management" ? "Gestão" : shop.automationGoal === "whatsapp" ? "Gestão + WhatsApp" : shop.automationGoal === "full" ? "Gestão + IA completa" : "Ainda não informado"}</dd></div></dl><div className="platform-shop-actions">{shop.status === "trial" && !shop.isBlocked && (accessPeriodEnded(shop.trialEndsAt) ? <button type="button" className="trial-restart" disabled={pending} onClick={() => restartTrial(shop)}>Reabrir teste</button> : <button type="button" className="trial-end" disabled={pending} onClick={() => endTrialNow(shop)}>Encerrar teste agora</button>)}<button type="button" className={shop.isBlocked ? "unblock" : "block"} disabled={pending} onClick={() => toggleBarbershop(shop)}>{shop.isBlocked ? "Desbloquear acesso" : "Bloquear acesso"}</button><button type="button" className="trash" disabled={pending} onClick={() => removeBarbershop(shop)} aria-label={`Excluir ${shop.name}`} title={`Excluir ${shop.name}`}><AppIcon name="trash" /> Excluir</button></div></div>}
         </article>;
       })}{!filteredShops.length && <Empty text="Nenhuma barbearia encontrada com esse filtro." />}</div>
       {filteredShops.length > 5 && <button type="button" className="platform-list-more" onClick={() => setVisibleShopCount((count) => count >= filteredShops.length ? 5 : count + 5)}>{visibleShopCount >= filteredShops.length ? "Mostrar menos" : `Ver mais (${filteredShops.length - visibleShopCount})`}</button>}

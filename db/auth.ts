@@ -7,6 +7,7 @@ import { authAccounts, authSessions, barbershopInvites, emailVerifications, goal
 import { appMonth } from "../lib/app-date";
 import { ownerEmailVerificationIsConfigured, sendOwnerVerificationEmail, sendPasswordResetEmail } from "../lib/owner-email";
 import { attachOrganizationReferral } from "./affiliates";
+import { getPlatformTrialDays } from "./platform-trial";
 
 const SESSION_COOKIE = "barberflow_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 180;
@@ -591,7 +592,7 @@ export async function deleteBarbershop(access: AccessContext, organizationId: nu
 export async function createBarbershopInvite(access: AccessContext, input: { invitedLabel?: string; trialDays?: number }) {
   requirePlatformAdmin(access);
   const invitedLabel = input.invitedLabel?.trim().slice(0, 80) || "Nova barbearia";
-  const trialDays = Math.round(Number(input.trialDays ?? 14));
+  const trialDays = Math.round(Number(input.trialDays ?? await getPlatformTrialDays()));
   if (!Number.isFinite(trialDays) || trialDays < 1 || trialDays > 90) throw new Error("Escolha um teste entre 1 e 90 dias.");
 
   const inviteToken = randomHex(16);
@@ -945,7 +946,7 @@ export async function resendOwnerVerificationEmail(emailValue: string) {
     .where(eq(emailVerifications.accountId, account.id))
     .orderBy(desc(emailVerifications.id))
     .limit(1))[0];
-  const trialDays = latestVerification?.trialDays ?? 14;
+  const trialDays = latestVerification?.trialDays ?? await getPlatformTrialDays();
   const now = new Date().toISOString();
   await db.update(emailVerifications).set({ usedAt: now }).where(and(
     eq(emailVerifications.accountId, account.id),
@@ -1083,7 +1084,7 @@ export async function createPublicBarbershop(input: BarbershopRegistrationInput 
   await enforcePublicSignupRateLimit(input.requestIp, registration.email);
   const requireEmailVerification = await ownerEmailVerificationIsConfigured();
   const result = await createBarbershopWorkspace(registration, {
-    trialDays: 14,
+    trialDays: await getPlatformTrialDays(),
     ownerWhatsapp,
     signupSource: cleanSignupSource(input.signupSource) || "cadastro-publico",
     termsAcceptedAt: new Date().toISOString(),
@@ -1128,7 +1129,7 @@ export async function createPublicIndividualBarber(input: {
   await assertBarbershopDocumentAvailable(documentHash);
   await enforcePublicSignupRateLimit(input.requestIp, registration.email);
   const result = await createBarbershopWorkspace(registration, {
-    trialDays: 14,
+    trialDays: await getPlatformTrialDays(),
     ownerWhatsapp,
     signupSource: cleanSignupSource(input.signupSource) || "cadastro-barbeiro-individual",
     termsAcceptedAt: new Date().toISOString(),
