@@ -7,7 +7,7 @@ import { authAccounts, authSessions, barbershopInvites, emailVerifications, goal
 import { appMonth } from "../lib/app-date";
 import { ownerEmailVerificationIsConfigured, sendOwnerVerificationEmail, sendPasswordResetEmail } from "../lib/owner-email";
 import { attachOrganizationReferral } from "./affiliates";
-import { getPlatformTrialDays } from "./platform-trial";
+import { getPlatformTrialDays, MAX_PUBLIC_TRIAL_DAYS } from "./platform-trial";
 
 const SESSION_COOKIE = "barberflow_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 180;
@@ -561,7 +561,7 @@ export async function restartBarbershopTrial(access: AccessContext, organization
   const currentEnd = shop.trialEndsAt ? Date.parse(shop.trialEndsAt) : Number.NaN;
   if (Number.isFinite(currentEnd) && currentEnd > Date.now()) throw new Error("Este teste ainda está ativo. Encerre-o antes de reabrir.");
   const safeDays = Math.round(trialDays);
-  if (!Number.isFinite(safeDays) || safeDays < 1 || safeDays > 90) throw new Error("Escolha um teste entre 1 e 90 dias.");
+  if (!Number.isFinite(safeDays) || safeDays < 1 || safeDays > MAX_PUBLIC_TRIAL_DAYS) throw new Error(`Escolha um teste entre 1 e ${MAX_PUBLIC_TRIAL_DAYS} dias.`);
   await db.update(organizations).set({
     status: "trial",
     trialEndsAt: new Date(Date.now() + safeDays * 86400000).toISOString(),
@@ -593,7 +593,7 @@ export async function createBarbershopInvite(access: AccessContext, input: { inv
   requirePlatformAdmin(access);
   const invitedLabel = input.invitedLabel?.trim().slice(0, 80) || "Nova barbearia";
   const trialDays = Math.round(Number(input.trialDays ?? await getPlatformTrialDays()));
-  if (!Number.isFinite(trialDays) || trialDays < 1 || trialDays > 90) throw new Error("Escolha um teste entre 1 e 90 dias.");
+  if (!Number.isFinite(trialDays) || trialDays < 1 || trialDays > MAX_PUBLIC_TRIAL_DAYS) throw new Error(`Escolha um teste entre 1 e ${MAX_PUBLIC_TRIAL_DAYS} dias.`);
 
   const inviteToken = randomHex(16);
   const tokenHash = await sha256(inviteToken);
