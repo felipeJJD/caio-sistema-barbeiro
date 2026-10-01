@@ -43,6 +43,12 @@ test("conversa antiga não fica ativa por um dia inteiro", () => {
   assert.doesNotMatch(smartDb, /24 \* 60 \* 60 \* 1000/);
 });
 
+test("conversa só é ativa se ainda existir estado real do bot", () => {
+  assert.match(smartDb, /function activeConversation\(lastBotReplyAt:[^,]+, botState:/);
+  assert.match(smartDb, /!String\(botState \?\? ""\)\.trim\(\)/);
+  assert.match(smartDb, /activeConversation\(conversation\?\.lastBotReplyAt, conversation\?\.botState\)/);
+});
+
 test("mensagem desconhecida pede esclarecimento antes de notificar atendimento humano", () => {
   assert.match(smartDb, /state: "smart_clarify"/);
   assert.match(smartDb, /Não entendi certinho/);
