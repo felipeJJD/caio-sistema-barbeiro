@@ -43,6 +43,9 @@ function safeMemory(value: string | null | undefined): CaAtendeContextMemory {
       paymentChoice: String(parsed.paymentChoice || "").slice(0, 30),
       appointmentId: Math.max(0, Math.round(Number(parsed.appointmentId || 0))),
       manageAction: parsed.manageAction === "cancel" || parsed.manageAction === "reschedule" ? parsed.manageAction : "",
+      lastChoices: Array.isArray(parsed.lastChoices)
+        ? parsed.lastChoices.map((item) => String(item || "").trim().slice(0, 180)).filter(Boolean).slice(0, 10)
+        : [],
       afterTime: String(parsed.afterTime || "").slice(0, 5),
       beforeTime: String(parsed.beforeTime || "").slice(0, 5),
     };
@@ -180,6 +183,16 @@ function clarificationChoice(value: string) {
   if (/^(3|opcao 3|terceira opcao)$/.test(text)) return "prices" as const;
   if (/^(4|opcao 4|quarta opcao)$/.test(text)) return "human" as const;
   return "" as const;
+}
+
+function hasStageNumberedChoice(value: string, memory: CaAtendeContextMemory) {
+  const choices = Array.isArray(memory.lastChoices) ? memory.lastChoices : [];
+  if (!choices.length) return false;
+  const text = normalizeCaAtendeText(value);
+  const match = /^(?:opcao\s*)?(\d{1,2})$/.exec(text);
+  if (!match) return false;
+  const index = Number(match[1]) - 1;
+  return index >= 0 && index < choices.length;
 }
 
 async function smartContext(organizationId: number) {
@@ -349,6 +362,11 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
     if (choice === "prices") return processCaAtendeInboundSafely({ ...event, text: "Preços e serviços" });
   }
 
+  const memory = safeMemory(conversation?.botContextJson);
+  // Uma resposta numérica de uma lista já exibida pertence ao motor determinístico
+  // daquela etapa. Ela não passa pela IA, evitando que "2" mude de significado.
+  if (hasStageNumberedChoice(event.text, memory)) return processCaAtendeInboundSafely(event);
+
   const rule = classifyCaAtendeByRule(event.text);
 
   // Durante os cinco dias do fluxo, um novo cumprimento nunca repete a abertura.
@@ -377,7 +395,7 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
     organizationName: context.organization.name,
     services: context.services,
     barbers: context.barbers,
-    memory: safeMemory(conversation?.botContextJson),
+    memory,
     state: String(conversation?.botState ?? ""),
     recentMessages,
   });
