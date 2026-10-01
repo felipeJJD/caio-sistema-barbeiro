@@ -243,6 +243,14 @@ async function queueSmartReply(input: {
   return { handled: true, replied: true, handoff: Boolean(input.handoff), intent: input.handoff ? "human" : "greeting" };
 }
 
+function queueHumanHandoff(event: WhatsappInboundTextEvent, context: NonNullable<Awaited<ReturnType<typeof smartContext>>>) {
+  return queueSmartReply({
+    event,
+    text: handoffText(context.organization.name, context.handoffText),
+    handoff: true,
+  });
+}
+
 export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEvent) {
   const [context, conversation] = await Promise.all([
     smartContext(event.organizationId),
@@ -263,18 +271,15 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
 
   // Pedidos claros de atendimento humano devem encerrar a automação naquele
   // contato imediatamente, sem o robô continuar tentando conduzir o assunto.
-  if (rule.intent === "human" || explicitBarbershopRequest(event.text)) {
-    return queueSmartReply({
-      event,
-      text: handoffText(context.organization.name, context.handoffText),
-      handoff: true,
-    });
-  }
+  if (rule.intent === "human" || explicitBarbershopRequest(event.text)) return queueHumanHandoff(event, context);
 
   // As regras determinísticas continuam sendo a fonte mais segura para agenda,
-  // preços, cancelamento e remarcação. A IA entra antes do fallback burro apenas
-  // quando a frase realmente ficou livre/ambígua.
-  if (rule.intent !== "unknown" || !context.aiEnabled) return processCaAtendeInboundSafely(event);
+  // preços, cancelamento e remarcação.
+  if (rule.intent !== "unknown") return processCaAtendeInboundSafely(event);
+
+  // Sem a camada de interpretação, uma mensagem desconhecida nunca deve cair no
+  // fallback antigo de saudação/link. É mais seguro entregar para a barbearia.
+  if (!context.aiEnabled) return queueHumanHandoff(event, context);
 
   const recentMessages = await recentConversation(event.organizationId, event.phone, event.providerMessageId);
   const ai = await interpretCaAtendeWithAi({
@@ -298,13 +303,7 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
   // O modelo usa human também para assuntos que dependem de contexto interno da
   // barbearia. Unknown aqui significa que nem o modelo conseguiu interpretar com
   // segurança. Nos dois casos é melhor passar para uma pessoa do que mandar link.
-  if (!ai || ai.intent === "human" || ai.intent === "unknown") {
-    return queueSmartReply({
-      event,
-      text: handoffText(context.organization.name, context.handoffText),
-      handoff: true,
-    });
-  }
+  if (!ai || ai.intent === "human" || ai.intent === "unknown") return queueHumanHandoff(event, context);
 
   return processCaAtendeInboundSafely(event);
 }
