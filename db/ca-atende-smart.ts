@@ -25,7 +25,7 @@ import {
   type WhatsappInboundTextEvent,
 } from "./whatsapp";
 
-const ACTIVE_CONVERSATION_MS = 24 * 60 * 60 * 1000;
+const ACTIVE_CONVERSATION_MS = 30 * 60 * 1000;
 
 type RecentMessage = {
   role: "cliente" | "barbearia";
@@ -151,6 +151,10 @@ function handoffText(organizationName: string, custom: string) {
   return `Beleza. Vou deixar a ${organizationName} continuar com você por aqui.`;
 }
 
+function clarificationText(organizationName: string) {
+  return `Não entendi certinho. Você quer agendar, ver horários, saber preços ou falar com a ${organizationName}?`;
+}
+
 async function smartContext(organizationId: number) {
   const db = await getDb();
   const [organization, settings, connection, serviceList, barberList, entitlement] = await Promise.all([
@@ -193,6 +197,7 @@ async function queueSmartReply(input: {
   text: string;
   handoff?: boolean;
   state?: string;
+  intent?: string;
 }) {
   const queued = await queueWhatsappTextReply({
     organizationId: input.event.organizationId,
@@ -240,7 +245,7 @@ async function queueSmartReply(input: {
   // Para conexões Meta esta chamada envia a resposta. Em Evolution ela não
   // consome a fila; o endpoint Evolution processa a fila logo após o retorno.
   await processWhatsappQueueSafely(input.event.organizationId, 1);
-  return { handled: true, replied: true, handoff: Boolean(input.handoff), intent: input.handoff ? "human" : "greeting" };
+  return { handled: true, replied: true, handoff: Boolean(input.handoff), intent: input.intent ?? (input.handoff ? "human" : "greeting") };
 }
 
 function queueHumanHandoff(event: WhatsappInboundTextEvent, context: NonNullable<Awaited<ReturnType<typeof smartContext>>>) {
@@ -248,6 +253,17 @@ function queueHumanHandoff(event: WhatsappInboundTextEvent, context: NonNullable
     event,
     text: handoffText(context.organization.name, context.handoffText),
     handoff: true,
+    intent: "human",
+  });
+}
+
+function queueClarification(event: WhatsappInboundTextEvent, context: NonNullable<Awaited<ReturnType<typeof smartContext>>>, conversation: Awaited<ReturnType<typeof currentConversation>>) {
+  if (conversation?.botState === "smart_clarify") return queueHumanHandoff(event, context);
+  return queueSmartReply({
+    event,
+    text: clarificationText(context.organization.name),
+    state: "smart_clarify",
+    intent: "unknown",
   });
 }
 
@@ -261,25 +277,25 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
   const rule = classifyCaAtendeByRule(event.text);
   const isActive = activeConversation(conversation?.lastBotReplyAt);
 
-  // Uma saudação nunca deve reiniciar a conversa nem despejar o link de novo.
+  // Saudação completa para uma conversa nova. Dentro de uma conversa realmente
+  // recente, um novo "oi" recebe apenas uma resposta curta e não repete o link.
   if (rule.intent === "greeting") {
     const text = isActive
-      ? "Fala! Pode mandar o que você precisa."
+      ? "Oi! Pode falar, como posso te ajudar?"
       : greetingText(context.organization.name, context.organization.slug, context.greetingText);
-    return queueSmartReply({ event, text, state: isActive ? conversation?.botState ?? "" : "menu" });
+    return queueSmartReply({ event, text, state: isActive ? conversation?.botState ?? "" : "menu", intent: "greeting" });
   }
 
-  // Pedidos claros de atendimento humano devem encerrar a automação naquele
-  // contato imediatamente, sem o robô continuar tentando conduzir o assunto.
+  // Pedidos claros de atendimento humano encerram a automação naquele contato.
   if (rule.intent === "human" || explicitBarbershopRequest(event.text)) return queueHumanHandoff(event, context);
 
-  // As regras determinísticas continuam sendo a fonte mais segura para agenda,
-  // preços, cancelamento e remarcação.
+  // Agenda, preço, disponibilidade, cancelamento e remarcação reconhecidos por
+  // regra seguem direto para o fluxo real. Não são tratados como dúvida humana.
   if (rule.intent !== "unknown") return processCaAtendeInboundSafely(event);
 
-  // Sem a camada de interpretação, uma mensagem desconhecida nunca deve cair no
-  // fallback antigo de saudação/link. É mais seguro entregar para a barbearia.
-  if (!context.aiEnabled) return queueHumanHandoff(event, context);
+  // Se a interpretação estiver indisponível, fazemos uma única pergunta curta.
+  // Só depois de uma segunda mensagem ainda incompreensível ocorre handoff.
+  if (!context.aiEnabled) return queueClarification(event, context, conversation);
 
   const recentMessages = await recentConversation(event.organizationId, event.phone, event.providerMessageId);
   const ai = await interpretCaAtendeWithAi({
@@ -295,15 +311,16 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
 
   if (ai?.intent === "greeting") {
     const text = isActive
-      ? "Fala! Pode mandar o que você precisa."
+      ? "Oi! Pode falar, como posso te ajudar?"
       : greetingText(context.organization.name, context.organization.slug, context.greetingText);
-    return queueSmartReply({ event, text, state: isActive ? conversation?.botState ?? "" : "menu" });
+    return queueSmartReply({ event, text, state: isActive ? conversation?.botState ?? "" : "menu", intent: "greeting" });
   }
 
-  // O modelo usa human também para assuntos que dependem de contexto interno da
-  // barbearia. Unknown aqui significa que nem o modelo conseguiu interpretar com
-  // segurança. Nos dois casos é melhor passar para uma pessoa do que mandar link.
-  if (!ai || ai.intent === "human" || ai.intent === "unknown") return queueHumanHandoff(event, context);
+  if (ai?.intent === "human") return queueHumanHandoff(event, context);
+
+  // Falha ou unknown não gera notificação humana de primeira. A pessoa recebe
+  // uma pergunta objetiva; se ainda assim continuar incompreensível, transferimos.
+  if (!ai || ai.intent === "unknown") return queueClarification(event, context, conversation);
 
   return processCaAtendeInboundSafely(event);
 }
