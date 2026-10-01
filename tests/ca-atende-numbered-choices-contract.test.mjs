@@ -124,4 +124,8 @@ test("WhatsApp renderiza números com emoji e a entrada inteligente segue o mesm
   assert.match(smartSource,/1️⃣ 📅 Agendar horário/);
   assert.match(smartSource,/4️⃣ 👤 Falar com alguém/);
   assert.match(smartSource,/conversation\?\.botState === "smart_clarify"/);
+  assert.match(smartSource,/hasStageNumberedChoice\(event\.text, memory\)/);
+  const numericGate = smartSource.indexOf("hasStageNumberedChoice(event.text, memory)");
+  const aiCall = smartSource.indexOf("const ai = await interpretCaAtendeWithAi", numericGate);
+  assert.ok(numericGate >= 0 && aiCall > numericGate, "escolha numérica da etapa deve ser resolvida antes da IA");
 });
