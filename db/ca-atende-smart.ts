@@ -130,29 +130,55 @@ function activeConversation(lastBotReplyAt: string | null | undefined, botState:
 
 function explicitBarbershopRequest(value: string) {
   const text = normalizeCaAtendeText(value);
-  return /\b(quero|preciso|posso|gostaria|so quero|queria)?\s*(falar|conversar|chamar)\b.{0,40}\b(barbearia|voces|alguem|pessoa|atendente|humano|dono|responsavel|proprietario)\b/.test(text)
-    || /\b(falar com a barbearia|chama a barbearia|quero falar com voces|quero falar com alguem|atendimento humano)\b/.test(text);
+  return /\b(atendimento humano|falar com a barbearia|falar com alguem|quero uma pessoa|quero atendente)\b/.test(text)
+    || /\b(falar|conversar)\s+com\s+\S+/.test(text)
+    || /\b(quero|queria|preciso|gostaria|posso|tem como|da pra|consegue)\b.{0,30}\b(falar|conversar)\s+com\b/.test(text)
+    || /\b(chama|chamar|chame|me passa|passa|transfere|transferir)\b.{0,35}\b(alguem|pessoa|barbeiro|barbeira|dono|responsavel|proprietario|atendente)\b/.test(text)
+    || /\b(me passa|passa|transfere)\b.{0,18}\b(pro|pra|para o|para a)\b.{0,24}\S+/.test(text);
+}
+
+function wantsAutomatedEntryChoice(value: string) {
+  const text = normalizeCaAtendeText(value);
+  return /^(1|opcao 1|primeira opcao)$/.test(text)
+    || /\b(continuar|seguir|resolver|fazer|atender|ajuda|ajudar)\b.{0,24}\bpor aqui\b/.test(text)
+    || /\b(pode ser|vamos|bora)\s+por aqui\b/.test(text)
+    || /\bpor aqui mesmo\b/.test(text);
+}
+
+function wantsHumanEntryChoice(value: string) {
+  const text = normalizeCaAtendeText(value);
+  return /^(2|opcao 2|segunda opcao)$/.test(text) || explicitBarbershopRequest(value);
 }
 
 function greetingText(organizationName: string, slug: string, custom: string) {
   const link = `https://cortouanotou.com.br/agendar/${encodeURIComponent(slug)}`;
-  if (custom.trim()) {
-    return custom
+  const intro = custom.trim()
+    ? custom
       .replaceAll("{barbearia}", organizationName)
       .replaceAll("{link}", link)
       .trim()
-      .slice(0, 3500);
+    : `Olá! Tudo bem? Somos da ${organizationName}.`;
+  const normalizedIntro = normalizeCaAtendeText(intro);
+  const blocks = [intro];
+  if (!intro.includes(link)) blocks.push(`Para agendar seu horário, use nosso link:\n${link}`);
+  const hasBothChoices = /\bcontinuar por aqui\b/.test(normalizedIntro) && /\bfalar com (alguem|a barbearia)\b/.test(normalizedIntro);
+  if (!hasBothChoices) {
+    blocks.push("Se preferir, posso te ajudar por aqui.\n1 - Continuar por aqui\n2 - Falar com alguém da barbearia");
   }
-  return `Olá! Seja bem-vindo à ${organizationName}.\nSe quiser agendar seu horário, acesse ${link}.\nSe preferir, pode falar comigo por aqui que eu te ajudo.`;
+  return blocks.join("\n\n").slice(0, 3500);
+}
+
+function entryChoiceText(organizationName: string) {
+  return `Pode escolher como prefere continuar:\n1 - Continuar por aqui\n2 - Falar com alguém da ${organizationName}`;
 }
 
 function handoffText(organizationName: string, custom: string) {
   if (custom.trim()) return custom.replaceAll("{barbearia}", organizationName).trim().slice(0, 3500);
-  return `Beleza. Vou deixar a ${organizationName} continuar com você por aqui.`;
+  return `Beleza. Vou chamar alguém da ${organizationName}. Aguarde um pouquinho que a barbearia continua com você por aqui.`;
 }
 
 function clarificationText(organizationName: string) {
-  return `Não entendi certinho. Você quer agendar, ver horários, saber preços ou falar com a ${organizationName}?`;
+  return `Não entendi certinho. Você quer agendar, ver horários, saber preços ou falar com alguém da ${organizationName}?`;
 }
 
 async function smartContext(organizationId: number) {
@@ -198,6 +224,7 @@ async function queueSmartReply(input: {
   handoff?: boolean;
   state?: string;
   intent?: string;
+  resetConversation?: boolean;
 }) {
   const queued = await queueWhatsappTextReply({
     organizationId: input.event.organizationId,
@@ -213,8 +240,11 @@ async function queueSmartReply(input: {
     organizationId: input.event.organizationId,
     phone: input.event.phone,
     botState: input.state ?? (input.handoff ? "human_takeover" : ""),
+    botContextJson: input.resetConversation ? "{}" : undefined,
+    lastIntent: input.resetConversation ? "greeting" : undefined,
     lastBotReplyAt: now,
     humanRequestedAt: input.handoff ? now : null,
+    unresolvedTurns: input.resetConversation ? 0 : undefined,
     automationPausedUntil: input.handoff ? null : undefined,
     pauseReason: input.handoff ? "human_takeover" : "",
     updatedAt: now,
@@ -223,6 +253,14 @@ async function queueSmartReply(input: {
     set: {
       ...(input.state !== undefined ? { botState: input.state } : {}),
       lastBotReplyAt: now,
+      ...(input.resetConversation ? {
+        botContextJson: "{}",
+        lastIntent: "greeting",
+        unresolvedTurns: 0,
+        humanRequestedAt: null,
+        automationPausedUntil: null,
+        pauseReason: "",
+      } : {}),
       ...(input.handoff ? {
         botState: "human_takeover",
         humanRequestedAt: now,
@@ -274,23 +312,47 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
   ]);
   if (!context?.enabled || paused(conversation)) return processCaAtendeInboundSafely(event);
 
-  const rule = classifyCaAtendeByRule(event.text);
   const isActive = activeConversation(conversation?.lastBotReplyAt, conversation?.botState);
 
-  // Saudação completa para uma conversa nova. Dentro de uma conversa realmente
-  // recente e com estado ativo, um novo "oi" recebe resposta curta e não repete o link.
-  if (rule.intent === "greeting") {
-    const text = isActive
-      ? "Oi! Pode falar, como posso te ajudar?"
-      : greetingText(context.organization.name, context.organization.slug, context.greetingText);
-    return queueSmartReply({ event, text, state: isActive ? conversation?.botState ?? "" : "menu", intent: "greeting" });
+  // Porta de entrada padrão: toda conversa nova recebe primeiro a saudação da
+  // barbearia, o link público real e a escolha entre autoatendimento e humano.
+  // A mensagem original não é usada para pular essa etapa.
+  if (!isActive) {
+    return queueSmartReply({
+      event,
+      text: greetingText(context.organization.name, context.organization.slug, context.greetingText),
+      state: "entry_choice",
+      intent: "greeting",
+      resetConversation: true,
+    });
   }
 
-  // Pedidos claros de atendimento humano encerram a automação naquele contato.
+  // A escolha 1/2 só vale na porta de entrada. Números usados depois para
+  // serviços, horários ou profissionais continuam pertencendo ao fluxo atual.
+  if (conversation?.botState === "entry_choice") {
+    if (wantsHumanEntryChoice(event.text)) return queueHumanHandoff(event, context);
+    if (wantsAutomatedEntryChoice(event.text)) {
+      return processCaAtendeInboundSafely({ ...event, text: "Ver opções" });
+    }
+  }
+
+  const rule = classifyCaAtendeByRule(event.text);
+
+  // Um novo cumprimento dentro da porta de entrada apenas repete as escolhas.
+  // Em uma conversa já em andamento, o cumprimento recebe uma resposta curta.
+  if (rule.intent === "greeting") {
+    const text = conversation?.botState === "entry_choice"
+      ? entryChoiceText(context.organization.name)
+      : "Oi! Pode falar, como posso te ajudar?";
+    return queueSmartReply({ event, text, state: conversation?.botState ?? "", intent: "greeting" });
+  }
+
+  // Pedido para falar/conversar com alguém é semântico: pode citar dono,
+  // funcionário, nome ou apelido. Escolher profissional para um serviço não cai aqui.
   if (rule.intent === "human" || explicitBarbershopRequest(event.text)) return queueHumanHandoff(event, context);
 
   // Agenda, preço, disponibilidade, cancelamento e remarcação reconhecidos por
-  // regra seguem direto para o fluxo real. Não são tratados como dúvida humana.
+  // regra seguem direto para o fluxo real depois da porta de entrada.
   if (rule.intent !== "unknown") return processCaAtendeInboundSafely(event);
 
   // Se a interpretação estiver indisponível, fazemos uma única pergunta curta.
@@ -310,10 +372,10 @@ export async function processCaAtendeSmartInbound(event: WhatsappInboundTextEven
   if (ai?.aiUsage) await recordAiUsageSafely({ organizationId: event.organizationId, surface: "ca_atende", usage: ai.aiUsage });
 
   if (ai?.intent === "greeting") {
-    const text = isActive
-      ? "Oi! Pode falar, como posso te ajudar?"
-      : greetingText(context.organization.name, context.organization.slug, context.greetingText);
-    return queueSmartReply({ event, text, state: isActive ? conversation?.botState ?? "" : "menu", intent: "greeting" });
+    const text = conversation?.botState === "entry_choice"
+      ? entryChoiceText(context.organization.name)
+      : "Oi! Pode falar, como posso te ajudar?";
+    return queueSmartReply({ event, text, state: conversation?.botState ?? "", intent: "greeting" });
   }
 
   if (ai?.intent === "human") return queueHumanHandoff(event, context);
