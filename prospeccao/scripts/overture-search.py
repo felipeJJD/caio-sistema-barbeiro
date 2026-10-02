@@ -15,14 +15,16 @@ def parse_float(value, label):
 
 def main():
     if len(sys.argv) < 5:
-        raise SystemExit("uso: overture-search.py west south east north [limit]")
+        raise SystemExit("uso: overture-search.py west south east north [limit] [offset]")
 
     west = parse_float(sys.argv[1], "west")
     south = parse_float(sys.argv[2], "south")
     east = parse_float(sys.argv[3], "east")
     north = parse_float(sys.argv[4], "north")
-    limit = int(sys.argv[5]) if len(sys.argv) > 5 else 160
-    limit = max(1, min(limit, 300))
+    limit = int(sys.argv[5]) if len(sys.argv) > 5 else 40
+    offset = int(sys.argv[6]) if len(sys.argv) > 6 else 0
+    limit = max(1, min(limit, 100))
+    offset = max(0, min(offset, 100000))
 
     con = duckdb.connect(database=":memory:")
     try:
@@ -45,7 +47,8 @@ def main():
                 CAST(websites AS JSON) AS websites_json,
                 CAST(socials AS JSON) AS socials_json,
                 bbox.xmin AS lon,
-                bbox.ymin AS lat
+                bbox.ymin AS lat,
+                COUNT(*) OVER() AS total_count
             FROM read_parquet('{DATASET}', filename=true, hive_partitioning=1)
             WHERE
                 bbox.xmin BETWEEN ? AND ?
@@ -61,15 +64,19 @@ def main():
             ORDER BY
                 CASE WHEN phones IS NULL THEN 1 ELSE 0 END,
                 confidence DESC NULLS LAST,
-                names.primary
+                names.primary,
+                id
             LIMIT {limit}
+            OFFSET {offset}
         """
         rows = con.execute(query, [west, east, south, north]).fetchall()
 
         results = []
+        total = 0
         for row in rows:
             (place_id, name, category, confidence, operating_status,
-             phones_json, addresses_json, websites_json, socials_json, lon, lat) = row
+             phones_json, addresses_json, websites_json, socials_json, lon, lat, total_count) = row
+            total = int(total_count or 0)
             results.append({
                 "id": place_id,
                 "name": name,
@@ -84,7 +91,13 @@ def main():
                 "lat": lat,
             })
 
-        print(json.dumps({"release": RELEASE, "places": results}, ensure_ascii=False))
+        print(json.dumps({
+            "release": RELEASE,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "places": results,
+        }, ensure_ascii=False))
     finally:
         con.close()
 
