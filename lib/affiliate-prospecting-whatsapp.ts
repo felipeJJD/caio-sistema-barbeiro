@@ -27,11 +27,25 @@ function evolutionConfig() {
   return { url, apiKey };
 }
 
-function cleanPhone(value: string) {
+export function normalizeProspectingWhatsappPhone(value: string) {
   let digits = String(value ?? "").replace(/\D/g, "");
   if (digits.startsWith("0055")) digits = digits.slice(4);
   if (digits.startsWith("55") && digits.length === 13) return digits;
+
+  // Alguns números ainda aparecem salvos no formato brasileiro antigo de
+  // 8 dígitos. Se for claramente um celular (assinante começando em 6-9),
+  // insere o nono dígito depois do DDD. Telefones fixos não são alterados.
+  if (digits.startsWith("55") && digits.length === 12) {
+    const national = digits.slice(2);
+    if (/^\d{2}[6-9]\d{7}$/.test(national)) {
+      return `55${national.slice(0, 2)}9${national.slice(2)}`;
+    }
+  }
+
   if (digits.length === 11) return `55${digits}`;
+  if (digits.length === 10 && /^\d{2}[6-9]\d{7}$/.test(digits)) {
+    return `55${digits.slice(0, 2)}9${digits.slice(2)}`;
+  }
   return "";
 }
 
@@ -89,7 +103,7 @@ export async function getProspectingWhatsappState() {
 }
 
 export async function beginProspectingWhatsappPairing(phoneValue: string) {
-  const phone = cleanPhone(phoneValue);
+  const phone = normalizeProspectingWhatsappPhone(phoneValue);
   if (!/^55\d{11}$/.test(phone)) {
     const error = new Error("Informe o número de prospecção com DDD. Exemplo: (41) 99999-9999.");
     Object.assign(error, { status: 400 });
@@ -133,7 +147,7 @@ export async function beginProspectingWhatsappPairing(phoneValue: string) {
     Object.assign(error, { status: 503 });
     throw error;
   }
-  return { state: "connecting", connected: false, instance: INSTANCE_NAME, pairingCode };
+  return { state: "connecting", connected: false, instance: INSTANCE_NAME, pairingCode, phone };
 }
 
 async function waitForSendSlot() {
@@ -147,7 +161,7 @@ async function waitForSendSlot() {
 }
 
 export async function sendProspectingWhatsappText(phoneValue: string, textValue: string) {
-  const phone = cleanPhone(phoneValue);
+  const phone = normalizeProspectingWhatsappPhone(phoneValue);
   const text = String(textValue ?? "").trim().slice(0, 1200);
   if (!/^55\d{11}$/.test(phone)) {
     const error = new Error("Celular inválido para envio automático.");
