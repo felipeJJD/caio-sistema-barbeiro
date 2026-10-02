@@ -77,7 +77,6 @@ export default function ProspeccaoPage() {
   const [scope, setScope] = useState("");
   const [searchTip, setSearchTip] = useState("");
   const [leads, setLeads] = useState([]);
-  const [totalAvailable, setTotalAvailable] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [nextOffset, setNextOffset] = useState(0);
   const [activeQuery, setActiveQuery] = useState("");
@@ -190,7 +189,6 @@ export default function ProspeccaoPage() {
       if (!response.ok) throw new Error(payload.error || "Não foi possível pesquisar agora.");
       const nextLeads = Array.isArray(payload.leads) ? payload.leads : [];
       setLeads(nextLeads);
-      setTotalAvailable(Number(payload.totalAvailable) || nextLeads.length);
       setHasMore(Boolean(payload.hasMore));
       setNextOffset(Number(payload.nextOffset) || nextLeads.length);
       setActiveQuery(query);
@@ -201,7 +199,6 @@ export default function ProspeccaoPage() {
       if (!nextLeads.length) setNotice("Não achei barbearias nessa cidade. Escolha outra cidade e tente novamente.");
     } catch (searchError) {
       setLeads([]);
-      setTotalAvailable(0);
       setHasMore(false);
       setNextOffset(0);
       setActiveQuery("");
@@ -231,7 +228,6 @@ export default function ProspeccaoPage() {
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar mais barbearias agora.");
       const incoming = Array.isArray(payload.leads) ? payload.leads : [];
       setLeads((current) => mergeLeads(current, incoming));
-      setTotalAvailable((current) => Number(payload.totalAvailable) || current);
       setHasMore(Boolean(payload.hasMore));
       setNextOffset(Number(payload.nextOffset) || nextOffset + incoming.length);
       setVisibleCount((current) => current + DISPLAY_STEP);
@@ -384,18 +380,18 @@ export default function ProspeccaoPage() {
         <>
           <section className="result-context">
             <div><strong>{searchedCity}</strong><small>{scope ? `Pesquisa em ${scope}.` : ""} {searchTip}</small></div>
-            <span>{totalAvailable || leads.length} cadastro{(totalAvailable || leads.length) === 1 ? "" : "s"} na fonte</span>
+            <span>{leads.length}{hasMore ? "+" : ""} carregadas</span>
           </section>
 
           <section className="stats-grid">
-            <article><small>ENCONTRADAS</small><strong>{totalAvailable || leads.length}</strong><span>disponíveis na fonte</span></article>
+            <article><small>CARREGADAS</small><strong>{leads.length}{hasMore ? "+" : ""}</strong><span>{hasMore ? "há mais disponíveis" : "fim da fonte"}</span></article>
             <article><small>CELULAR VÁLIDO</small><strong>{whatsappCount}</strong><span>entre as carregadas</span></article>
             <article className="gold"><small>SELECIONADAS</small><strong>{selected.size}</strong><span>{selectedWithWhatsApp.length} válidas</span></article>
           </section>
 
           <section className="leads-card">
             <div className="leads-toolbar">
-              <div><strong>Barbearias encontradas</strong><small>A tela começa curta. Use “Ver mais barbearias” para continuar carregando os outros cadastros.</small></div>
+              <div><strong>Barbearias encontradas</strong><small>A tela começa curta. Use “Ver mais barbearias” para continuar buscando os outros cadastros.</small></div>
               <div className="toolbar-actions"><button type="button" onClick={selectAllWithWhatsApp}>Selecionar celulares visíveis</button>{selected.size > 0 && <button type="button" className="ghost" onClick={() => setSelected(new Set())}>Limpar</button>}</div>
             </div>
             <div className="filters">
@@ -431,7 +427,7 @@ export default function ProspeccaoPage() {
               })}
             </div>
 
-            <p className="attribution">Mostrando {displayedLeads.length} de {filteredLeads.length} barbearias carregadas{totalAvailable ? ` · ${totalAvailable} cadastros disponíveis na fonte para essa cidade` : ""}.</p>
+            <p className="attribution">Mostrando {displayedLeads.length} de {filteredLeads.length} barbearias já carregadas{hasMore ? " · ainda há mais cadastros para buscar" : " · você chegou ao fim dos cadastros disponíveis na fonte"}.</p>
             {canShowMore && <button className="prepare-button" style={{ marginTop: 14 }} type="button" onClick={loadMore} disabled={moreLoading}>{moreLoading ? "Buscando mais barbearias..." : "Ver mais barbearias"}</button>}
             <p className="attribution">Dados de lugares: Overture Maps Foundation e fontes contribuidoras. O formato do telefone é validado antes de entrar no funil; quando conectarmos o número de prospecção, a Evolution fará a confirmação automática de WhatsApp.</p>
           </section>
