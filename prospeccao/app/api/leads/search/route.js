@@ -1,247 +1,227 @@
-const USER_AGENT = "CortouAnotouProspeccao/1.0 (https://cortouanotou.com.br)";
-const OVERPASS_ENDPOINTS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
-  "https://overpass.nchc.org.tw/api/interpreter",
-];
+const USER_AGENT = "CortouAnotouProspeccao/1.1 (https://cortouanotou.com.br)";
+const BARBER_CNAE = "9602501";
+const VALID_UFS = new Set([
+  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
+]);
+
+const UF_BY_STATE = new Map(Object.entries({
+  acre:"AC", alagoas:"AL", amapa:"AP", amazonas:"AM", bahia:"BA", ceara:"CE", "distrito federal":"DF",
+  "espirito santo":"ES", goias:"GO", maranhao:"MA", "mato grosso":"MT", "mato grosso do sul":"MS",
+  "minas gerais":"MG", para:"PA", paraiba:"PB", parana:"PR", pernambuco:"PE", piaui:"PI", "rio de janeiro":"RJ",
+  "rio grande do norte":"RN", "rio grande do sul":"RS", rondonia:"RO", roraima:"RR", "santa catarina":"SC",
+  "sao paulo":"SP", sergipe:"SE", tocantins:"TO",
+}));
 
 function text(value) {
   return String(value ?? "").trim();
 }
 
-function cleanPhone(value) {
-  return text(value).replace(/^tel:/i, "").trim();
+function normalize(value) {
+  return text(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function addressFrom(tags, fallbackCity) {
-  const street = text(tags["addr:street"]);
-  const number = text(tags["addr:housenumber"]);
-  const district = text(tags["addr:suburb"] || tags["addr:neighbourhood"] || tags["addr:district"]);
-  const city = text(tags["addr:city"] || tags["addr:municipality"] || fallbackCity);
-  const first = [street, number].filter(Boolean).join(", ");
-  return [first, district, city].filter(Boolean).join(" · ") || fallbackCity;
+function formatPhone(value) {
+  let digits = text(value).replace(/\D/g, "");
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) digits = digits.slice(2);
+  if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return text(value);
 }
 
-function phoneFrom(tags) {
-  return cleanPhone(tags["contact:whatsapp"] || tags.whatsapp || tags["contact:phone"] || tags.phone || tags["phone:mobile"]);
+function bestPhone(company) {
+  return formatPhone(company?.ddd_telefone_1 || company?.ddd_telefone_2 || "");
 }
 
-function websiteFrom(tags) {
-  return text(tags["contact:website"] || tags.website || tags["contact:instagram"] || tags.instagram || tags["contact:facebook"] || tags.facebook);
+function companyName(company) {
+  return text(company?.nome_fantasia) || text(company?.razao_social) || "Empresa sem nome fantasia";
 }
 
-function barberStrength(tags) {
-  const haystack = `${text(tags.name)} ${text(tags.description)} ${text(tags.brand)} ${text(tags.operator)}`.toLowerCase();
-  if (/barbearia|barber|barbershop|barber shop|barbear[ií]a/.test(haystack)) return 3;
-  if (text(tags.hairdresser).toLowerCase() === "barber") return 3;
-  if (text(tags.barber).toLowerCase() === "yes") return 3;
-  if (text(tags.male).toLowerCase() === "yes") return 2;
-  if (text(tags.shop).toLowerCase() === "hairdresser") return 1;
-  return 0;
+function companyAddress(company, fallbackCity) {
+  const street = [text(company?.descricao_tipo_de_logradouro), text(company?.logradouro)].filter(Boolean).join(" ");
+  const line = [street, text(company?.numero)].filter(Boolean).join(", ");
+  return [line, text(company?.bairro), text(company?.municipio) || fallbackCity, text(company?.uf)].filter(Boolean).join(" · ");
 }
 
-function publicSourceUrl(item) {
-  if (!item?.type || !item?.id) return "";
-  return `https://www.openstreetmap.org/${item.type}/${item.id}`;
+function potentialFor(company) {
+  const haystack = normalize(`${company?.nome_fantasia || ""} ${company?.razao_social || ""}`);
+  if (/barbearia|barber|barbershop|barber shop/.test(haystack)) return "alto";
+  return bestPhone(company) ? "bom" : "possível";
+}
+
+async function fetchJson(url, timeoutMs = 14_000) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: {
+      accept: "application/json",
+      "accept-language": "pt-BR,pt;q=0.9",
+      "user-agent": USER_AGENT,
+    },
+  });
+  if (!response.ok) throw new Error(`A fonte respondeu ${response.status}.`);
+  return response.json();
+}
+
+function explicitCityAndUf(query) {
+  const match = text(query).match(/^(.+?)[,\-\/]\s*([A-Za-z]{2})$/);
+  if (!match) return null;
+  const uf = match[2].toUpperCase();
+  if (!VALID_UFS.has(uf)) return null;
+  return { city: text(match[1]), uf };
+}
+
+function stateCodeFromPlace(place) {
+  const iso = text(place?.extratags?.["ISO3166-2"] || place?.address?.["ISO3166-2-lvl4"]);
+  const match = iso.match(/BR-([A-Z]{2})/i);
+  if (match && VALID_UFS.has(match[1].toUpperCase())) return match[1].toUpperCase();
+  const state = normalize(place?.address?.state);
+  return UF_BY_STATE.get(state) || "";
 }
 
 function placeKind(place) {
-  const kind = text(place?.addresstype || place?.type).toLowerCase();
-  if (["state", "region"].includes(kind)) return "state";
-  if (["country"].includes(kind)) return "country";
-  if (["city", "town", "village", "municipality", "administrative", "borough", "district"].includes(kind)) return "city";
-  return kind || "place";
+  return text(place?.addresstype || place?.type).toLowerCase();
 }
 
-function placeScore(place) {
-  const kind = placeKind(place);
-  let score = 0;
-  if (kind === "city") score += 50;
-  if (["city", "town", "municipality"].includes(text(place?.addresstype).toLowerCase())) score += 25;
-  if (text(place?.address?.country_code).toLowerCase() === "br") score += 20;
-  const rank = Number(place?.place_rank);
-  if (Number.isFinite(rank)) score += Math.max(0, 30 - Math.abs(16 - rank));
-  return score;
+function chooseCityPlace(places) {
+  const cityKinds = new Set(["city", "town", "municipality", "village", "borough"]);
+  return places.find((place) => cityKinds.has(placeKind(place))) || null;
 }
 
-function choosePlace(places) {
-  const sorted = [...places].sort((a, b) => placeScore(b) - placeScore(a));
-  const city = sorted.find((place) => placeKind(place) === "city");
-  return city || sorted[0] || null;
-}
+async function resolveQuery(query) {
+  const explicit = explicitCityAndUf(query);
+  if (explicit) return explicit;
 
-function stateCodeFrom(place) {
-  const iso = text(place?.extratags?.["ISO3166-2"] || place?.extratags?.iso3166_2 || place?.address?.["ISO3166-2-lvl4"]);
-  const match = iso.match(/BR-([A-Z]{2})/i);
-  return match ? match[1].toUpperCase() : "";
-}
+  const geocodeUrl = new URL("https://nominatim.openstreetmap.org/search");
+  geocodeUrl.searchParams.set("format", "jsonv2");
+  geocodeUrl.searchParams.set("limit", "6");
+  geocodeUrl.searchParams.set("countrycodes", "br");
+  geocodeUrl.searchParams.set("addressdetails", "1");
+  geocodeUrl.searchParams.set("extratags", "1");
+  geocodeUrl.searchParams.set("q", `${query}, Brasil`);
 
-function searchScope(place) {
-  const osmType = text(place?.osm_type).toLowerCase();
-  const osmId = Number(place?.osm_id);
-  if (osmType === "relation" && Number.isFinite(osmId) && osmId > 0) {
-    return { selector: `(area:${3_600_000_000 + osmId})`, mode: "limite da cidade" };
+  const places = await fetchJson(geocodeUrl, 10_000);
+  const list = Array.isArray(places) ? places : [];
+  const cityPlace = chooseCityPlace(list);
+  if (cityPlace) {
+    const city = text(cityPlace?.address?.city || cityPlace?.address?.town || cityPlace?.address?.municipality || cityPlace?.name || query);
+    const uf = stateCodeFromPlace(cityPlace);
+    if (city && uf) return { city, uf };
   }
 
-  const bounds = Array.isArray(place?.boundingbox) ? place.boundingbox.map(Number) : [];
-  if (bounds.length === 4 && bounds.every(Number.isFinite)) {
-    const [south, north, west, east] = bounds;
-    return { selector: `(${south},${west},${north},${east})`, mode: "área da cidade" };
+  const statePlace = list.find((place) => ["state", "region"].includes(placeKind(place)));
+  if (statePlace) {
+    const uf = stateCodeFromPlace(statePlace);
+    const label = text(statePlace?.display_name).split(",")[0] || query;
+    const example = uf === "PR" ? "Curitiba, PR" : uf === "SP" ? "São Paulo, SP" : `uma cidade, ${uf || "UF"}`;
+    const error = new Error(`${label} é um estado. Digite uma cidade, por exemplo: ${example}.`);
+    error.status = 422;
+    throw error;
   }
 
-  const lat = Number(place?.lat);
-  const lon = Number(place?.lon);
-  if (Number.isFinite(lat) && Number.isFinite(lon)) {
-    return { selector: `(around:18000,${lat},${lon})`, mode: "cidade e proximidades" };
-  }
-
-  return null;
+  const error = new Error("Não encontrei essa cidade. Tente cidade e UF, por exemplo: Curitiba, PR.");
+  error.status = 404;
+  throw error;
 }
 
-function buildQuery(selector) {
-  return `[out:json][timeout:28];\n(\n  nwr[\"name\"~\"barbearia|barber|barbershop|barber shop\",i]${selector};\n  nwr[\"shop\"=\"hairdresser\"]${selector};\n  nwr[\"craft\"=\"barber\"]${selector};\n);\nout tags center 180;`;
+async function ibgeMunicipality(city, uf) {
+  const url = `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${encodeURIComponent(uf)}/municipios?orderBy=nome`;
+  const municipalities = await fetchJson(url, 10_000);
+  const list = Array.isArray(municipalities) ? municipalities : [];
+  const wanted = normalize(city);
+  const exact = list.find((item) => normalize(item?.nome) === wanted);
+  if (exact?.id) return exact;
+
+  const close = list.filter((item) => normalize(item?.nome).includes(wanted) || wanted.includes(normalize(item?.nome)));
+  if (close.length === 1 && close[0]?.id) return close[0];
+
+  const error = new Error(`Não encontrei ${city} em ${uf}. Confira o nome da cidade e tente novamente.`);
+  error.status = 404;
+  throw error;
 }
 
-async function fetchOverpass(query) {
-  let lastError = null;
-  for (const endpoint of OVERPASS_ENDPOINTS) {
+async function searchCompanies(municipalityCode, uf) {
+  const base = new URL("https://minhareceita.org/");
+  base.searchParams.set("municipio", String(municipalityCode));
+  base.searchParams.set("uf", uf);
+  base.searchParams.set("cnae", BARBER_CNAE);
+  base.searchParams.set("limit", "160");
+
+  const first = await fetchJson(base, 18_000);
+  const companies = Array.isArray(first?.data) ? [...first.data] : [];
+
+  if (first?.cursor && companies.length < 160) {
+    const secondUrl = new URL(base);
+    secondUrl.searchParams.set("cursor", String(first.cursor));
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        cache: "no-store",
-        signal: AbortSignal.timeout(34_000),
-        headers: {
-          "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
-          "user-agent": USER_AGENT,
-        },
-        body: `data=${encodeURIComponent(query)}`,
-      });
-      if (!response.ok) {
-        lastError = new Error(`Fonte respondeu ${response.status}.`);
-        continue;
-      }
-      const body = await response.json();
-      if (Array.isArray(body?.elements)) return body.elements;
-      lastError = new Error("A fonte retornou uma resposta incompleta.");
-    } catch (error) {
-      lastError = error;
+      const second = await fetchJson(secondUrl, 18_000);
+      if (Array.isArray(second?.data)) companies.push(...second.data);
+    } catch {
+      // A primeira página já é útil; não falha a busca inteira por causa da paginação.
     }
   }
-  throw lastError instanceof Error ? lastError : new Error("A busca gratuita está ocupada agora. Tente novamente em alguns segundos.");
+
+  return companies;
 }
 
-function distanceKm(lat1, lon1, lat2, lon2) {
-  if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return null;
-  const toRad = (value) => value * Math.PI / 180;
-  const r = 6371;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return r * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+function toLead(company, fallbackCity) {
+  const cnpj = text(company?.cnpj).replace(/\D/g, "");
+  return {
+    id: cnpj ? `cnpj-${cnpj}` : `company-${Math.random().toString(36).slice(2)}`,
+    name: companyName(company),
+    phone: bestPhone(company),
+    address: companyAddress(company, fallbackCity),
+    website: "",
+    sourceUrl: cnpj ? `https://minhareceita.org/${cnpj}` : "",
+    source: "CNPJ público",
+    potential: potentialFor(company),
+    cnpj,
+    status: text(company?.descricao_situacao_cadastral),
+  };
 }
 
 export async function GET(request) {
   const url = new URL(request.url);
-  const city = text(url.searchParams.get("city")).slice(0, 90);
-  if (city.length < 2) return Response.json({ error: "Digite uma cidade para pesquisar." }, { status: 400 });
+  const query = text(url.searchParams.get("city") || url.searchParams.get("search")).slice(0, 90);
+  if (query.length < 2) return Response.json({ error: "Digite uma cidade para pesquisar." }, { status: 400 });
 
   try {
-    const geocodeUrl = new URL("https://nominatim.openstreetmap.org/search");
-    geocodeUrl.searchParams.set("format", "jsonv2");
-    geocodeUrl.searchParams.set("limit", "6");
-    geocodeUrl.searchParams.set("countrycodes", "br");
-    geocodeUrl.searchParams.set("addressdetails", "1");
-    geocodeUrl.searchParams.set("extratags", "1");
-    geocodeUrl.searchParams.set("q", /brasil|brazil/i.test(city) ? city : `${city}, Brasil`);
-
-    const geoResponse = await fetch(geocodeUrl, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(14_000),
-      headers: {
-        accept: "application/json",
-        "accept-language": "pt-BR,pt;q=0.9",
-        "user-agent": USER_AGENT,
-      },
-    });
-    if (!geoResponse.ok) throw new Error("Não foi possível localizar essa cidade agora.");
-    const geo = await geoResponse.json();
-    const places = Array.isArray(geo) ? geo : [];
-    const place = choosePlace(places);
-    if (!place) {
-      return Response.json({ error: "Não encontrei essa cidade. Tente escrever cidade e estado, por exemplo: Colombo, PR." }, { status: 404 });
-    }
-
-    const kind = placeKind(place);
-    if (kind === "state" || kind === "country") {
-      const label = text(place.display_name) || city;
-      const code = stateCodeFrom(place);
-      return Response.json({
-        error: kind === "state"
-          ? `${label.split(",")[0]} é um estado. Digite o nome de uma cidade${code ? `, por exemplo: Curitiba, ${code}` : ""}.`
-          : "Digite o nome de uma cidade brasileira, não apenas o país.",
-        kind,
-        displayName: label,
-      }, { status: 422 });
-    }
-
-    const scope = searchScope(place);
-    if (!scope) throw new Error("A localização retornou dados incompletos.");
-    const elements = await fetchOverpass(buildQuery(scope.selector));
-    const centerLat = Number(place.lat);
-    const centerLon = Number(place.lon);
+    const resolved = await resolveQuery(query);
+    const municipality = await ibgeMunicipality(resolved.city, resolved.uf);
+    const companies = await searchCompanies(municipality.id, resolved.uf);
 
     const unique = new Map();
-    for (const item of elements) {
-      const tags = item?.tags && typeof item.tags === "object" ? item.tags : {};
-      const name = text(tags.name);
-      if (!name) continue;
-      const strength = barberStrength(tags);
-      if (!strength) continue;
-      const phone = phoneFrom(tags);
-      const lat = Number(item.lat ?? item.center?.lat);
-      const lon = Number(item.lon ?? item.center?.lon);
-      const phoneDigits = phone.replace(/\D/g, "");
-      const key = phoneDigits.length >= 8
-        ? `phone:${phoneDigits}`
-        : `${name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")}|${Number.isFinite(lat) ? lat.toFixed(4) : ""}|${Number.isFinite(lon) ? lon.toFixed(4) : ""}`;
-      if (unique.has(key)) continue;
-      unique.set(key, {
-        id: `${item.type}-${item.id}`,
-        name,
-        phone,
-        address: addressFrom(tags, text(place?.address?.city || place?.address?.town || place?.address?.municipality || city)),
-        website: websiteFrom(tags),
-        sourceUrl: publicSourceUrl(item),
-        source: "OpenStreetMap",
-        potential: strength >= 3 ? "alto" : strength === 2 ? "bom" : "possível",
-        lat: Number.isFinite(lat) ? lat : null,
-        lon: Number.isFinite(lon) ? lon : null,
-        distanceKm: distanceKm(centerLat, centerLon, lat, lon),
-      });
+    for (const company of companies) {
+      if (normalize(company?.descricao_situacao_cadastral) !== "ativa") continue;
+      const lead = toLead(company, municipality.nome || resolved.city);
+      const key = lead.cnpj || `${normalize(lead.name)}|${lead.phone.replace(/\D/g, "")}`;
+      if (!unique.has(key)) unique.set(key, lead);
     }
 
+    const order = { alto: 0, bom: 1, possível: 2 };
     const leads = [...unique.values()]
       .sort((a, b) => {
         if (Boolean(a.phone) !== Boolean(b.phone)) return a.phone ? -1 : 1;
-        const potentialOrder = { alto: 0, bom: 1, possível: 2 };
-        if (a.potential !== b.potential) return potentialOrder[a.potential] - potentialOrder[b.potential];
-        if (Boolean(a.website) !== Boolean(b.website)) return a.website ? -1 : 1;
+        if (a.potential !== b.potential) return order[a.potential] - order[b.potential];
         return a.name.localeCompare(b.name, "pt-BR");
       })
-      .slice(0, 80);
+      .slice(0, 100);
 
     return Response.json({
-      query: city,
-      displayName: text(place.display_name) || city,
-      regionKind: kind,
-      scope: scope.mode,
+      query,
+      displayName: `${municipality.nome}, ${resolved.uf}`,
+      regionKind: "city",
+      scope: "cadastros empresariais da cidade",
       leads,
-      source: "OpenStreetMap",
-      attribution: "© OpenStreetMap contributors",
-      tip: leads.length < 5 ? "Poucos cadastros públicos encontrados. Tente também cidade e UF para deixar a localização mais precisa." : "",
+      source: "CNPJ público / Minha Receita",
+      attribution: "Dados cadastrais públicos da Receita Federal, consultados via Minha Receita.",
+      tip: "O CNAE 9602501 inclui barbearias e também alguns cabeleireiros/manicures; use o nome e telefone para escolher quem faz sentido abordar.",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Não foi possível pesquisar agora.";
-    return Response.json({ error: message }, { status: 503 });
+    const status = Number(error?.status) || 503;
+    let message = error instanceof Error ? error.message : "Não foi possível pesquisar agora.";
+    if (/fetch failed|aborted|timeout|timed out|fonte respondeu/i.test(message)) {
+      message = "A fonte pública de empresas não respondeu agora. Tente novamente em alguns segundos.";
+    }
+    return Response.json({ error: message }, { status });
   }
 }
