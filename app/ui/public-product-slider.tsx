@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const slides = [
   { key: "painel", label: "Painel", image: "/landing/real/painel.webp", width: 320, height: 693 },
   { key: "agenda", label: "Agenda", image: "/landing/real/agenda.webp", width: 320, height: 693 },
-  { key: "registrar", label: "Registrar", image: "/landing/real/registrar-v2.webp", width: 400, height: 866 },
+  { key: "registrar", label: "Registrar", image: "/landing/real/registrar-v3.webp", width: 320, height: 693 },
   { key: "historico", label: "Histórico", image: "/landing/real/historico.webp", width: 320, height: 693 },
   { key: "whatsapp", label: "WhatsApp", image: "/landing/real/whatsapp.webp", width: 320, height: 693 },
   { key: "menu", label: "Menu lateral", image: "/landing/real/menu.webp", width: 320, height: 692 },
