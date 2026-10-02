@@ -1,15 +1,17 @@
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import { cookies } from "next/headers";
 import type { AccessContext } from "./access";
 import { requirePlatformAdmin } from "./access";
 import { getDb } from "./index";
-import { affiliateAccounts, affiliateInvites, affiliateSessions, affiliates } from "./schema";
+import { affiliateAccounts, affiliateInvites, affiliateLinks, affiliateSessions, affiliates } from "./schema";
 
 const PUBLIC_APP_URL = "https://cortouanotou.com.br";
 const AFFILIATE_SESSION_COOKIE = "cortou_anotou_affiliate_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 180;
 const INVITE_SECONDS = 60 * 60 * 24 * 7;
 const PASSWORD_ITERATIONS = 100000;
+const ADMIN_LOGIN = "ADM";
+const ADMIN_INTERNAL_EMAIL = "adm.prospeccao@cortouanotou.internal";
 
 export type AffiliateAccess = {
   accountId: number;
@@ -17,6 +19,7 @@ export type AffiliateAccess = {
   name: string;
   email: string;
   active: boolean;
+  isAdmin?: boolean;
 };
 
 function bytesToHex(bytes: Uint8Array) {
@@ -79,6 +82,66 @@ async function issueAffiliateSession(accountId: number) {
   const db = await getDb();
   await db.insert(affiliateSessions).values({ tokenHash, accountId, expiresAt });
   return token;
+}
+
+async function ensureAdminAffiliateAccount(password: string) {
+  const db = await getDb();
+  const existingAccount = (await db.select().from(affiliateAccounts).where(eq(affiliateAccounts.email, ADMIN_INTERNAL_EMAIL)).limit(1))[0];
+  if (existingAccount) {
+    const now = new Date().toISOString();
+    const salt = randomHex(16);
+    await db.update(affiliateAccounts).set({
+      passwordSalt: salt,
+      passwordHash: await passwordHash(password, salt, PASSWORD_ITERATIONS),
+      passwordIterations: PASSWORD_ITERATIONS,
+      lastLoginAt: now,
+      updatedAt: now,
+    }).where(eq(affiliateAccounts.id, existingAccount.id));
+    return existingAccount.id;
+  }
+
+  const now = new Date().toISOString();
+  let affiliate = (await db.select().from(affiliates).where(eq(affiliates.email, ADMIN_INTERNAL_EMAIL)).limit(1))[0];
+  if (!affiliate) {
+    affiliate = (await db.insert(affiliates).values({
+      name: "ADM",
+      email: ADMIN_INTERNAL_EMAIL,
+      whatsapp: "",
+      payoutProvider: "pix_manual",
+      payoutStatus: "pending_setup",
+      active: true,
+      updatedAt: now,
+    }).returning())[0];
+  }
+
+  const salt = randomHex(16);
+  const account = (await db.insert(affiliateAccounts).values({
+    affiliateId: affiliate.id,
+    email: ADMIN_INTERNAL_EMAIL,
+    passwordHash: await passwordHash(password, salt, PASSWORD_ITERATIONS),
+    passwordSalt: salt,
+    passwordIterations: PASSWORD_ITERATIONS,
+    lastLoginAt: now,
+    updatedAt: now,
+  }).returning({ id: affiliateAccounts.id }))[0];
+
+  const firstLink = (await db.select({ id: affiliateLinks.id }).from(affiliateLinks).where(eq(affiliateLinks.affiliateId, affiliate.id)).orderBy(asc(affiliateLinks.id)).limit(1))[0];
+  if (!firstLink) {
+    const existingCode = (await db.select({ id: affiliateLinks.id }).from(affiliateLinks).where(eq(affiliateLinks.code, "adm-kaio")).limit(1))[0];
+    await db.insert(affiliateLinks).values({
+      affiliateId: affiliate.id,
+      code: existingCode ? `adm-kaio-${affiliate.id}` : "adm-kaio",
+      label: "Prospecção ADM",
+      commissionBps: 0,
+      commissionMonths: 12,
+      active: true,
+      createdByTeamMemberId: 0,
+      createdByAffiliateAccountId: account.id,
+      updatedAt: now,
+    });
+  }
+
+  return account.id;
 }
 
 export function affiliateSessionCookie(token: string) {
@@ -176,9 +239,17 @@ export async function acceptAffiliateInvite(inviteToken: string, input: { name: 
   }
 }
 
-export async function loginAffiliate(emailValue: string, password: string) {
-  const email = normalizeEmail(emailValue);
+export async function loginAffiliate(identifierValue: string, password: string) {
+  const identifier = identifierValue.trim();
   if (!password) throw new Error("Informe seu e-mail e sua senha.");
+
+  if (identifier.toUpperCase() === ADMIN_LOGIN) {
+    const configured = String(process.env.AFFILIATE_ADMIN_PASSWORD || "").trim();
+    if (configured.length < 6 || !secureEqual(password, configured)) throw new Error("ADM ou senha incorretos.");
+    return issueAffiliateSession(await ensureAdminAffiliateAccount(configured));
+  }
+
+  const email = normalizeEmail(identifier);
   const db = await getDb();
   const account = (await db.select().from(affiliateAccounts).where(eq(affiliateAccounts.email, email)).limit(1))[0];
   if (!account) throw new Error("E-mail ou senha incorretos.");
@@ -205,7 +276,8 @@ export async function getAffiliateSessionAccess(): Promise<AffiliateAccess | nul
     .innerJoin(affiliates, eq(affiliates.id, affiliateAccounts.affiliateId))
     .where(and(eq(affiliateSessions.tokenHash, await sha256(token)), gt(affiliateSessions.expiresAt, new Date().toISOString())))
     .limit(1))[0];
-  return row ?? null;
+  if (!row) return null;
+  return { ...row, isAdmin: row.email === ADMIN_INTERNAL_EMAIL };
 }
 
 export async function logoutCurrentAffiliateSession() {
