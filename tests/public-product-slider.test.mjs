@@ -19,7 +19,6 @@ test("landing mostra seis capturas reais do aplicativo no slider principal", () 
   assert.match(component, /\/landing\/real\/whatsapp\.webp/);
   assert.match(component, /\/landing\/real\/menu\.webp/);
   assert.doesNotMatch(component, /public-real-screens/);
-  assert.match(component, /Arraste para o lado/);
   assert.match(css, /scroll-snap-type:x mandatory/);
 });
 
@@ -32,9 +31,22 @@ test("slider fica na primeira dobra e substitui o mockup antigo", () => {
   assert.match(page, /public-learn-link" href="#produto"/);
 });
 
-test("slider real continua leve e respeita movimento reduzido", () => {
+test("slider avança sozinho em loop e para na primeira interação", () => {
+  assert.match(component, /ADVANCE_DELAY_MS = 4200/);
+  assert.match(component, /window\.setTimeout/);
+  assert.match(component, /\(active \+ 1\) % slides\.length/);
+  assert.match(component, /onMouseEnter=\{stopMotion\}/);
+  assert.match(component, /onPointerDown=\{stopMotion\}/);
+  assert.match(component, /onFocusCapture=\{stopMotion\}/);
+  assert.match(component, /Passa sozinho • toque para parar/);
+});
+
+test("slider maior continua responsivo e respeita movimento reduzido", () => {
   assert.match(layout, /public-product-slider\.css/);
+  assert.match(css, /public-real-device\{width:280px/);
+  assert.match(css, /@media\(max-width:430px\).*public-real-device\{width:268px/);
   assert.match(css, /prefers-reduced-motion:reduce/);
-  assert.doesNotMatch(component, /setInterval|autoplay/i);
+  assert.match(component, /matchMedia\("\(prefers-reduced-motion: reduce\)"\)/);
+  assert.doesNotMatch(component, /setInterval/i);
   assert.doesNotMatch(component, /A barbearia inteira em uma visão|Terminou o corte\?|dados demonstrativos/i);
 });
