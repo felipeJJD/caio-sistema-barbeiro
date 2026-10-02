@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 
 const [component, page, css, layout] = await Promise.all([
   readFile(new URL("../app/ui/public-product-slider.tsx", import.meta.url), "utf8"),
@@ -9,17 +9,18 @@ const [component, page, css, layout] = await Promise.all([
   readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
 ]);
 
-test("landing mostra seis capturas reais do aplicativo no slider principal", () => {
+test("landing mostra seis capturas reais do aplicativo no slider principal", async () => {
   const keys = [...component.matchAll(/key: "([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(keys, ["painel", "agenda", "registrar", "historico", "whatsapp", "menu"]);
   assert.match(component, /\/landing\/real\/painel\.webp/);
   assert.match(component, /\/landing\/real\/agenda\.webp/);
-  assert.match(component, /\/landing\/real\/registrar\.webp/);
+  assert.match(component, /\/landing\/real\/registrar-v2\.webp/);
   assert.match(component, /\/landing\/real\/historico\.webp/);
   assert.match(component, /\/landing\/real\/whatsapp\.webp/);
   assert.match(component, /\/landing\/real\/menu\.webp/);
   assert.doesNotMatch(component, /public-real-screens/);
   assert.match(css, /scroll-snap-type:x mandatory/);
+  await access(new URL("../public/landing/real/registrar-v2.webp", import.meta.url));
 });
 
 test("slider fica na primeira dobra e substitui o mockup antigo", () => {
@@ -31,14 +32,17 @@ test("slider fica na primeira dobra e substitui o mockup antigo", () => {
   assert.match(page, /public-learn-link" href="#produto"/);
 });
 
-test("slider avança sozinho em loop e para na primeira interação", () => {
-  assert.match(component, /ADVANCE_DELAY_MS = 4200/);
+test("slider avança sozinho em loop a cada dois segundos e retoma após interação", () => {
+  assert.match(component, /ADVANCE_DELAY_MS = 2000/);
   assert.match(component, /window\.setTimeout/);
   assert.match(component, /\(active \+ 1\) % slides\.length/);
-  assert.match(component, /onMouseEnter=\{stopMotion\}/);
-  assert.match(component, /onPointerDown=\{stopMotion\}/);
-  assert.match(component, /onFocusCapture=\{stopMotion\}/);
-  assert.match(component, /Passa sozinho • toque para parar/);
+  assert.match(component, /onMouseEnter=\{\(\) => setInteracting\(true\)\}/);
+  assert.match(component, /onMouseLeave=\{\(\) => setInteracting\(false\)\}/);
+  assert.match(component, /onPointerDown=\{\(\) => setInteracting\(true\)\}/);
+  assert.match(component, /onPointerUp=\{\(\) => setInteracting\(false\)\}/);
+  assert.match(component, /onPointerCancel=\{\(\) => setInteracting\(false\)\}/);
+  assert.match(component, /Passa sozinho • toque para pausar/);
+  assert.doesNotMatch(component, /stopMotion/);
 });
 
 test("slider maior continua responsivo e respeita movimento reduzido", () => {

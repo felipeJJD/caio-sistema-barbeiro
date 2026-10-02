@@ -3,15 +3,22 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 
 const component = await readFile(new URL("../app/ui/public-product-slider.tsx", import.meta.url), "utf8");
-const screenshots = ["painel", "agenda", "registrar", "historico", "whatsapp", "menu"];
+const screenshots = [
+  ["painel", "painel.webp"],
+  ["agenda", "agenda.webp"],
+  ["registrar", "registrar-v2.webp"],
+  ["historico", "historico.webp"],
+  ["whatsapp", "whatsapp.webp"],
+  ["menu", "menu.webp"],
+];
 
 test("página pública usa capturas reais do C.A. em vez dos mockups gerados", async () => {
   assert.doesNotMatch(component, /public-real-screens/);
   assert.match(component, /TELAS REAIS DO C\|A/);
 
-  for (const screen of screenshots) {
-    assert.match(component, new RegExp(`/landing/real/${screen}\\.webp`));
-    await access(new URL(`../public/landing/real/${screen}.webp`, import.meta.url));
+  for (const [, filename] of screenshots) {
+    assert.match(component, new RegExp(`/landing/real/${filename.replace(".", "\\.")}`));
+    await access(new URL(`../public/landing/real/${filename}`, import.meta.url));
   }
 });
 
