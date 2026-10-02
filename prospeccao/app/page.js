@@ -67,6 +67,18 @@ function mergeLeads(current, incoming) {
   return [...map.values()];
 }
 
+async function funnelRequest(method = "GET", body) {
+  const response = await fetch("/api/funnel", {
+    method,
+    cache: "no-store",
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "Não foi possível atualizar o funil.");
+  return payload;
+}
+
 export default function ProspeccaoPage() {
   const [uf, setUf] = useState("PR");
   const [city, setCity] = useState("Colombo");
@@ -85,6 +97,7 @@ export default function ProspeccaoPage() {
   const [message, setMessage] = useState(TEMPLATES.curta);
   const [loading, setLoading] = useState(false);
   const [moreLoading, setMoreLoading] = useState(false);
+  const [funnelLoading, setFunnelLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [filter, setFilter] = useState("all");
@@ -93,14 +106,36 @@ export default function ProspeccaoPage() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    setFunnel(safeLoad(STORAGE_FUNNEL, []));
+    let active = true;
     setHistory(safeLoad(STORAGE_HISTORY, []));
-    setReady(true);
-  }, []);
 
-  useEffect(() => {
-    if (ready) localStorage.setItem(STORAGE_FUNNEL, JSON.stringify(funnel));
-  }, [funnel, ready]);
+    async function bootFunnel() {
+      setFunnelLoading(true);
+      try {
+        const legacy = safeLoad(STORAGE_FUNNEL, []);
+        if (Array.isArray(legacy) && legacy.length) {
+          await funnelRequest("POST", { leads: legacy, city: "" });
+          localStorage.removeItem(STORAGE_FUNNEL);
+        }
+        const payload = await funnelRequest();
+        if (active) setFunnel(Array.isArray(payload.funnel) ? payload.funnel : []);
+      } catch (bootError) {
+        if (!active) return;
+        setFunnel(safeLoad(STORAGE_FUNNEL, []));
+        setError(bootError instanceof Error ? bootError.message : "Não consegui carregar o funil persistente.");
+      } finally {
+        if (active) {
+          setFunnelLoading(false);
+          setReady(true);
+        }
+      }
+    }
+
+    bootFunnel();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (ready) localStorage.setItem(STORAGE_HISTORY, JSON.stringify(history));
@@ -258,47 +293,68 @@ export default function ProspeccaoPage() {
     setNotice(ids.length ? `${ids.length} celulares visíveis selecionados.` : "Nenhum celular válido nessa parte da lista.");
   }
 
-  function prepare() {
+  async function prepare() {
     if (!selectedWithWhatsApp.length) {
       setNotice("Selecione pelo menos uma barbearia com celular válido para WhatsApp.");
       return;
     }
-    const now = new Date().toISOString();
-    setFunnel((current) => {
-      const map = new Map(current.map((item) => [item.key, item]));
-      for (const lead of selectedWithWhatsApp) {
-        const key = contactKey(lead);
-        const existing = map.get(key);
-        map.set(key, {
-          ...existing,
-          key,
-          id: lead.id,
-          name: lead.name,
-          phone: lead.phone,
-          phoneE164: lead.phoneE164,
-          whatsappCandidate: true,
-          address: lead.address,
-          sourceUrl: lead.sourceUrl,
-          city: searchedCity || (city && uf ? `${city}, ${uf}` : ""),
-          status: existing?.status || "preparado",
-          message: personalize(message, lead, searchedCity || (city && uf ? `${city}, ${uf}` : "")),
-          createdAt: existing?.createdAt || now,
-          updatedAt: now,
-        });
-      }
-      return [...map.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-    });
-    setNotice(`${selectedWithWhatsApp.length} contato${selectedWithWhatsApp.length === 1 ? "" : "s"} válido${selectedWithWhatsApp.length === 1 ? "" : "s"} adicionado${selectedWithWhatsApp.length === 1 ? "" : "s"} ao funil.`);
-    setSelected(new Set());
-    setTimeout(() => document.getElementById("funil")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+
+    const contactCity = searchedCity || (city && uf ? `${city}, ${uf}` : "");
+    const preparedLeads = selectedWithWhatsApp.map((lead) => ({
+      ...lead,
+      city: contactCity,
+      message: personalize(message, lead, contactCity),
+    }));
+
+    setFunnelLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const payload = await funnelRequest("POST", { leads: preparedLeads, city: contactCity });
+      setFunnel(Array.isArray(payload.funnel) ? payload.funnel : []);
+      const added = Array.isArray(payload.added) ? payload.added.length : 0;
+      const duplicates = Array.isArray(payload.duplicates) ? payload.duplicates.length : 0;
+      const blocked = Array.isArray(payload.blocked) ? payload.blocked.length : 0;
+      const parts = [];
+      if (added) parts.push(`${added} adicionado${added === 1 ? "" : "s"} ao funil`);
+      if (duplicates) parts.push(`${duplicates} já estava${duplicates === 1 ? "" : "m"} no funil`);
+      if (blocked) parts.push(`${blocked} bloqueado${blocked === 1 ? "" : "s"} por não contatar`);
+      setNotice(parts.length ? `${parts.join(" · ")}.` : "Nenhum contato novo foi adicionado.");
+      setSelected(new Set());
+      setTimeout(() => document.getElementById("funil")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    } catch (prepareError) {
+      setError(prepareError instanceof Error ? prepareError.message : "Não foi possível salvar os contatos no funil.");
+    } finally {
+      setFunnelLoading(false);
+    }
   }
 
-  function updateStatus(key, status) {
-    setFunnel((current) => current.map((item) => item.key === key ? { ...item, status, updatedAt: new Date().toISOString() } : item));
+  async function updateStatus(key, status) {
+    setFunnelLoading(true);
+    setError("");
+    try {
+      const payload = await funnelRequest("PATCH", { key, status });
+      setFunnel((current) => current.map((item) => item.key === key ? payload.item : item));
+      if (payload.item?.doNotContact) setNotice(`${payload.item.name} foi marcado como não contatar novamente.`);
+    } catch (statusError) {
+      setError(statusError instanceof Error ? statusError.message : "Não foi possível atualizar o status.");
+    } finally {
+      setFunnelLoading(false);
+    }
   }
 
-  function removeFromFunnel(key) {
-    setFunnel((current) => current.filter((item) => item.key !== key));
+  async function removeFromFunnel(key) {
+    setFunnelLoading(true);
+    setError("");
+    try {
+      const payload = await funnelRequest("DELETE", { key });
+      setFunnel((current) => current.filter((item) => item.key !== key));
+      setNotice(payload.doNotContact ? "Contato removido do funil, mas o bloqueio de não contatar foi preservado." : "Contato removido do funil.");
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : "Não foi possível remover o contato.");
+    } finally {
+      setFunnelLoading(false);
+    }
   }
 
   async function copyText(value, label = "Mensagem") {
@@ -457,37 +513,39 @@ export default function ProspeccaoPage() {
         <div className="flow-line">
           <span className="done">Encontrar</span><i>→</i><span className={selected.size ? "done" : ""}>Selecionar</span><i>→</i><span>Preparado</span><i>→</i><span>Contatado</span><i>→</i><span>Interessado</span>
         </div>
-        <button className="prepare-button" type="button" onClick={prepare}>Adicionar {selectedWithWhatsApp.length || ""} contato{selectedWithWhatsApp.length === 1 ? "" : "s"} ao funil</button>
+        <button className="prepare-button" type="button" onClick={prepare} disabled={funnelLoading}>{funnelLoading ? "Salvando no funil..." : `Adicionar ${selectedWithWhatsApp.length || ""} contato${selectedWithWhatsApp.length === 1 ? "" : "s"} ao funil`}</button>
       </section>
 
       <section className="funnel-card" id="funil">
         <div className="section-heading">
-          <div><span>4</span><div><strong>Funil de prospecção</strong><small>Fica salvo neste navegador e você atualiza o andamento de cada contato.</small></div></div>
+          <div><span>4</span><div><strong>Funil de prospecção</strong><small>Salvo no banco separado da Prospecção. “Sem interesse” bloqueia novas abordagens desse contato.</small></div></div>
           <b>{funnel.length} contatos</b>
         </div>
         <div className="funnel-stats">
           {STATUS_OPTIONS.map(([value, label]) => <div key={value}><strong>{funnelCounts[value] || 0}</strong><span>{label}</span></div>)}
         </div>
-        {funnel.length === 0 ? (
+        {!ready || funnelLoading && funnel.length === 0 ? (
+          <div className="empty-funnel"><strong>Carregando seu funil...</strong><span>Buscando os contatos salvos no banco da Prospecção.</span></div>
+        ) : funnel.length === 0 ? (
           <div className="empty-funnel"><strong>Seu funil ainda está vazio.</strong><span>Escolha um estado e uma cidade, selecione celulares válidos e toque em “Adicionar ao funil”.</span></div>
         ) : (
           <div className="funnel-list">
             {funnel.map((item) => (
               <article className="funnel-row" key={item.key}>
-                <div className="funnel-ident"><div className="avatar">{initials(item.name)}</div><div><strong>{item.name}</strong><small>{item.phone} · {String(item.city || "").split(",")[0]}</small></div></div>
-                <select value={item.status} onChange={(event) => updateStatus(item.key, event.target.value)} aria-label={`Status de ${item.name}`}>
+                <div className="funnel-ident"><div className="avatar">{initials(item.name)}</div><div><strong>{item.name}</strong><small>{item.phone} · {String(item.city || "").split(",")[0]}{item.doNotContact ? " · NÃO CONTATAR" : ""}</small></div></div>
+                <select value={item.status} onChange={(event) => updateStatus(item.key, event.target.value)} aria-label={`Status de ${item.name}`} disabled={funnelLoading || item.doNotContact}>
                   {STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
                 <div className="funnel-actions">
                   <button type="button" onClick={() => copyText(item.message, "Mensagem")}>Copiar</button>
-                  <button type="button" className="whatsapp" onClick={() => openWhatsApp(item)}>Testar no WhatsApp</button>
-                  <button type="button" className="danger" onClick={() => removeFromFunnel(item.key)}>Remover</button>
+                  <button type="button" className="whatsapp" onClick={() => openWhatsApp(item)} disabled={item.doNotContact}>Testar no WhatsApp</button>
+                  <button type="button" className="danger" onClick={() => removeFromFunnel(item.key)} disabled={funnelLoading}>Remover</button>
                 </div>
               </article>
             ))}
           </div>
         )}
-        <p className="safety-note"><strong>Importante:</strong> o celular já passou pela validação de formato. Nesta etapa, “Testar no WhatsApp” confirma manualmente se aquele número possui conta; depois a Evolution fará essa checagem automaticamente.</p>
+        <p className="safety-note"><strong>Importante:</strong> contatos duplicados não entram duas vezes. Quando um contato vira “Sem interesse”, o bloqueio fica preservado no banco mesmo se ele for removido da tela.</p>
       </section>
 
       {(error || notice) && <div className={error ? "notice error" : "notice"}>{error || notice}</div>}
