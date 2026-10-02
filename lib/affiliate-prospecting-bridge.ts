@@ -1,5 +1,12 @@
 const ACCESS_COOKIE = "ca_prospeccao_access";
 
+type ProspectingRequestOptions = {
+  method?: "GET" | "POST";
+  body?: unknown;
+  prospectorKey?: string;
+  prospectorName?: string;
+};
+
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -18,16 +25,30 @@ async function accessCookie() {
   return `${ACCESS_COOKIE}=${await sha256(code)}`;
 }
 
-export async function affiliateProspectingFetch(path: string) {
+export function affiliateProspectorIdentity(access: { affiliateId: number; name: string; isAdmin?: boolean }) {
+  return {
+    prospectorKey: `${access.isAdmin ? "admin" : "affiliate"}:${access.affiliateId}`,
+    prospectorName: access.isAdmin ? "ADM" : access.name,
+  };
+}
+
+export async function affiliateProspectingFetch(path: string, options: ProspectingRequestOptions = {}) {
   if (!path.startsWith("/api/")) throw new Error("Rota de prospecção inválida.");
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    cookie: await accessCookie(),
+    "user-agent": "CortouAnotouAffiliatePortal/1.0",
+  };
+  if (options.prospectorKey) headers["x-ca-prospector-key"] = options.prospectorKey;
+  if (options.prospectorName) headers["x-ca-prospector-name"] = options.prospectorName.slice(0, 140);
+  if (options.body !== undefined) headers["content-type"] = "application/json";
+
   const response = await fetch(`${serviceUrl()}${path}`, {
+    method: options.method ?? "GET",
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
     cache: "no-store",
     signal: AbortSignal.timeout(80_000),
-    headers: {
-      accept: "application/json",
-      cookie: await accessCookie(),
-      "user-agent": "CortouAnotouAffiliatePortal/1.0",
-    },
+    headers,
   });
   const payload = await response.json().catch(() => ({ error: "A busca respondeu de forma inválida." }));
   return { response, payload };
