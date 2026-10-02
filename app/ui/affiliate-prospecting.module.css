@@ -407,4 +407,16 @@
   .secondary {
     width: 100%;
   }
+
+  .notice {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    z-index: 100;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+  }
 }
