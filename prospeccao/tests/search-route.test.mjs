@@ -1,206 +1,80 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { GET } from "../app/api/leads/search/route.js";
+import { chooseCityPlace, mapOverturePlace, parseBrazilPhone } from "../app/api/leads/search/route.js";
 
-function jsonResponse(value, status = 200) {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { "content-type": "application/json" },
+test("descarta telefone incompleto como apenas DDD", () => {
+  assert.equal(parseBrazilPhone("66"), null);
+  assert.equal(parseBrazilPhone("123"), null);
+  assert.equal(parseBrazilPhone("+55 66"), null);
+});
+
+test("normaliza celular e telefone fixo brasileiros completos", () => {
+  const mobile = parseBrazilPhone("+55 11 98394-4279");
+  assert.deepEqual(mobile, {
+    national: "11983944279",
+    e164: "5511983944279",
+    display: "(11) 98394-4279",
+    kind: "mobile",
+    whatsappCandidate: true,
   });
-}
 
-function requestFor(city) {
-  return new Request(`http://localhost/api/leads/search?city=${encodeURIComponent(city)}`);
-}
-
-const curitibaMunicipality = { id: 4106902, nome: "Curitiba" };
-
-function company(overrides = {}) {
-  return {
-    cnpj: "12345678000190",
-    nome_fantasia: "Barbearia Central",
-    razao_social: "BARBEARIA CENTRAL LTDA",
-    descricao_situacao_cadastral: "ATIVA",
-    descricao_tipo_de_logradouro: "RUA",
-    logradouro: "DAS FLORES",
-    numero: "100",
-    bairro: "CENTRO",
-    municipio: "CURITIBA",
-    uf: "PR",
-    ddd_telefone_1: "41999999999",
-    ddd_telefone_2: "",
-    ...overrides,
-  };
-}
-
-test("descarta telefone incompleto e prioriza celular brasileiro válido", async () => {
-  const originalFetch = globalThis.fetch;
-  const called = [];
-  globalThis.fetch = async (input) => {
-    const url = String(input);
-    called.push(url);
-    if (url.includes("servicodados.ibge.gov.br")) {
-      return jsonResponse([curitibaMunicipality, { id: 4104808, nome: "Cascavel" }]);
-    }
-    if (url.includes("minhareceita.org")) {
-      return jsonResponse({
-        data: [
-          company({
-            ddd_telefone_1: "66",
-            ddd_telefone_2: "41987654321",
-          }),
-          company({
-            cnpj: "98765432000110",
-            nome_fantasia: "Studio Navalha",
-            razao_social: "JOAO DA SILVA",
-            ddd_telefone_1: "4133334444",
-            ddd_telefone_2: "",
-          }),
-          company({
-            cnpj: "22222222000122",
-            nome_fantasia: "Barber Sem Telefone",
-            ddd_telefone_1: "66",
-            ddd_telefone_2: "123",
-          }),
-          company({
-            cnpj: "11111111000111",
-            nome_fantasia: "Barbearia Inativa",
-            descricao_situacao_cadastral: "BAIXADA",
-          }),
-        ],
-      });
-    }
-    throw new Error(`URL inesperada: ${url}`);
-  };
-
-  try {
-    const response = await GET(requestFor("Curitiba, PR"));
-    assert.equal(response.status, 200);
-    const body = await response.json();
-    assert.equal(body.displayName, "Curitiba, PR");
-    assert.equal(body.leads.length, 3);
-
-    assert.equal(body.leads[0].name, "Barbearia Central");
-    assert.equal(body.leads[0].phone, "(41) 98765-4321");
-    assert.equal(body.leads[0].phoneE164, "5541987654321");
-    assert.equal(body.leads[0].phoneKind, "mobile");
-    assert.equal(body.leads[0].whatsappCandidate, true);
-
-    const landline = body.leads.find((lead) => lead.name === "Studio Navalha");
-    assert.equal(landline.phone, "(41) 3333-4444");
-    assert.equal(landline.phoneKind, "landline");
-    assert.equal(landline.whatsappCandidate, false);
-
-    const invalid = body.leads.find((lead) => lead.name === "Barber Sem Telefone");
-    assert.equal(invalid.phone, "");
-    assert.equal(invalid.phoneE164, "");
-    assert.equal(invalid.whatsappCandidate, false);
-
-    assert.equal(body.source, "CNPJ público / Minha Receita");
-    assert.ok(called.some((url) => url.includes("cnae=9602501")));
-    assert.ok(called.some((url) => url.includes("municipio=4106902")));
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const landline = parseBrazilPhone("+55 11 2769-3189");
+  assert.deepEqual(landline, {
+    national: "1127693189",
+    e164: "551127693189",
+    display: "(11) 2769-3189",
+    kind: "landline",
+    whatsappCandidate: false,
+  });
 });
 
-test("aceita DDI do Brasil e zero antes do DDD", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input) => {
-    const url = String(input);
-    if (url.includes("servicodados.ibge.gov.br")) return jsonResponse([curitibaMunicipality]);
-    if (url.includes("minhareceita.org")) {
-      return jsonResponse({
-        data: [
-          company({ cnpj: "33333333000133", ddd_telefone_1: "+55 (41) 99876-5432" }),
-          company({ cnpj: "44444444000144", nome_fantasia: "Barber Dois", ddd_telefone_1: "041987654321" }),
-        ],
-      });
-    }
-    throw new Error(`URL inesperada: ${url}`);
-  };
+test("mapeia barbearia da Overture e prefere celular quando há mais de um telefone", () => {
+  const lead = mapOverturePlace({
+    id: "08f-place-123",
+    name: "Barbearia Zeronze",
+    category: "barber",
+    confidence: 0.92,
+    operatingStatus: "open",
+    phones: ["+551127693189", "+5511983944279"],
+    addresses: [{
+      freeform: "Rua Exemplo, 123",
+      locality: "São Paulo",
+      region: "BR-SP",
+      postcode: "01000-000",
+      country: "BR",
+    }],
+    websites: ["https://barbearia.example"],
+    socials: [],
+    lat: -23.55,
+    lon: -46.63,
+  }, "São Paulo", "SP");
 
-  try {
-    const response = await GET(requestFor("Curitiba, PR"));
-    assert.equal(response.status, 200);
-    const body = await response.json();
-    assert.equal(body.leads[0].phoneE164, "5541998765432");
-    assert.equal(body.leads[1].phoneE164, "5541987654321");
-    assert.ok(body.leads.every((lead) => lead.whatsappCandidate));
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  assert.equal(lead.name, "Barbearia Zeronze");
+  assert.equal(lead.phone, "(11) 98394-4279");
+  assert.equal(lead.phoneE164, "5511983944279");
+  assert.equal(lead.phoneKind, "mobile");
+  assert.equal(lead.whatsappCandidate, true);
+  assert.match(lead.address, /São Paulo/);
+  assert.equal(lead.source, "Overture Maps");
+  assert.equal(lead.potential, "alto");
 });
 
-test("resolve São Paulo sem UF e encontra o município correto", async () => {
-  const originalFetch = globalThis.fetch;
-  let nominatimCalled = false;
-  globalThis.fetch = async (input) => {
-    const url = String(input);
-    if (url.includes("nominatim.openstreetmap.org")) {
-      nominatimCalled = true;
-      return jsonResponse([
-        {
-          addresstype: "state",
-          display_name: "São Paulo, Brasil",
-          address: { state: "São Paulo", country_code: "br" },
-          extratags: { "ISO3166-2": "BR-SP" },
-        },
-        {
-          addresstype: "city",
-          display_name: "São Paulo, São Paulo, Brasil",
-          address: { city: "São Paulo", state: "São Paulo", country_code: "br" },
-          extratags: { "ISO3166-2": "BR-SP" },
-        },
-      ]);
-    }
-    if (url.includes("servicodados.ibge.gov.br")) {
-      return jsonResponse([{ id: 3550308, nome: "São Paulo" }, { id: 3509502, nome: "Campinas" }]);
-    }
-    if (url.includes("minhareceita.org")) {
-      return jsonResponse({ data: [company({ municipio: "SAO PAULO", uf: "SP", ddd_telefone_1: "11987654321" })] });
-    }
-    throw new Error(`URL inesperada: ${url}`);
-  };
+test("escolhe a cidade da UF pedida quando o nome é ambíguo", () => {
+  const places = [
+    {
+      addresstype: "city",
+      address: { city: "São Paulo", state: "São Paulo" },
+      extratags: { "ISO3166-2": "BR-SP" },
+      boundingbox: ["-24.0", "-23.3", "-46.9", "-46.3"],
+    },
+    {
+      addresstype: "city",
+      address: { city: "São Paulo", state: "Paraná" },
+      extratags: { "ISO3166-2": "BR-PR" },
+      boundingbox: ["-25.0", "-24.7", "-52.0", "-51.7"],
+    },
+  ];
 
-  try {
-    const response = await GET(requestFor("São Paulo"));
-    assert.equal(response.status, 200);
-    const body = await response.json();
-    assert.equal(body.displayName, "São Paulo, SP");
-    assert.equal(body.leads[0].phone, "(11) 98765-4321");
-    assert.equal(body.leads[0].whatsappCandidate, true);
-    assert.equal(nominatimCalled, true);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("explica quando o usuário digita apenas um estado", async () => {
-  const originalFetch = globalThis.fetch;
-  let otherSourceCalled = false;
-  globalThis.fetch = async (input) => {
-    const url = String(input);
-    if (url.includes("nominatim.openstreetmap.org")) {
-      return jsonResponse([{
-        addresstype: "state",
-        display_name: "Paraná, Brasil",
-        address: { state: "Paraná", country_code: "br" },
-        extratags: { "ISO3166-2": "BR-PR" },
-      }]);
-    }
-    otherSourceCalled = true;
-    return jsonResponse([]);
-  };
-
-  try {
-    const response = await GET(requestFor("Paraná"));
-    assert.equal(response.status, 422);
-    const body = await response.json();
-    assert.match(body.error, /estado/i);
-    assert.match(body.error, /Curitiba, PR/);
-    assert.equal(otherSourceCalled, false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const selected = chooseCityPlace(places, "SP");
+  assert.equal(selected.extratags["ISO3166-2"], "BR-SP");
 });
