@@ -9,14 +9,16 @@ const [component, page, css, layout] = await Promise.all([
   readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
 ]);
 
-test("landing mostra cinco telas reais do aplicativo no slider principal", () => {
+test("landing mostra seis capturas reais do aplicativo no slider principal", () => {
   const keys = [...component.matchAll(/key: "([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(keys, ["painel", "agenda", "registrar", "historico", "financeiro"]);
-  assert.match(component, /PAINEL_SCREEN/);
-  assert.match(component, /AGENDA_SCREEN/);
-  assert.match(component, /REGISTRAR_SCREEN/);
-  assert.match(component, /HISTORICO_SCREEN/);
-  assert.match(component, /FINANCEIRO_SCREEN/);
+  assert.deepEqual(keys, ["painel", "agenda", "registrar", "historico", "whatsapp", "menu"]);
+  assert.match(component, /\/landing\/real\/painel\.webp/);
+  assert.match(component, /\/landing\/real\/agenda\.webp/);
+  assert.match(component, /\/landing\/real\/registrar\.webp/);
+  assert.match(component, /\/landing\/real\/historico\.webp/);
+  assert.match(component, /\/landing\/real\/whatsapp\.webp/);
+  assert.match(component, /\/landing\/real\/menu\.webp/);
+  assert.doesNotMatch(component, /public-real-screens/);
   assert.match(component, /Arraste para o lado/);
   assert.match(css, /scroll-snap-type:x mandatory/);
 });
