@@ -5,7 +5,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const execFileAsync = promisify(execFile);
-const USER_AGENT = "CortouAnotouProspeccao/1.3 (https://cortouanotou.com.br)";
+const USER_AGENT = "CortouAnotouProspeccao/1.4 (https://cortouanotou.com.br)";
+const PAGE_SIZE = 40;
 const VALID_UFS = new Set([
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
 ]);
@@ -198,14 +199,15 @@ async function resolveCity(query) {
   throw error;
 }
 
-async function searchOverture(bbox) {
+async function searchOverture(bbox, offset = 0) {
   const args = [
     "scripts/overture-search.py",
     String(bbox.west),
     String(bbox.south),
     String(bbox.east),
     String(bbox.north),
-    "240",
+    String(PAGE_SIZE),
+    String(offset),
   ];
   const { stdout } = await execFileAsync("python3", args, {
     cwd: process.cwd(),
@@ -215,20 +217,25 @@ async function searchOverture(bbox) {
     env: process.env,
   });
   const parsed = JSON.parse(stdout);
-  return Array.isArray(parsed?.places) ? parsed.places : [];
+  return {
+    places: Array.isArray(parsed?.places) ? parsed.places : [],
+    total: Number.isFinite(Number(parsed?.total)) ? Number(parsed.total) : 0,
+  };
 }
 
 export async function GET(request) {
   const url = new URL(request.url);
   const query = text(url.searchParams.get("city") || url.searchParams.get("search")).slice(0, 90);
+  const parsedOffset = Number.parseInt(url.searchParams.get("offset") || "0", 10);
+  const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.min(parsedOffset, 100000)) : 0;
   if (query.length < 2) return Response.json({ error: "Digite uma cidade para pesquisar." }, { status: 400 });
 
   try {
     const resolved = await resolveCity(query);
-    const places = await searchOverture(resolved.bbox);
+    const result = await searchOverture(resolved.bbox, offset);
     const unique = new Map();
 
-    for (const place of places) {
+    for (const place of result.places) {
       const lead = mapOverturePlace(place, resolved.city, resolved.uf);
       const key = lead.phoneE164 ? `phone:${lead.phoneE164}` : `place:${lead.id}`;
       const existing = unique.get(key);
@@ -241,8 +248,11 @@ export async function GET(request) {
         if (Boolean(a.phone) !== Boolean(b.phone)) return a.phone ? -1 : 1;
         if ((a.confidence ?? 0) !== (b.confidence ?? 0)) return (b.confidence ?? 0) - (a.confidence ?? 0);
         return a.name.localeCompare(b.name, "pt-BR");
-      })
-      .slice(0, 120);
+      });
+
+    const consumed = result.places.length;
+    const nextOffset = offset + consumed;
+    const hasMore = consumed > 0 && nextOffset < result.total;
 
     return Response.json({
       query,
@@ -251,8 +261,13 @@ export async function GET(request) {
       scope: "lugares comerciais da cidade",
       leads,
       source: "Overture Maps",
+      totalAvailable: result.total,
+      offset,
+      nextOffset,
+      hasMore,
+      pageSize: PAGE_SIZE,
       attribution: "Dados de lugares: Overture Maps Foundation e fontes contribuidoras.",
-      tip: "Os telefones agora vêm do cadastro do próprio lugar. Números incompletos são descartados. Celular válido aparece primeiro; a confirmação automática de WhatsApp entra quando conectarmos o número de prospecção à Evolution.",
+      tip: "A busca agora é paginada: a tela começa curta e o botão Ver mais continua carregando outros cadastros disponíveis na fonte para essa cidade.",
     });
   } catch (error) {
     const status = Number(error?.status) || 503;
@@ -260,7 +275,7 @@ export async function GET(request) {
     if (/timed out|timeout|aborted|fetch failed|SIGTERM|ENOENT|duckdb|httpfs|s3/i.test(message)) {
       message = "A busca de barbearias demorou mais que o normal. Tente novamente em alguns segundos.";
     }
-    console.error("[C.A. Prospecção] busca falhou", { query, message: error instanceof Error ? error.message : String(error) });
+    console.error("[C.A. Prospecção] busca falhou", { query, offset, message: error instanceof Error ? error.message : String(error) });
     return Response.json({ error: message }, { status });
   }
 }
