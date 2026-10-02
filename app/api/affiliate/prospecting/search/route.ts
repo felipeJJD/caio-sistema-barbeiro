@@ -1,5 +1,5 @@
 import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
-import { affiliateProspectingFetch } from "../../../../../lib/affiliate-prospecting-bridge";
+import { affiliateProspectingFetch, affiliateProspectorIdentity } from "../../../../../lib/affiliate-prospecting-bridge";
 
 function noStore(payload: unknown, status = 200) {
   return Response.json(payload, { status, headers: { "cache-control": "no-store" } });
@@ -14,7 +14,8 @@ export async function GET(request: Request) {
     const rawOffset = Number.parseInt(String(url.searchParams.get("offset") ?? "0"), 10);
     const offset = Number.isFinite(rawOffset) ? Math.max(0, Math.min(rawOffset, 100000)) : 0;
     if (city.length < 2) return noStore({ error: "Escolha uma cidade para pesquisar." }, 400);
-    const { response, payload } = await affiliateProspectingFetch(`/api/leads/search?city=${encodeURIComponent(city)}&offset=${offset}`);
+    const identity = affiliateProspectorIdentity(access);
+    const { response, payload } = await affiliateProspectingFetch(`/api/leads/search?city=${encodeURIComponent(city)}&offset=${offset}`, identity);
     return noStore(payload, response.status);
   } catch (error) {
     return noStore({ error: error instanceof Error ? error.message : "Não foi possível pesquisar agora." }, 503);
