@@ -6,18 +6,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const slides = [
   { key: "painel", label: "Painel", image: "/landing/real/painel.webp", width: 320, height: 693 },
   { key: "agenda", label: "Agenda", image: "/landing/real/agenda.webp", width: 320, height: 693 },
-  { key: "registrar", label: "Registrar", image: "/landing/real/registrar.webp", width: 400, height: 866 },
+  { key: "registrar", label: "Registrar", image: "/landing/real/registrar-v2.webp", width: 400, height: 866 },
   { key: "historico", label: "Histórico", image: "/landing/real/historico.webp", width: 320, height: 693 },
   { key: "whatsapp", label: "WhatsApp", image: "/landing/real/whatsapp.webp", width: 320, height: 693 },
   { key: "menu", label: "Menu lateral", image: "/landing/real/menu.webp", width: 320, height: 692 },
 ] as const;
 
-const ADVANCE_DELAY_MS = 4200;
+const ADVANCE_DELAY_MS = 2000;
 
 export function PublicProductSlider() {
   const trackRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
-  const [motionStopped, setMotionStopped] = useState(false);
+  const [interacting, setInteracting] = useState(false);
 
   const goTo = useCallback((index: number, behavior: ScrollBehavior = "smooth") => {
     const track = trackRef.current;
@@ -28,7 +28,7 @@ export function PublicProductSlider() {
   }, []);
 
   useEffect(() => {
-    if (motionStopped) return;
+    if (interacting) return;
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduceMotion) return;
@@ -39,11 +39,7 @@ export function PublicProductSlider() {
     }, ADVANCE_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [active, goTo, motionStopped]);
-
-  function stopMotion() {
-    setMotionStopped(true);
-  }
+  }, [active, goTo, interacting]);
 
   function syncActive() {
     const track = trackRef.current;
@@ -66,17 +62,18 @@ export function PublicProductSlider() {
       className="public-real-preview"
       id="produto"
       aria-label="Capturas reais do aplicativo Cortou Anotou"
-      onMouseEnter={stopMotion}
-      onPointerDown={stopMotion}
-      onFocusCapture={stopMotion}
-      onKeyDownCapture={stopMotion}
+      onMouseEnter={() => setInteracting(true)}
+      onMouseLeave={() => setInteracting(false)}
+      onPointerDown={() => setInteracting(true)}
+      onPointerUp={() => setInteracting(false)}
+      onPointerCancel={() => setInteracting(false)}
     >
       <div className="public-real-preview-head">
         <div>
           <span>TELAS REAIS DO C|A</span>
           <strong>{slides[active].label}</strong>
         </div>
-        <small>{motionStopped ? "Você está no controle" : "Passa sozinho • toque para parar"}</small>
+        <small>{interacting ? "Pausado • solte para continuar" : "Passa sozinho • toque para pausar"}</small>
       </div>
 
       <div className="public-real-preview-track" ref={trackRef} onScroll={syncActive}>
