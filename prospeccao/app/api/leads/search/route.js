@@ -1,5 +1,11 @@
-const USER_AGENT = "CortouAnotouProspeccao/1.2 (https://cortouanotou.com.br)";
-const BARBER_CNAE = "9602501";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const execFileAsync = promisify(execFile);
+const USER_AGENT = "CortouAnotouProspeccao/1.3 (https://cortouanotou.com.br)";
 const VALID_UFS = new Set([
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
 ]);
@@ -8,7 +14,6 @@ const VALID_DDDS = new Set([
   "41","42","43","44","45","46","47","48","49","51","53","54","55","61","62","63","64","65","66","67","68","69",
   "71","73","74","75","77","79","81","82","83","84","85","86","87","88","89","91","92","93","94","95","96","97","98","99",
 ]);
-
 const UF_BY_STATE = new Map(Object.entries({
   acre:"AC", alagoas:"AL", amapa:"AP", amazonas:"AM", bahia:"BA", ceara:"CE", "distrito federal":"DF",
   "espirito santo":"ES", goias:"GO", maranhao:"MA", "mato grosso":"MT", "mato grosso do sul":"MS",
@@ -25,7 +30,7 @@ function normalize(value) {
   return text(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function parseBrazilPhone(value) {
+export function parseBrazilPhone(value) {
   let digits = text(value).replace(/\D/g, "");
   if (!digits) return null;
 
@@ -57,30 +62,58 @@ function parseBrazilPhone(value) {
   };
 }
 
-function bestContact(company) {
-  const contacts = [company?.ddd_telefone_1, company?.ddd_telefone_2]
+function bestPhone(values) {
+  const contacts = (Array.isArray(values) ? values : [])
     .map(parseBrazilPhone)
     .filter(Boolean);
-  return contacts.find((contact) => contact.kind === "mobile") || contacts[0] || null;
+  return contacts.find((item) => item.kind === "mobile") || contacts[0] || null;
 }
 
-function companyName(company) {
-  return text(company?.nome_fantasia) || text(company?.razao_social) || "Empresa sem nome fantasia";
+function firstString(values) {
+  if (!Array.isArray(values)) return "";
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (value && typeof value === "object") {
+      const candidate = text(value.url || value.value || value.handle || value.name);
+      if (candidate) return candidate;
+    }
+  }
+  return "";
 }
 
-function companyAddress(company, fallbackCity) {
-  const street = [text(company?.descricao_tipo_de_logradouro), text(company?.logradouro)].filter(Boolean).join(" ");
-  const line = [street, text(company?.numero)].filter(Boolean).join(", ");
-  return [line, text(company?.bairro), text(company?.municipio) || fallbackCity, text(company?.uf)].filter(Boolean).join(" · ");
+function placeAddress(place, fallbackCity, fallbackUf) {
+  const addresses = Array.isArray(place?.addresses) ? place.addresses : [];
+  const preferred = addresses.find((item) => String(item?.country || "").toUpperCase() === "BR") || addresses[0] || {};
+  const locality = text(preferred.locality) || fallbackCity;
+  const region = text(preferred.region).replace(/^BR-/i, "") || fallbackUf;
+  return [text(preferred.freeform), locality, region, text(preferred.postcode)].filter(Boolean).join(" · ") || `${fallbackCity}, ${fallbackUf}`;
 }
 
-function potentialFor(company) {
-  const haystack = normalize(`${company?.nome_fantasia || ""} ${company?.razao_social || ""}`);
-  if (/barbearia|barber|barbershop|barber shop/.test(haystack)) return "alto";
-  return bestContact(company)?.whatsappCandidate ? "bom" : "possível";
+export function mapOverturePlace(place, fallbackCity = "", fallbackUf = "") {
+  const contact = bestPhone(place?.phones);
+  const confidence = Number(place?.confidence);
+  const name = text(place?.name) || "Barbearia sem nome";
+  return {
+    id: text(place?.id) || `place-${normalize(name)}-${place?.lat || ""}-${place?.lon || ""}`,
+    name,
+    phone: contact?.display || "",
+    phoneE164: contact?.e164 || "",
+    phoneKind: contact?.kind || "",
+    whatsappCandidate: Boolean(contact?.whatsappCandidate),
+    address: placeAddress(place, fallbackCity, fallbackUf),
+    website: firstString(place?.websites),
+    social: firstString(place?.socials),
+    sourceUrl: "",
+    source: "Overture Maps",
+    potential: Number.isFinite(confidence) && confidence >= 0.75 ? "alto" : contact?.whatsappCandidate ? "bom" : "possível",
+    confidence: Number.isFinite(confidence) ? confidence : null,
+    category: text(place?.category) || "barber",
+    lat: Number.isFinite(Number(place?.lat)) ? Number(place.lat) : null,
+    lon: Number.isFinite(Number(place?.lon)) ? Number(place.lon) : null,
+  };
 }
 
-async function fetchJson(url, timeoutMs = 14_000) {
+async function fetchJson(url, timeoutMs = 12_000) {
   const response = await fetch(url, {
     cache: "no-store",
     signal: AbortSignal.timeout(timeoutMs),
@@ -90,57 +123,67 @@ async function fetchJson(url, timeoutMs = 14_000) {
       "user-agent": USER_AGENT,
     },
   });
-  if (!response.ok) throw new Error(`A fonte respondeu ${response.status}.`);
+  if (!response.ok) throw new Error(`A localização respondeu ${response.status}.`);
   return response.json();
-}
-
-function explicitCityAndUf(query) {
-  const match = text(query).match(/^(.+?)[,\-\/]\s*([A-Za-z]{2})$/);
-  if (!match) return null;
-  const uf = match[2].toUpperCase();
-  if (!VALID_UFS.has(uf)) return null;
-  return { city: text(match[1]), uf };
 }
 
 function stateCodeFromPlace(place) {
   const iso = text(place?.extratags?.["ISO3166-2"] || place?.address?.["ISO3166-2-lvl4"]);
   const match = iso.match(/BR-([A-Z]{2})/i);
   if (match && VALID_UFS.has(match[1].toUpperCase())) return match[1].toUpperCase();
-  const state = normalize(place?.address?.state);
-  return UF_BY_STATE.get(state) || "";
+  return UF_BY_STATE.get(normalize(place?.address?.state)) || "";
 }
 
 function placeKind(place) {
   return text(place?.addresstype || place?.type).toLowerCase();
 }
 
-function chooseCityPlace(places) {
-  const cityKinds = new Set(["city", "town", "municipality", "village", "borough"]);
-  return places.find((place) => cityKinds.has(placeKind(place))) || null;
+function bboxFrom(place) {
+  const raw = Array.isArray(place?.boundingbox) ? place.boundingbox.map(Number) : [];
+  if (raw.length !== 4 || !raw.every(Number.isFinite)) return null;
+  const [south, north, west, east] = raw;
+  if (!(west < east && south < north)) return null;
+  return { west, south, east, north };
 }
 
-async function resolveQuery(query) {
-  const explicit = explicitCityAndUf(query);
-  if (explicit) return explicit;
+export function chooseCityPlace(places, requestedUf = "") {
+  const cityKinds = new Set(["city", "town", "municipality", "village", "borough", "administrative"]);
+  const candidates = (Array.isArray(places) ? places : []).filter((place) => cityKinds.has(placeKind(place)) && bboxFrom(place));
+  if (requestedUf) {
+    const exactUf = candidates.find((place) => stateCodeFromPlace(place) === requestedUf);
+    if (exactUf) return exactUf;
+  }
+  return candidates.find((place) => ["city", "town", "municipality"].includes(placeKind(place))) || candidates[0] || null;
+}
 
+function explicitQuery(query) {
+  const match = text(query).match(/^(.+?)[,\-\/]\s*([A-Za-z]{2})$/);
+  if (!match) return { city: text(query), uf: "" };
+  const uf = match[2].toUpperCase();
+  return VALID_UFS.has(uf) ? { city: text(match[1]), uf } : { city: text(query), uf: "" };
+}
+
+async function resolveCity(query) {
+  const requested = explicitQuery(query);
   const geocodeUrl = new URL("https://nominatim.openstreetmap.org/search");
   geocodeUrl.searchParams.set("format", "jsonv2");
-  geocodeUrl.searchParams.set("limit", "6");
+  geocodeUrl.searchParams.set("limit", "8");
   geocodeUrl.searchParams.set("countrycodes", "br");
   geocodeUrl.searchParams.set("addressdetails", "1");
   geocodeUrl.searchParams.set("extratags", "1");
-  geocodeUrl.searchParams.set("q", `${query}, Brasil`);
+  geocodeUrl.searchParams.set("q", `${requested.city}${requested.uf ? `, ${requested.uf}` : ""}, Brasil`);
 
-  const places = await fetchJson(geocodeUrl, 10_000);
-  const list = Array.isArray(places) ? places : [];
-  const cityPlace = chooseCityPlace(list);
+  const raw = await fetchJson(geocodeUrl, 10_000);
+  const places = Array.isArray(raw) ? raw : [];
+  const cityPlace = chooseCityPlace(places, requested.uf);
   if (cityPlace) {
-    const city = text(cityPlace?.address?.city || cityPlace?.address?.town || cityPlace?.address?.municipality || cityPlace?.name || query);
-    const uf = stateCodeFromPlace(cityPlace);
-    if (city && uf) return { city, uf };
+    const city = text(cityPlace?.address?.city || cityPlace?.address?.town || cityPlace?.address?.municipality || cityPlace?.address?.village || requested.city);
+    const uf = stateCodeFromPlace(cityPlace) || requested.uf;
+    const bbox = bboxFrom(cityPlace);
+    if (city && uf && bbox) return { city, uf, bbox };
   }
 
-  const statePlace = list.find((place) => ["state", "region"].includes(placeKind(place)));
+  const statePlace = places.find((place) => ["state", "region"].includes(placeKind(place)));
   if (statePlace) {
     const uf = stateCodeFromPlace(statePlace);
     const label = text(statePlace?.display_name).split(",")[0] || query;
@@ -155,64 +198,24 @@ async function resolveQuery(query) {
   throw error;
 }
 
-async function ibgeMunicipality(city, uf) {
-  const url = `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${encodeURIComponent(uf)}/municipios?orderBy=nome`;
-  const municipalities = await fetchJson(url, 10_000);
-  const list = Array.isArray(municipalities) ? municipalities : [];
-  const wanted = normalize(city);
-  const exact = list.find((item) => normalize(item?.nome) === wanted);
-  if (exact?.id) return exact;
-
-  const close = list.filter((item) => normalize(item?.nome).includes(wanted) || wanted.includes(normalize(item?.nome)));
-  if (close.length === 1 && close[0]?.id) return close[0];
-
-  const error = new Error(`Não encontrei ${city} em ${uf}. Confira o nome da cidade e tente novamente.`);
-  error.status = 404;
-  throw error;
-}
-
-async function searchCompanies(municipalityCode, uf) {
-  const base = new URL("https://minhareceita.org/");
-  base.searchParams.set("municipio", String(municipalityCode));
-  base.searchParams.set("uf", uf);
-  base.searchParams.set("cnae", BARBER_CNAE);
-  base.searchParams.set("limit", "160");
-
-  const first = await fetchJson(base, 18_000);
-  const companies = Array.isArray(first?.data) ? [...first.data] : [];
-
-  if (first?.cursor && companies.length < 160) {
-    const secondUrl = new URL(base);
-    secondUrl.searchParams.set("cursor", String(first.cursor));
-    try {
-      const second = await fetchJson(secondUrl, 18_000);
-      if (Array.isArray(second?.data)) companies.push(...second.data);
-    } catch {
-      // A primeira página já é útil; não falha a busca inteira por causa da paginação.
-    }
-  }
-
-  return companies;
-}
-
-function toLead(company, fallbackCity) {
-  const cnpj = text(company?.cnpj).replace(/\D/g, "");
-  const contact = bestContact(company);
-  return {
-    id: cnpj ? `cnpj-${cnpj}` : `company-${Math.random().toString(36).slice(2)}`,
-    name: companyName(company),
-    phone: contact?.display || "",
-    phoneE164: contact?.e164 || "",
-    phoneKind: contact?.kind || "",
-    whatsappCandidate: Boolean(contact?.whatsappCandidate),
-    address: companyAddress(company, fallbackCity),
-    website: "",
-    sourceUrl: cnpj ? `https://minhareceita.org/${cnpj}` : "",
-    source: "CNPJ público",
-    potential: potentialFor(company),
-    cnpj,
-    status: text(company?.descricao_situacao_cadastral),
-  };
+async function searchOverture(bbox) {
+  const args = [
+    "scripts/overture-search.py",
+    String(bbox.west),
+    String(bbox.south),
+    String(bbox.east),
+    String(bbox.north),
+    "240",
+  ];
+  const { stdout } = await execFileAsync("python3", args, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    timeout: 70_000,
+    maxBuffer: 12 * 1024 * 1024,
+    env: process.env,
+  });
+  const parsed = JSON.parse(stdout);
+  return Array.isArray(parsed?.places) ? parsed.places : [];
 }
 
 export async function GET(request) {
@@ -221,44 +224,43 @@ export async function GET(request) {
   if (query.length < 2) return Response.json({ error: "Digite uma cidade para pesquisar." }, { status: 400 });
 
   try {
-    const resolved = await resolveQuery(query);
-    const municipality = await ibgeMunicipality(resolved.city, resolved.uf);
-    const companies = await searchCompanies(municipality.id, resolved.uf);
-
+    const resolved = await resolveCity(query);
+    const places = await searchOverture(resolved.bbox);
     const unique = new Map();
-    for (const company of companies) {
-      if (normalize(company?.descricao_situacao_cadastral) !== "ativa") continue;
-      const lead = toLead(company, municipality.nome || resolved.city);
-      const key = lead.cnpj || `${normalize(lead.name)}|${lead.phoneE164}`;
-      if (!unique.has(key)) unique.set(key, lead);
+
+    for (const place of places) {
+      const lead = mapOverturePlace(place, resolved.city, resolved.uf);
+      const key = lead.phoneE164 ? `phone:${lead.phoneE164}` : `place:${lead.id}`;
+      const existing = unique.get(key);
+      if (!existing || (lead.confidence ?? 0) > (existing.confidence ?? 0)) unique.set(key, lead);
     }
 
-    const order = { alto: 0, bom: 1, possível: 2 };
     const leads = [...unique.values()]
       .sort((a, b) => {
         if (a.whatsappCandidate !== b.whatsappCandidate) return a.whatsappCandidate ? -1 : 1;
         if (Boolean(a.phone) !== Boolean(b.phone)) return a.phone ? -1 : 1;
-        if (a.potential !== b.potential) return order[a.potential] - order[b.potential];
+        if ((a.confidence ?? 0) !== (b.confidence ?? 0)) return (b.confidence ?? 0) - (a.confidence ?? 0);
         return a.name.localeCompare(b.name, "pt-BR");
       })
-      .slice(0, 100);
+      .slice(0, 120);
 
     return Response.json({
       query,
-      displayName: `${municipality.nome}, ${resolved.uf}`,
+      displayName: `${resolved.city}, ${resolved.uf}`,
       regionKind: "city",
-      scope: "cadastros empresariais da cidade",
+      scope: "lugares comerciais da cidade",
       leads,
-      source: "CNPJ público / Minha Receita",
-      attribution: "Dados cadastrais públicos da Receita Federal, consultados via Minha Receita.",
-      tip: "Telefones incompletos ou com formato inválido são descartados. Nesta etapa, só celulares brasileiros válidos são liberados para o WhatsApp; a confirmação de que a conta existe no WhatsApp será feita pela Evolution.",
+      source: "Overture Maps",
+      attribution: "Dados de lugares: Overture Maps Foundation e fontes contribuidoras.",
+      tip: "Os telefones agora vêm do cadastro do próprio lugar. Números incompletos são descartados. Celular válido aparece primeiro; a confirmação automática de WhatsApp entra quando conectarmos o número de prospecção à Evolution.",
     });
   } catch (error) {
     const status = Number(error?.status) || 503;
     let message = error instanceof Error ? error.message : "Não foi possível pesquisar agora.";
-    if (/fetch failed|aborted|timeout|timed out|fonte respondeu/i.test(message)) {
-      message = "A fonte pública de empresas não respondeu agora. Tente novamente em alguns segundos.";
+    if (/timed out|timeout|aborted|fetch failed|SIGTERM|ENOENT|duckdb|httpfs|s3/i.test(message)) {
+      message = "A busca de barbearias demorou mais que o normal. Tente novamente em alguns segundos.";
     }
+    console.error("[C.A. Prospecção] busca falhou", { query, message: error instanceof Error ? error.message : String(error) });
     return Response.json({ error: message }, { status });
   }
 }
