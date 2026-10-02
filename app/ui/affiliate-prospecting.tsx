@@ -21,6 +21,7 @@ type Lead = {
 type City = { id: number | string; name: string };
 type ReservedClaim = { key: string; phoneE164: string; name?: string };
 type BlockedClaim = { name?: string; reason?: string };
+type AutomaticWhatsappState = { state: string; connected: boolean; canConnect?: boolean };
 
 const STATES = [
   ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"], ["BA", "Bahia"],
@@ -69,6 +70,12 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   const [savingWhatsapp, setSavingWhatsapp] = useState(false);
   const [queue, setQueue] = useState<Lead[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
+  const [automatic, setAutomatic] = useState<AutomaticWhatsappState>({ state: "loading", connected: false });
+  const [automaticLoading, setAutomaticLoading] = useState(true);
+  const [automaticConnecting, setAutomaticConnecting] = useState(false);
+  const [automaticSending, setAutomaticSending] = useState(false);
+  const [automaticProgress, setAutomaticProgress] = useState(0);
+  const [pairingCode, setPairingCode] = useState("");
   const sendRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -89,9 +96,57 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     return () => { active = false; };
   }, [uf]);
 
+  useEffect(() => {
+    void refreshAutomatic(false);
+  }, []);
+
   const visibleLeads = useMemo(() => leads.slice(0, visibleCount), [leads, visibleCount]);
   const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id) && lead.whatsappCandidate && lead.phoneE164), [leads, selected]);
   const currentQueueLead = queue[queueIndex];
+
+  async function refreshAutomatic(showNotice = true) {
+    setAutomaticLoading(true);
+    try {
+      const response = await fetch("/api/affiliate/prospecting/whatsapp", { cache: "no-store" });
+      const payload = await response.json() as AutomaticWhatsappState & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Não foi possível consultar o envio automático.");
+      setAutomatic({ state: payload.state || "disconnected", connected: Boolean(payload.connected), canConnect: payload.canConnect });
+      if (payload.connected) {
+        setPairingCode("");
+        if (showNotice) setNotice("Envio automático conectado e pronto para usar.");
+      } else if (showNotice) {
+        setNotice("O número ainda não terminou a conexão. Confira o código no WhatsApp e tente novamente.");
+      }
+    } catch (cause) {
+      if (showNotice) setError(cause instanceof Error ? cause.message : "Não foi possível consultar o envio automático.");
+    } finally {
+      setAutomaticLoading(false);
+    }
+  }
+
+  async function connectAutomatic() {
+    if (!whatsapp.trim()) return setNotice("Informe o número que será usado no envio automático antes de conectar.");
+    setAutomaticConnecting(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/affiliate/prospecting/whatsapp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "connect", phone: whatsapp }),
+      });
+      const payload = await response.json() as AutomaticWhatsappState & { pairingCode?: string; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Não foi possível iniciar a conexão automática.");
+      setAutomatic({ state: payload.state || "connecting", connected: Boolean(payload.connected), canConnect: true });
+      setPairingCode(payload.pairingCode || "");
+      if (payload.connected) setNotice("Envio automático já está conectado.");
+      else setNotice("Código gerado. Vincule esse número no WhatsApp e depois toque em Conferir conexão.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível iniciar a conexão automática.");
+    } finally {
+      setAutomaticConnecting(false);
+    }
+  }
 
   async function search(event?: FormEvent) {
     event?.preventDefault();
@@ -193,6 +248,15 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     }
   }
 
+  function removeContactedFromScreen(current: Lead) {
+    setLeads((items) => items.filter((lead) => lead.phoneE164 !== current.phoneE164));
+    setSelected((items) => {
+      const next = new Set(items);
+      next.delete(current.id);
+      return next;
+    });
+  }
+
   function openWhatsApp() {
     if (!currentQueueLead?.phoneE164 || !/^55\d{11}$/.test(currentQueueLead.phoneE164)) return;
     const current = currentQueueLead;
@@ -206,16 +270,53 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     }).then(async (response) => {
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Não foi possível registrar o contato.");
-      setLeads((items) => items.filter((lead) => lead.phoneE164 !== current.phoneE164));
-      setSelected((items) => {
-        const next = new Set(items);
-        next.delete(current.id);
-        return next;
-      });
+      removeContactedFromScreen(current);
       setNotice(`${current.name} foi marcada como contatada e não aparecerá novamente nas buscas.`);
     }).catch((cause) => {
       setError(cause instanceof Error ? cause.message : "Não foi possível registrar o contato.");
     });
+  }
+
+  async function sendAutomatically() {
+    if (!automatic.connected) return setNotice("O envio automático ainda não está conectado.");
+    if (!queue.length || automaticSending) return;
+    const batch = [...queue];
+    setAutomaticSending(true);
+    setAutomaticProgress(0);
+    setError("");
+    setNotice("Envio automático iniciado. Mantenha esta tela aberta até terminar.");
+    let sent = 0;
+    try {
+      for (let index = 0; index < batch.length; index += 1) {
+        const lead = batch[index];
+        setQueueIndex(index);
+        const response = await fetch("/api/affiliate/prospecting/whatsapp", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "send",
+            lead,
+            city: searchedCity,
+            message: personalize(message, lead, signupUrl),
+          }),
+        });
+        const payload = await response.json().catch(() => ({})) as { sent?: boolean; warning?: string; error?: string };
+        if (!response.ok || !payload.sent) throw new Error(payload.error || "O envio automático foi interrompido.");
+        sent += 1;
+        setAutomaticProgress(sent);
+        removeContactedFromScreen(lead);
+        if (payload.warning) setNotice(payload.warning);
+      }
+      setQueue([]);
+      setQueueIndex(0);
+      setNotice(`${sent} mensagem${sent === 1 ? "" : "s"} enviada${sent === 1 ? "" : "s"} automaticamente. As barbearias já saíram das próximas buscas.`);
+    } catch (cause) {
+      setQueue(batch.slice(sent));
+      setQueueIndex(0);
+      setError(`${sent ? `${sent} enviada${sent === 1 ? "" : "s"}. ` : ""}${cause instanceof Error ? cause.message : "O envio automático foi interrompido."}`);
+    } finally {
+      setAutomaticSending(false);
+    }
   }
 
   async function saveWhatsapp() {
@@ -253,7 +354,18 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     <section className={styles.card}>
       <div className={styles.cardTitle}><div><b>Seu WhatsApp de prospecção</b><span>Salve o número que você pretende usar para falar com as barbearias.</span></div></div>
       <div className={styles.whatsappRow}><input value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} inputMode="tel" placeholder="(41) 99999-9999" /><button type="button" onClick={saveWhatsapp} disabled={savingWhatsapp}>{savingWhatsapp ? "Salvando..." : "Salvar WhatsApp"}</button></div>
-      <p className={styles.helper}>Nesta versão o botão abre a conversa no WhatsApp que estiver logado no seu aparelho. A conexão automática para envio em lote será ativada numa etapa separada.</p>
+      <p className={styles.helper}>Ao abrir manualmente, a conversa continua abrindo no WhatsApp que estiver logado no aparelho. Esse número também pode ser usado pelo ADM para conectar o envio automático uma única vez.</p>
+    </section>
+
+    <section className={styles.card}>
+      <div className={styles.cardTitle}><div><b>Envio automático</b><span>{automaticLoading ? "Conferindo conexão..." : automatic.connected ? "Conectado e pronto para disparar as mensagens selecionadas." : "Ainda não conectado ao número separado de prospecção."}</span></div><strong className={automatic.connected ? styles.statusOn : styles.statusOff}>{automatic.connected ? "ATIVO" : "DESLIGADO"}</strong></div>
+      {isAdmin && !automatic.connected && <div className={styles.automaticActions}>
+        <button type="button" className={styles.primary} onClick={connectAutomatic} disabled={automaticConnecting || automaticLoading}>{automaticConnecting ? "Gerando código..." : "Conectar número para envio automático"}</button>
+        <button type="button" className={styles.secondary} onClick={() => void refreshAutomatic(true)} disabled={automaticLoading}>Conferir conexão</button>
+      </div>}
+      {pairingCode && <div className={styles.pairingBox}><small>CÓDIGO DE CONEXÃO</small><strong>{pairingCode}</strong><p>No WhatsApp desse número, abra Aparelhos conectados, escolha conectar com número de telefone e digite este código. Depois volte aqui e toque em Conferir conexão.</p></div>}
+      {!isAdmin && !automatic.connected && <p className={styles.helper}>O ADM conecta o número central uma vez. Depois os afiliados usam o envio automático sem precisar parear outro aparelho.</p>}
+      {automatic.connected && <p className={styles.helper}>As mensagens automáticas saem pelo número separado de prospecção. O C.A. Atende continua em outra instância e não é usado nesses disparos.</p>}
     </section>
 
     <section className={styles.card}>
@@ -285,12 +397,13 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     </section>
 
     {queue.length > 0 && <section className={styles.card} ref={sendRef}>
-      <div className={styles.cardTitle}><div><b>4. Enviar</b><span>Uma conversa por vez. Ao abrir o WhatsApp, a barbearia fica registrada como contatada.</span></div><strong>{queueIndex + 1}/{queue.length}</strong></div>
+      <div className={styles.cardTitle}><div><b>4. Enviar</b><span>{automatic.connected ? "Você pode disparar a fila automaticamente ou abrir uma conversa manualmente." : "Uma conversa por vez. Ao abrir o WhatsApp, a barbearia fica registrada como contatada."}</span></div><strong>{automaticSending ? `${automaticProgress}/${queue.length}` : `${queueIndex + 1}/${queue.length}`}</strong></div>
+      {automatic.connected && <button type="button" className={styles.automaticButton} onClick={sendAutomatically} disabled={automaticSending}>{automaticSending ? `Enviando ${automaticProgress}/${queue.length}...` : `Enviar automaticamente ${queue.length} mensagem${queue.length === 1 ? "" : "s"}`}</button>}
       {currentQueueLead && <div className={styles.sendPanel}>
         <div><small>BARBEARIA ATUAL</small><h2>{currentQueueLead.name}</h2><p>{currentQueueLead.phone} · {currentQueueLead.address}</p></div>
         <div className={styles.preview}>{personalize(message, currentQueueLead, signupUrl)}</div>
-        <button type="button" className={styles.whatsappButton} onClick={openWhatsApp}>Abrir no WhatsApp</button>
-        <div className={styles.queueNav}><button type="button" onClick={() => setQueueIndex((value) => Math.max(0, value - 1))} disabled={queueIndex === 0}>Anterior</button><button type="button" onClick={() => setQueueIndex((value) => Math.min(queue.length - 1, value + 1))} disabled={queueIndex >= queue.length - 1}>Próxima</button></div>
+        <button type="button" className={styles.whatsappButton} onClick={openWhatsApp} disabled={automaticSending}>Abrir no WhatsApp</button>
+        <div className={styles.queueNav}><button type="button" onClick={() => setQueueIndex((value) => Math.max(0, value - 1))} disabled={queueIndex === 0 || automaticSending}>Anterior</button><button type="button" onClick={() => setQueueIndex((value) => Math.min(queue.length - 1, value + 1))} disabled={queueIndex >= queue.length - 1 || automaticSending}>Próxima</button></div>
       </div>}
     </section>}
 
