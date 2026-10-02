@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { filterAvailableLeads } from "../../../../lib/affiliate-claims.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -241,14 +242,14 @@ export async function GET(request) {
       if (!existing || (lead.confidence ?? 0) > (existing.confidence ?? 0)) unique.set(key, lead);
     }
 
-    const leads = [...unique.values()]
+    const ordered = [...unique.values()]
       .sort((a, b) => {
         if (a.whatsappCandidate !== b.whatsappCandidate) return a.whatsappCandidate ? -1 : 1;
         if (Boolean(a.phone) !== Boolean(b.phone)) return a.phone ? -1 : 1;
         if ((a.confidence ?? 0) !== (b.confidence ?? 0)) return (b.confidence ?? 0) - (a.confidence ?? 0);
         return a.name.localeCompare(b.name, "pt-BR");
       });
-
+    const filtered = await filterAvailableLeads(ordered);
     const nextOffset = offset + pagePlaces.length;
 
     return Response.json({
@@ -256,14 +257,15 @@ export async function GET(request) {
       displayName: `${resolved.city}, ${resolved.uf}`,
       regionKind: "city",
       scope: "lugares comerciais da cidade",
-      leads,
+      leads: filtered.leads,
+      hiddenCount: filtered.hiddenCount,
       source: "Overture Maps",
       offset,
       nextOffset,
       hasMore,
       pageSize: PAGE_SIZE,
       attribution: "Dados de lugares: Overture Maps Foundation e fontes contribuidoras.",
-      tip: "A tela começa curta. O botão Ver mais continua buscando novos lotes até chegar ao fim dos cadastros disponíveis na fonte para essa cidade.",
+      tip: "Barbearias já contatadas ou temporariamente reservadas não voltam a aparecer na busca.",
     });
   } catch (error) {
     const status = Number(error?.status) || 503;
