@@ -30,22 +30,11 @@ function evolutionConfig() {
 export function normalizeProspectingWhatsappPhone(value: string) {
   let digits = String(value ?? "").replace(/\D/g, "");
   if (digits.startsWith("0055")) digits = digits.slice(4);
-  if (digits.startsWith("55") && digits.length === 13) return digits;
 
-  // Alguns números ainda aparecem salvos no formato brasileiro antigo de
-  // 8 dígitos. Se for claramente um celular (assinante começando em 6-9),
-  // insere o nono dígito depois do DDD. Telefones fixos não são alterados.
-  if (digits.startsWith("55") && digits.length === 12) {
-    const national = digits.slice(2);
-    if (/^\d{2}[6-9]\d{7}$/.test(national)) {
-      return `55${national.slice(0, 2)}9${national.slice(2)}`;
-    }
-  }
-
-  if (digits.length === 11) return `55${digits}`;
-  if (digits.length === 10 && /^\d{2}[6-9]\d{7}$/.test(digits)) {
-    return `55${digits.slice(0, 2)}9${digits.slice(2)}`;
-  }
+  // No pareamento, respeita exatamente o número que o próprio WhatsApp/Evolution
+  // reconhece. Alguns JIDs brasileiros antigos ainda aparecem sem o nono dígito.
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) return digits;
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
   return "";
 }
 
@@ -104,7 +93,7 @@ export async function getProspectingWhatsappState() {
 
 export async function beginProspectingWhatsappPairing(phoneValue: string) {
   const phone = normalizeProspectingWhatsappPhone(phoneValue);
-  if (!/^55\d{11}$/.test(phone)) {
+  if (!/^55\d{10,11}$/.test(phone)) {
     const error = new Error("Informe o número de prospecção com DDD. Exemplo: (41) 99999-9999.");
     Object.assign(error, { status: 400 });
     throw error;
