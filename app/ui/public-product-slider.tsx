@@ -2,18 +2,14 @@
 
 import Image from "next/image";
 import { useRef, useState } from "react";
-import { PAINEL_SCREEN } from "./public-real-screens/painel";
-import { AGENDA_SCREEN } from "./public-real-screens/agenda";
-import { REGISTRAR_SCREEN } from "./public-real-screens/registrar";
-import { HISTORICO_SCREEN } from "./public-real-screens/historico";
-import { FINANCEIRO_SCREEN } from "./public-real-screens/financeiro";
 
 const slides = [
-  { key: "painel", label: "Painel", image: PAINEL_SCREEN },
-  { key: "agenda", label: "Agenda", image: AGENDA_SCREEN },
-  { key: "registrar", label: "Registrar", image: REGISTRAR_SCREEN },
-  { key: "historico", label: "Histórico", image: HISTORICO_SCREEN },
-  { key: "financeiro", label: "Financeiro", image: FINANCEIRO_SCREEN },
+  { key: "painel", label: "Painel", image: "/landing/real/painel.webp", width: 320, height: 693 },
+  { key: "agenda", label: "Agenda", image: "/landing/real/agenda.webp", width: 320, height: 693 },
+  { key: "registrar", label: "Registrar", image: "/landing/real/registrar.webp", width: 320, height: 693 },
+  { key: "historico", label: "Histórico", image: "/landing/real/historico.webp", width: 320, height: 693 },
+  { key: "whatsapp", label: "WhatsApp", image: "/landing/real/whatsapp.webp", width: 320, height: 693 },
+  { key: "menu", label: "Menu lateral", image: "/landing/real/menu.webp", width: 320, height: 692 },
 ] as const;
 
 export function PublicProductSlider() {
@@ -45,26 +41,27 @@ export function PublicProductSlider() {
   }
 
   return (
-    <section className="public-real-preview" id="produto" aria-label="Telas reais do Cortou Anotou">
+    <section className="public-real-preview" id="produto" aria-label="Capturas reais do aplicativo Cortou Anotou">
       <div className="public-real-preview-head">
         <div>
-          <span>POR DENTRO DO APP</span>
+          <span>TELAS REAIS DO C|A</span>
           <strong>{slides[active].label}</strong>
         </div>
         <small>Arraste para o lado</small>
       </div>
 
       <div className="public-real-preview-track" ref={trackRef} onScroll={syncActive}>
-        {slides.map((slide) => (
+        {slides.map((slide, index) => (
           <figure className="public-real-preview-slide" key={slide.key}>
             <div className="public-real-device">
               <Image
                 src={slide.image}
                 alt={`Tela real do Cortou Anotou — ${slide.label}`}
-                width={180}
-                height={389}
+                width={slide.width}
+                height={slide.height}
+                sizes="(max-width: 430px) 190px, 205px"
                 unoptimized
-                priority={slide.key === "painel"}
+                priority={index === 0}
               />
             </div>
             <figcaption>{slide.label}</figcaption>
