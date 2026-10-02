@@ -14,15 +14,17 @@ async function checkCities() {
   console.log(`Cidades do Paraná OK: ${names.length} municípios carregados.`);
 }
 
-async function checkSearch(city, minimumLeads, minimumMobiles) {
-  const request = new Request(`http://localhost/api/leads/search?city=${encodeURIComponent(city)}`);
+async function fetchPage(city, offset = 0) {
+  const request = new Request(`http://localhost/api/leads/search?city=${encodeURIComponent(city)}&offset=${offset}`);
   const response = await searchLeads(request);
   const body = await response.json();
-
   if (response.status !== 200) {
     throw new Error(`Busca real de ${city} falhou com ${response.status}: ${body?.error || "erro sem mensagem"}`);
   }
+  return body;
+}
 
+function validatePage(body, city, minimumLeads, minimumMobiles) {
   const leads = Array.isArray(body?.leads) ? body.leads : [];
   if (body?.source !== "Overture Maps") {
     throw new Error(`A rota está usando fonte inesperada em ${city}: ${body?.source || "sem fonte"}.`);
@@ -41,10 +43,33 @@ async function checkSearch(city, minimumLeads, minimumMobiles) {
     throw new Error(`A rota deixou passar ${malformed.length} telefone(s) com formato inválido em ${city}.`);
   }
 
+  if (!Number.isInteger(body?.totalAvailable) || body.totalAvailable < leads.length) {
+    throw new Error(`Total disponível inválido em ${city}: ${body?.totalAvailable}.`);
+  }
+  if (body?.hasMore && !(Number(body?.nextOffset) > Number(body?.offset))) {
+    throw new Error(`Paginação inválida em ${city}: offset ${body?.offset}, próximo ${body?.nextOffset}.`);
+  }
+
   const sample = mobiles.slice(0, 3).map((lead) => `${lead.name}: ${lead.phone}`).join(" | ");
-  console.log(`Busca real OK: ${body.displayName} -> ${leads.length} barbearias, ${mobiles.length} celulares válidos. Amostra: ${sample}`);
+  console.log(`Busca real OK: ${body.displayName} -> ${leads.length} carregadas de ${body.totalAvailable} disponíveis, ${mobiles.length} celulares válidos. Amostra: ${sample}`);
+  return leads;
+}
+
+async function checkSearch(city, minimumLeads, minimumMobiles, checkNextPage = false) {
+  const first = await fetchPage(city, 0);
+  const firstLeads = validatePage(first, city, minimumLeads, minimumMobiles);
+
+  if (checkNextPage) {
+    if (!first.hasMore) throw new Error(`Esperava mais de uma página de barbearias em ${city}.`);
+    const second = await fetchPage(city, first.nextOffset);
+    const secondLeads = validatePage(second, city, 1, 1);
+    const firstIds = new Set(firstLeads.map((lead) => lead.id));
+    const repeated = secondLeads.filter((lead) => firstIds.has(lead.id));
+    if (repeated.length) throw new Error(`A segunda página de ${city} repetiu ${repeated.length} cadastro(s) da primeira.`);
+    console.log(`Paginação OK em ${city}: segunda página começou no offset ${first.nextOffset}.`);
+  }
 }
 
 await checkCities();
 await checkSearch("Colombo, PR", 3, 3);
-await checkSearch("São Paulo, SP", 5, 5);
+await checkSearch("São Paulo, SP", 5, 5, true);
