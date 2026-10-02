@@ -70,7 +70,6 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
 
   useEffect(() => {
     let active = true;
-    setCitiesLoading(true);
     fetch(`/api/affiliate/prospecting/cities?uf=${encodeURIComponent(uf)}`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json() as { cities?: City[]; error?: string };
@@ -211,7 +210,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     <section className={styles.card}>
       <div className={styles.cardTitle}><div><b>1. Buscar barbearias</b><span>Escolha o estado e a cidade.</span></div></div>
       <form className={styles.searchForm} onSubmit={search}>
-        <label><span>Estado</span><select value={uf} onChange={(event) => { setUf(event.target.value); setCity(""); }}>{STATES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
+        <label><span>Estado</span><select value={uf} onChange={(event) => { setCitiesLoading(true); setUf(event.target.value); setCity(""); }}>{STATES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
         <label><span>Cidade</span><select value={city} onChange={(event) => setCity(event.target.value)} disabled={citiesLoading}><option value="">{citiesLoading ? "Carregando..." : "Selecione"}</option>{cities.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select></label>
         <button disabled={loading || citiesLoading || !city}>{loading ? "Buscando..." : "Buscar barbearias"}</button>
       </form>
