@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 const STORAGE_FUNNEL = "ca-prospeccao-funnel-v2";
 const STORAGE_HISTORY = "ca-prospeccao-search-history-v1";
+const DISPLAY_STEP = 10;
 
 const STATES = [
   ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"], ["BA", "Bahia"],
@@ -56,6 +57,16 @@ function parseCityUf(value) {
   return { city: match[1].trim(), uf: match[2].toUpperCase() };
 }
 
+function mergeLeads(current, incoming) {
+  const map = new Map(current.map((lead) => [contactKey(lead), lead]));
+  for (const lead of incoming) {
+    const key = contactKey(lead);
+    const existing = map.get(key);
+    if (!existing || (lead?.confidence ?? 0) > (existing?.confidence ?? 0)) map.set(key, lead);
+  }
+  return [...map.values()];
+}
+
 export default function ProspeccaoPage() {
   const [uf, setUf] = useState("PR");
   const [city, setCity] = useState("Colombo");
@@ -66,9 +77,15 @@ export default function ProspeccaoPage() {
   const [scope, setScope] = useState("");
   const [searchTip, setSearchTip] = useState("");
   const [leads, setLeads] = useState([]);
+  const [totalAvailable, setTotalAvailable] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState(0);
+  const [activeQuery, setActiveQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(DISPLAY_STEP);
   const [selected, setSelected] = useState(new Set());
   const [message, setMessage] = useState(TEMPLATES.curta);
   const [loading, setLoading] = useState(false);
+  const [moreLoading, setMoreLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [filter, setFilter] = useState("all");
@@ -124,17 +141,24 @@ export default function ProspeccaoPage() {
   const whatsappCount = useMemo(() => leads.filter((lead) => lead.whatsappCandidate).length, [leads]);
   const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id)), [leads, selected]);
   const selectedWithWhatsApp = useMemo(() => selectedLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164), [selectedLeads]);
-  const visibleLeads = useMemo(() => {
+  const filteredLeads = useMemo(() => {
     if (filter === "phone") return leads.filter((lead) => lead.whatsappCandidate);
     if (filter === "strong") return leads.filter((lead) => lead.potential === "alto" || lead.potential === "bom");
     return leads;
   }, [filter, leads]);
+  const displayedLeads = useMemo(() => filteredLeads.slice(0, visibleCount), [filteredLeads, visibleCount]);
+  const canShowMore = displayedLeads.length < filteredLeads.length || hasMore;
   const funnelCounts = useMemo(() => Object.fromEntries(STATUS_OPTIONS.map(([value]) => [value, funnel.filter((item) => item.status === value).length])), [funnel]);
 
   function selectRegion(nextUf, nextCity = "") {
     setUf(nextUf);
     setCity(nextCity);
     setCitiesError("");
+  }
+
+  function changeFilter(nextFilter) {
+    setFilter(nextFilter);
+    setVisibleCount(DISPLAY_STEP);
   }
 
   async function search(event, forcedCity) {
@@ -151,18 +175,25 @@ export default function ProspeccaoPage() {
     }
 
     setLoading(true);
+    setMoreLoading(false);
     setError("");
     setNotice("");
     setSearchTip("");
     setScope("");
     setSelected(new Set());
+    setVisibleCount(DISPLAY_STEP);
+    setFilter("all");
 
     try {
-      const response = await fetch(`/api/leads/search?city=${encodeURIComponent(query)}`, { cache: "no-store" });
+      const response = await fetch(`/api/leads/search?city=${encodeURIComponent(query)}&offset=0`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível pesquisar agora.");
       const nextLeads = Array.isArray(payload.leads) ? payload.leads : [];
       setLeads(nextLeads);
+      setTotalAvailable(Number(payload.totalAvailable) || nextLeads.length);
+      setHasMore(Boolean(payload.hasMore));
+      setNextOffset(Number(payload.nextOffset) || nextLeads.length);
+      setActiveQuery(query);
       setSearchedCity(payload.displayName || query);
       setScope(payload.scope || "");
       setSearchTip(payload.tip || "");
@@ -170,10 +201,45 @@ export default function ProspeccaoPage() {
       if (!nextLeads.length) setNotice("Não achei barbearias nessa cidade. Escolha outra cidade e tente novamente.");
     } catch (searchError) {
       setLeads([]);
+      setTotalAvailable(0);
+      setHasMore(false);
+      setNextOffset(0);
+      setActiveQuery("");
       setSearchedCity("");
       setError(searchError instanceof Error ? searchError.message : "Não foi possível pesquisar agora.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMore() {
+    if (moreLoading) return;
+
+    if (displayedLeads.length < filteredLeads.length) {
+      setVisibleCount((current) => current + DISPLAY_STEP);
+      return;
+    }
+
+    if (!hasMore || !activeQuery) return;
+
+    setMoreLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/leads/search?city=${encodeURIComponent(activeQuery)}&offset=${encodeURIComponent(nextOffset)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível carregar mais barbearias agora.");
+      const incoming = Array.isArray(payload.leads) ? payload.leads : [];
+      setLeads((current) => mergeLeads(current, incoming));
+      setTotalAvailable((current) => Number(payload.totalAvailable) || current);
+      setHasMore(Boolean(payload.hasMore));
+      setNextOffset(Number(payload.nextOffset) || nextOffset + incoming.length);
+      setVisibleCount((current) => current + DISPLAY_STEP);
+      if (!incoming.length && !payload.hasMore) setNotice("Você chegou ao fim dos cadastros disponíveis nessa cidade.");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar mais barbearias agora.");
+    } finally {
+      setMoreLoading(false);
     }
   }
 
@@ -191,9 +257,9 @@ export default function ProspeccaoPage() {
   }
 
   function selectAllWithWhatsApp() {
-    const ids = visibleLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164).map((lead) => lead.id);
+    const ids = displayedLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164).map((lead) => lead.id);
     setSelected(new Set(ids));
-    setNotice(ids.length ? `${ids.length} celulares válidos selecionados.` : "Nenhum celular válido nessa lista.");
+    setNotice(ids.length ? `${ids.length} celulares visíveis selecionados.` : "Nenhum celular válido nessa parte da lista.");
   }
 
   function prepare() {
@@ -318,28 +384,28 @@ export default function ProspeccaoPage() {
         <>
           <section className="result-context">
             <div><strong>{searchedCity}</strong><small>{scope ? `Pesquisa em ${scope}.` : ""} {searchTip}</small></div>
-            <span>{leads.length} barbearia{leads.length === 1 ? "" : "s"}</span>
+            <span>{totalAvailable || leads.length} cadastro{(totalAvailable || leads.length) === 1 ? "" : "s"} na fonte</span>
           </section>
 
           <section className="stats-grid">
-            <article><small>ENCONTRADAS</small><strong>{leads.length}</strong><span>nessa busca</span></article>
-            <article><small>CELULAR VÁLIDO</small><strong>{whatsappCount}</strong><span>candidatos para WhatsApp</span></article>
+            <article><small>ENCONTRADAS</small><strong>{totalAvailable || leads.length}</strong><span>disponíveis na fonte</span></article>
+            <article><small>CELULAR VÁLIDO</small><strong>{whatsappCount}</strong><span>entre as carregadas</span></article>
             <article className="gold"><small>SELECIONADAS</small><strong>{selected.size}</strong><span>{selectedWithWhatsApp.length} válidas</span></article>
           </section>
 
           <section className="leads-card">
             <div className="leads-toolbar">
-              <div><strong>Barbearias encontradas</strong><small>Números incompletos são descartados. Para a fila, liberamos celulares brasileiros com formato válido.</small></div>
-              <div className="toolbar-actions"><button type="button" onClick={selectAllWithWhatsApp}>Selecionar celulares válidos</button>{selected.size > 0 && <button type="button" className="ghost" onClick={() => setSelected(new Set())}>Limpar</button>}</div>
+              <div><strong>Barbearias encontradas</strong><small>A tela começa curta. Use “Ver mais barbearias” para continuar carregando os outros cadastros.</small></div>
+              <div className="toolbar-actions"><button type="button" onClick={selectAllWithWhatsApp}>Selecionar celulares visíveis</button>{selected.size > 0 && <button type="button" className="ghost" onClick={() => setSelected(new Set())}>Limpar</button>}</div>
             </div>
             <div className="filters">
-              <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todas <b>{leads.length}</b></button>
-              <button type="button" className={filter === "phone" ? "active" : ""} onClick={() => setFilter("phone")}>Celular válido <b>{whatsappCount}</b></button>
-              <button type="button" className={filter === "strong" ? "active" : ""} onClick={() => setFilter("strong")}>Melhor potencial <b>{leads.filter((lead) => lead.potential !== "possível").length}</b></button>
+              <button type="button" className={filter === "all" ? "active" : ""} onClick={() => changeFilter("all")}>Todas <b>{leads.length}</b></button>
+              <button type="button" className={filter === "phone" ? "active" : ""} onClick={() => changeFilter("phone")}>Celular válido <b>{whatsappCount}</b></button>
+              <button type="button" className={filter === "strong" ? "active" : ""} onClick={() => changeFilter("strong")}>Melhor potencial <b>{leads.filter((lead) => lead.potential !== "possível").length}</b></button>
             </div>
 
             <div className="lead-list">
-              {visibleLeads.map((lead) => {
+              {displayedLeads.map((lead) => {
                 const checked = selected.has(lead.id);
                 const canSelect = Boolean(lead.whatsappCandidate && lead.phoneE164);
                 return (
@@ -364,6 +430,9 @@ export default function ProspeccaoPage() {
                 );
               })}
             </div>
+
+            <p className="attribution">Mostrando {displayedLeads.length} de {filteredLeads.length} barbearias carregadas{totalAvailable ? ` · ${totalAvailable} cadastros disponíveis na fonte para essa cidade` : ""}.</p>
+            {canShowMore && <button className="prepare-button" style={{ marginTop: 14 }} type="button" onClick={loadMore} disabled={moreLoading}>{moreLoading ? "Buscando mais barbearias..." : "Ver mais barbearias"}</button>}
             <p className="attribution">Dados de lugares: Overture Maps Foundation e fontes contribuidoras. O formato do telefone é validado antes de entrar no funil; quando conectarmos o número de prospecção, a Evolution fará a confirmação automática de WhatsApp.</p>
           </section>
         </>
