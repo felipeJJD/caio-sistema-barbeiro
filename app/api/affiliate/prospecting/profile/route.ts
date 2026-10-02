@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
-import { getDb } from "../../../../../db";
+import { getDb } from "../../../../../db/index";
 import { affiliates } from "../../../../../db/schema";
 
 function noStore(payload: unknown, status = 200) {
