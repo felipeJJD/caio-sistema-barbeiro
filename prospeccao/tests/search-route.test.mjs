@@ -33,7 +33,7 @@ function company(overrides = {}) {
   };
 }
 
-test("busca CNPJ por cidade e CNAE e prioriza contatos com telefone", async () => {
+test("descarta telefone incompleto e prioriza celular brasileiro válido", async () => {
   const originalFetch = globalThis.fetch;
   const called = [];
   globalThis.fetch = async (input) => {
@@ -45,12 +45,22 @@ test("busca CNPJ por cidade e CNAE e prioriza contatos com telefone", async () =
     if (url.includes("minhareceita.org")) {
       return jsonResponse({
         data: [
-          company(),
+          company({
+            ddd_telefone_1: "66",
+            ddd_telefone_2: "41987654321",
+          }),
           company({
             cnpj: "98765432000110",
             nome_fantasia: "Studio Navalha",
             razao_social: "JOAO DA SILVA",
-            ddd_telefone_1: "",
+            ddd_telefone_1: "4133334444",
+            ddd_telefone_2: "",
+          }),
+          company({
+            cnpj: "22222222000122",
+            nome_fantasia: "Barber Sem Telefone",
+            ddd_telefone_1: "66",
+            ddd_telefone_2: "123",
           }),
           company({
             cnpj: "11111111000111",
@@ -68,13 +78,55 @@ test("busca CNPJ por cidade e CNAE e prioriza contatos com telefone", async () =
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.displayName, "Curitiba, PR");
-    assert.equal(body.leads.length, 2);
+    assert.equal(body.leads.length, 3);
+
     assert.equal(body.leads[0].name, "Barbearia Central");
-    assert.equal(body.leads[0].phone, "(41) 99999-9999");
-    assert.equal(body.leads[0].potential, "alto");
+    assert.equal(body.leads[0].phone, "(41) 98765-4321");
+    assert.equal(body.leads[0].phoneE164, "5541987654321");
+    assert.equal(body.leads[0].phoneKind, "mobile");
+    assert.equal(body.leads[0].whatsappCandidate, true);
+
+    const landline = body.leads.find((lead) => lead.name === "Studio Navalha");
+    assert.equal(landline.phone, "(41) 3333-4444");
+    assert.equal(landline.phoneKind, "landline");
+    assert.equal(landline.whatsappCandidate, false);
+
+    const invalid = body.leads.find((lead) => lead.name === "Barber Sem Telefone");
+    assert.equal(invalid.phone, "");
+    assert.equal(invalid.phoneE164, "");
+    assert.equal(invalid.whatsappCandidate, false);
+
     assert.equal(body.source, "CNPJ público / Minha Receita");
     assert.ok(called.some((url) => url.includes("cnae=9602501")));
     assert.ok(called.some((url) => url.includes("municipio=4106902")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("aceita DDI do Brasil e zero antes do DDD", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("servicodados.ibge.gov.br")) return jsonResponse([curitibaMunicipality]);
+    if (url.includes("minhareceita.org")) {
+      return jsonResponse({
+        data: [
+          company({ cnpj: "33333333000133", ddd_telefone_1: "+55 (41) 99876-5432" }),
+          company({ cnpj: "44444444000144", nome_fantasia: "Barber Dois", ddd_telefone_1: "041987654321" }),
+        ],
+      });
+    }
+    throw new Error(`URL inesperada: ${url}`);
+  };
+
+  try {
+    const response = await GET(requestFor("Curitiba, PR"));
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.leads[0].phoneE164, "5541998765432");
+    assert.equal(body.leads[1].phoneE164, "5541987654321");
+    assert.ok(body.leads.every((lead) => lead.whatsappCandidate));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -117,6 +169,7 @@ test("resolve São Paulo sem UF e encontra o município correto", async () => {
     const body = await response.json();
     assert.equal(body.displayName, "São Paulo, SP");
     assert.equal(body.leads[0].phone, "(11) 98765-4321");
+    assert.equal(body.leads[0].whatsappCandidate, true);
     assert.equal(nominatimCalled, true);
   } finally {
     globalThis.fetch = originalFetch;
