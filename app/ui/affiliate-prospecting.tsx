@@ -19,6 +19,8 @@ type Lead = {
 };
 
 type City = { id: number | string; name: string };
+type ReservedClaim = { key: string; phoneE164: string; name?: string };
+type BlockedClaim = { name?: string; reason?: string };
 
 const STATES = [
   ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"], ["BA", "Bahia"],
@@ -60,6 +62,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [loading, setLoading] = useState(false);
   const [moreLoading, setMoreLoading] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [whatsapp, setWhatsapp] = useState(initialWhatsapp || "");
@@ -102,14 +105,15 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     setVisibleCount(DISPLAY_STEP);
     try {
       const response = await fetch(`/api/affiliate/prospecting/search?city=${encodeURIComponent(query)}&offset=0`, { cache: "no-store" });
-      const payload = await response.json() as { leads?: Lead[]; displayName?: string; hasMore?: boolean; nextOffset?: number; error?: string };
+      const payload = await response.json() as { leads?: Lead[]; displayName?: string; hasMore?: boolean; nextOffset?: number; hiddenCount?: number; error?: string };
       if (!response.ok) throw new Error(payload.error || "Não foi possível pesquisar agora.");
       const found = Array.isArray(payload.leads) ? payload.leads : [];
       setLeads(found);
       setSearchedCity(payload.displayName || query);
       setHasMore(Boolean(payload.hasMore));
       setNextOffset(Number(payload.nextOffset) || found.length);
-      if (!found.length) setNotice("Não encontrei barbearias nessa cidade.");
+      if (!found.length && payload.hasMore) setNotice("Os primeiros resultados já foram contatados ou estão reservados. Toque em Ver mais barbearias.");
+      else if (!found.length) setNotice("Não encontrei novas barbearias disponíveis nessa cidade.");
     } catch (cause) {
       setLeads([]);
       setError(cause instanceof Error ? cause.message : "Não foi possível pesquisar agora.");
@@ -135,6 +139,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
       setHasMore(Boolean(payload.hasMore));
       setNextOffset(Number(payload.nextOffset) || nextOffset + incoming.length);
       setVisibleCount((value) => value + DISPLAY_STEP);
+      if (!incoming.length && payload.hasMore) setNotice("Esse lote já estava reservado ou contatado. Você pode tocar em Ver mais novamente.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível carregar mais barbearias.");
     } finally {
@@ -155,18 +160,62 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     setSelected(new Set(visibleLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164).map((lead) => lead.id)));
   }
 
-  function prepareQueue() {
+  async function prepareQueue() {
     if (!selectedLeads.length) return setNotice("Selecione pelo menos uma barbearia com celular válido.");
     if (!signupUrl) return setError("Seu link de afiliado ainda não foi configurado. Fale com o administrador.");
-    setQueue(selectedLeads);
-    setQueueIndex(0);
-    setTimeout(() => sendRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    setPreparing(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/affiliate/prospecting/claims", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "reserve", leads: selectedLeads, city: searchedCity }),
+      });
+      const payload = await response.json() as { reserved?: ReservedClaim[]; blocked?: BlockedClaim[]; reservationMinutes?: number; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Não foi possível reservar as barbearias agora.");
+      const reservedPhones = new Set((Array.isArray(payload.reserved) ? payload.reserved : []).map((item) => item.phoneE164));
+      const ready = selectedLeads.filter((lead) => reservedPhones.has(lead.phoneE164));
+      const blockedCount = Array.isArray(payload.blocked) ? payload.blocked.length : 0;
+      if (!ready.length) {
+        setSelected(new Set());
+        return setNotice(blockedCount ? "Essas barbearias já foram contatadas ou estão reservadas por outro afiliado." : "Nenhuma barbearia ficou disponível para envio.");
+      }
+      setQueue(ready);
+      setQueueIndex(0);
+      setSelected(new Set(ready.map((lead) => lead.id)));
+      if (blockedCount) setNotice(`${blockedCount} barbearia${blockedCount === 1 ? "" : "s"} já estava${blockedCount === 1 ? "" : "m"} reservada${blockedCount === 1 ? "" : "s"} ou contatada${blockedCount === 1 ? "" : "s"} e foi${blockedCount === 1 ? "" : "ram"} retirada${blockedCount === 1 ? "" : "s"}.`);
+      setTimeout(() => sendRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível reservar as barbearias agora.");
+    } finally {
+      setPreparing(false);
+    }
   }
 
   function openWhatsApp() {
     if (!currentQueueLead?.phoneE164 || !/^55\d{11}$/.test(currentQueueLead.phoneE164)) return;
-    const text = personalize(message, currentQueueLead, signupUrl);
-    window.open(`https://wa.me/${currentQueueLead.phoneE164}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    const current = currentQueueLead;
+    const text = personalize(message, current, signupUrl);
+    window.open(`https://wa.me/${current.phoneE164}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    void fetch("/api/affiliate/prospecting/claims", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "contacted", key: `phone:${current.phoneE164}` }),
+      keepalive: true,
+    }).then(async (response) => {
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Não foi possível registrar o contato.");
+      setLeads((items) => items.filter((lead) => lead.phoneE164 !== current.phoneE164));
+      setSelected((items) => {
+        const next = new Set(items);
+        next.delete(current.id);
+        return next;
+      });
+      setNotice(`${current.name} foi marcada como contatada e não aparecerá novamente nas buscas.`);
+    }).catch((cause) => {
+      setError(cause instanceof Error ? cause.message : "Não foi possível registrar o contato.");
+    });
   }
 
   async function saveWhatsapp() {
@@ -216,26 +265,27 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
       </form>
     </section>
 
-    {leads.length > 0 && <section className={styles.card}>
-      <div className={styles.cardTitle}><div><b>2. Selecionar</b><span>{searchedCity} · {leads.length}{hasMore ? "+" : ""} carregadas</span></div><button type="button" className={styles.secondary} onClick={selectVisible}>Selecionar celulares visíveis</button></div>
-      <div className={styles.leadList}>{visibleLeads.map((lead) => {
+    {(leads.length > 0 || (searchedCity && hasMore)) && <section className={styles.card}>
+      <div className={styles.cardTitle}><div><b>2. Selecionar</b><span>{searchedCity} · {leads.length}{hasMore ? "+" : ""} disponíveis</span></div>{visibleLeads.length > 0 && <button type="button" className={styles.secondary} onClick={selectVisible}>Selecionar celulares visíveis</button>}</div>
+      {visibleLeads.length > 0 && <div className={styles.leadList}>{visibleLeads.map((lead) => {
         const checked = selected.has(lead.id);
         const enabled = Boolean(lead.whatsappCandidate && lead.phoneE164);
         return <button type="button" className={`${styles.lead} ${checked ? styles.selected : ""}`} onClick={() => toggle(lead)} key={lead.id} disabled={!enabled}>
           <span className={styles.check}>{checked ? "✓" : ""}</span><div><strong>{lead.name}</strong><small>{lead.address || "Endereço não informado"}</small><em>{enabled ? lead.phone : lead.phoneKind === "landline" ? `Fixo: ${lead.phone}` : "Sem celular válido"}</em></div>
         </button>;
-      })}</div>
+      })}</div>}
       {(visibleLeads.length < leads.length || hasMore) && <button type="button" className={styles.more} onClick={loadMore} disabled={moreLoading}>{moreLoading ? "Buscando mais..." : "Ver mais barbearias"}</button>}
     </section>}
 
     <section className={styles.card}>
       <div className={styles.cardTitle}><div><b>3. Mensagem</b><span>Use {"{barbearia}"} e {"{link}"}. O sistema troca automaticamente.</span></div></div>
       <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={6} maxLength={1200} />
-      <button type="button" className={styles.primary} onClick={prepareQueue}>Preparar {selectedLeads.length || ""} mensagem{selectedLeads.length === 1 ? "" : "s"}</button>
+      <button type="button" className={styles.primary} onClick={prepareQueue} disabled={preparing}>{preparing ? "Reservando barbearias..." : `Preparar ${selectedLeads.length || ""} mensagem${selectedLeads.length === 1 ? "" : "s"}`}</button>
+      <p className={styles.helper}>Ao preparar, essas barbearias ficam reservadas para você por 1 hora. Outro afiliado não consegue pegá-las nesse período.</p>
     </section>
 
     {queue.length > 0 && <section className={styles.card} ref={sendRef}>
-      <div className={styles.cardTitle}><div><b>4. Enviar</b><span>Uma conversa por vez, sem vários quadros na tela.</span></div><strong>{queueIndex + 1}/{queue.length}</strong></div>
+      <div className={styles.cardTitle}><div><b>4. Enviar</b><span>Uma conversa por vez. Ao abrir o WhatsApp, a barbearia fica registrada como contatada.</span></div><strong>{queueIndex + 1}/{queue.length}</strong></div>
       {currentQueueLead && <div className={styles.sendPanel}>
         <div><small>BARBEARIA ATUAL</small><h2>{currentQueueLead.name}</h2><p>{currentQueueLead.phone} · {currentQueueLead.address}</p></div>
         <div className={styles.preview}>{personalize(message, currentQueueLead, signupUrl)}</div>

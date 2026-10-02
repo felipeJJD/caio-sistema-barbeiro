@@ -24,6 +24,7 @@
 .headerActions {
   display: flex;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .headerActions a,
@@ -281,11 +282,31 @@
   }
 
   .header {
-    align-items: flex-start;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
   }
 
   .headerActions {
-    flex-direction: column;
+    width: 100%;
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .headerActions a {
+    min-width: 0;
+    padding: 10px 12px;
+    font-size: 14px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .headerActions a:first-child {
+    flex: 1 1 auto;
+  }
+
+  .headerActions a:last-child {
+    flex: 0 0 auto;
   }
 
   .hero,
