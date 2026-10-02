@@ -14,13 +14,13 @@ test("landing mostra seis capturas reais do aplicativo no slider principal", asy
   assert.deepEqual(keys, ["painel", "agenda", "registrar", "historico", "whatsapp", "menu"]);
   assert.match(component, /\/landing\/real\/painel\.webp/);
   assert.match(component, /\/landing\/real\/agenda\.webp/);
-  assert.match(component, /\/landing\/real\/registrar-v2\.webp/);
+  assert.match(component, /\/landing\/real\/registrar-v3\.webp/);
   assert.match(component, /\/landing\/real\/historico\.webp/);
   assert.match(component, /\/landing\/real\/whatsapp\.webp/);
   assert.match(component, /\/landing\/real\/menu\.webp/);
   assert.doesNotMatch(component, /public-real-screens/);
   assert.match(css, /scroll-snap-type:x mandatory/);
-  await access(new URL("../public/landing/real/registrar-v2.webp", import.meta.url));
+  await access(new URL("../public/landing/real/registrar-v3.webp", import.meta.url));
 });
 
 test("slider fica na primeira dobra e substitui o mockup antigo", () => {
