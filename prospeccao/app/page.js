@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const STORAGE_FUNNEL = "ca-prospeccao-funnel-v1";
+const STORAGE_FUNNEL = "ca-prospeccao-funnel-v2";
 const STORAGE_HISTORY = "ca-prospeccao-search-history-v1";
 
 const TEMPLATES = {
@@ -22,15 +22,8 @@ function initials(name) {
   return String(name || "").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "BA";
 }
 
-function phoneDigits(phone) {
-  let digits = String(phone || "").replace(/\D/g, "");
-  if ((digits.length === 10 || digits.length === 11) && !digits.startsWith("55")) digits = `55${digits}`;
-  return digits;
-}
-
 function contactKey(lead) {
-  const digits = phoneDigits(lead.phone);
-  return digits ? `phone:${digits}` : `lead:${lead.id}`;
+  return lead?.phoneE164 ? `phone:${lead.phoneE164}` : `lead:${lead.id}`;
 }
 
 function personalize(template, lead, city) {
@@ -78,11 +71,11 @@ export default function ProspeccaoPage() {
     if (ready) localStorage.setItem(STORAGE_HISTORY, JSON.stringify(history));
   }, [history, ready]);
 
-  const phoneCount = useMemo(() => leads.filter((lead) => lead.phone).length, [leads]);
+  const whatsappCount = useMemo(() => leads.filter((lead) => lead.whatsappCandidate).length, [leads]);
   const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id)), [leads, selected]);
-  const selectedWithPhone = useMemo(() => selectedLeads.filter((lead) => lead.phone), [selectedLeads]);
+  const selectedWithWhatsApp = useMemo(() => selectedLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164), [selectedLeads]);
   const visibleLeads = useMemo(() => {
-    if (filter === "phone") return leads.filter((lead) => lead.phone);
+    if (filter === "phone") return leads.filter((lead) => lead.whatsappCandidate);
     if (filter === "strong") return leads.filter((lead) => lead.potential === "alto" || lead.potential === "bom");
     return leads;
   }, [filter, leads]);
@@ -120,30 +113,34 @@ export default function ProspeccaoPage() {
     }
   }
 
-  function toggle(id) {
+  function toggle(lead) {
+    if (!lead?.whatsappCandidate || !lead?.phoneE164) {
+      setNotice("Esse cadastro não tem um celular brasileiro válido para abordagem pelo WhatsApp.");
+      return;
+    }
     setSelected((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(lead.id)) next.delete(lead.id);
+      else next.add(lead.id);
       return next;
     });
   }
 
-  function selectAllWithPhone() {
-    const ids = visibleLeads.filter((lead) => lead.phone).map((lead) => lead.id);
+  function selectAllWithWhatsApp() {
+    const ids = visibleLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164).map((lead) => lead.id);
     setSelected(new Set(ids));
-    setNotice(ids.length ? `${ids.length} contatos com telefone selecionados.` : "Nenhum contato com telefone nessa lista.");
+    setNotice(ids.length ? `${ids.length} celulares válidos selecionados.` : "Nenhum celular válido nessa lista.");
   }
 
   function prepare() {
-    if (!selectedWithPhone.length) {
-      setNotice("Selecione pelo menos uma barbearia que tenha telefone.");
+    if (!selectedWithWhatsApp.length) {
+      setNotice("Selecione pelo menos uma barbearia com celular válido para WhatsApp.");
       return;
     }
     const now = new Date().toISOString();
     setFunnel((current) => {
       const map = new Map(current.map((item) => [item.key, item]));
-      for (const lead of selectedWithPhone) {
+      for (const lead of selectedWithWhatsApp) {
         const key = contactKey(lead);
         const existing = map.get(key);
         map.set(key, {
@@ -152,6 +149,8 @@ export default function ProspeccaoPage() {
           id: lead.id,
           name: lead.name,
           phone: lead.phone,
+          phoneE164: lead.phoneE164,
+          whatsappCandidate: true,
           address: lead.address,
           sourceUrl: lead.sourceUrl,
           city: searchedCity || city,
@@ -163,7 +162,7 @@ export default function ProspeccaoPage() {
       }
       return [...map.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     });
-    setNotice(`${selectedWithPhone.length} contato${selectedWithPhone.length === 1 ? "" : "s"} adicionado${selectedWithPhone.length === 1 ? "" : "s"} ao funil.`);
+    setNotice(`${selectedWithWhatsApp.length} contato${selectedWithWhatsApp.length === 1 ? "" : "s"} válido${selectedWithWhatsApp.length === 1 ? "" : "s"} adicionado${selectedWithWhatsApp.length === 1 ? "" : "s"} ao funil.`);
     setSelected(new Set());
     setTimeout(() => document.getElementById("funil")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
@@ -186,15 +185,17 @@ export default function ProspeccaoPage() {
   }
 
   function openWhatsApp(item) {
-    const digits = phoneDigits(item.phone);
-    if (!digits) return setNotice("Esse contato não tem um número válido para abrir no WhatsApp.");
-    const url = `https://wa.me/${digits}?text=${encodeURIComponent(item.message || personalize(message, item, item.city))}`;
+    if (!/^55\d{10,11}$/.test(String(item?.phoneE164 || ""))) {
+      setNotice("Esse contato não passou na validação de telefone.");
+      return;
+    }
+    const url = `https://wa.me/${item.phoneE164}?text=${encodeURIComponent(item.message || personalize(message, item, item.city))}`;
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
   function potentialLabel(value) {
     if (value === "alto") return "Nome indica barbearia";
-    if (value === "bom") return "Cadastro com telefone";
+    if (value === "bom") return "Celular válido";
     return "Cadastro do ramo";
   }
 
@@ -212,11 +213,11 @@ export default function ProspeccaoPage() {
         <div>
           <span className="eyebrow">NOVOS CLIENTES</span>
           <h1>Encontre barbearias.<br /><em>Organize a abordagem.</em></h1>
-          <p>Digite uma cidade. O sistema procura empresas do ramo, mostra os telefones disponíveis e prepara sua abordagem.</p>
+          <p>Digite uma cidade. O sistema procura empresas do ramo, valida os telefones disponíveis e prepara sua abordagem.</p>
         </div>
         <div className="hero-status">
           <span className="status-dot" />
-          <div><strong>Busca gratuita ativa</strong><small>Cadastros públicos de empresas + localização por cidade</small></div>
+          <div><strong>Busca gratuita ativa</strong><small>Cadastros públicos + validação de telefone brasileiro</small></div>
         </div>
       </section>
 
@@ -248,33 +249,40 @@ export default function ProspeccaoPage() {
 
           <section className="stats-grid">
             <article><small>ENCONTRADAS</small><strong>{leads.length}</strong><span>nessa busca</span></article>
-            <article><small>COM TELEFONE</small><strong>{phoneCount}</strong><span>prontas para selecionar</span></article>
-            <article className="gold"><small>SELECIONADAS</small><strong>{selected.size}</strong><span>{selectedWithPhone.length} com telefone</span></article>
+            <article><small>CELULAR VÁLIDO</small><strong>{whatsappCount}</strong><span>candidatos para WhatsApp</span></article>
+            <article className="gold"><small>SELECIONADAS</small><strong>{selected.size}</strong><span>{selectedWithWhatsApp.length} válidas</span></article>
           </section>
 
           <section className="leads-card">
             <div className="leads-toolbar">
-              <div><strong>Contatos encontrados</strong><small>O CNAE inclui barbearias e negócios próximos do mesmo ramo. Você escolhe quem faz sentido abordar.</small></div>
-              <div className="toolbar-actions"><button type="button" onClick={selectAllWithPhone}>Selecionar com telefone</button>{selected.size > 0 && <button type="button" className="ghost" onClick={() => setSelected(new Set())}>Limpar</button>}</div>
+              <div><strong>Contatos encontrados</strong><small>Telefones incompletos são descartados. Para a fila, liberamos só celulares brasileiros com formato válido.</small></div>
+              <div className="toolbar-actions"><button type="button" onClick={selectAllWithWhatsApp}>Selecionar celulares válidos</button>{selected.size > 0 && <button type="button" className="ghost" onClick={() => setSelected(new Set())}>Limpar</button>}</div>
             </div>
             <div className="filters">
               <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todas <b>{leads.length}</b></button>
-              <button type="button" className={filter === "phone" ? "active" : ""} onClick={() => setFilter("phone")}>Com telefone <b>{phoneCount}</b></button>
+              <button type="button" className={filter === "phone" ? "active" : ""} onClick={() => setFilter("phone")}>Celular válido <b>{whatsappCount}</b></button>
               <button type="button" className={filter === "strong" ? "active" : ""} onClick={() => setFilter("strong")}>Melhor potencial <b>{leads.filter((lead) => lead.potential !== "possível").length}</b></button>
             </div>
 
             <div className="lead-list">
               {visibleLeads.map((lead) => {
                 const checked = selected.has(lead.id);
+                const canSelect = Boolean(lead.whatsappCandidate && lead.phoneE164);
                 return (
                   <article className={`lead-row ${checked ? "selected" : ""}`} key={lead.id}>
-                    <button className="lead-check" type="button" onClick={() => toggle(lead.id)} aria-label={`${checked ? "Remover" : "Selecionar"} ${lead.name}`}><span>{checked ? "✓" : ""}</span></button>
+                    <button className="lead-check" type="button" onClick={() => toggle(lead)} aria-label={`${checked ? "Remover" : "Selecionar"} ${lead.name}`} aria-disabled={!canSelect}><span>{checked ? "✓" : ""}</span></button>
                     <div className="avatar">{initials(lead.name)}</div>
                     <div className="lead-main">
                       <div className="lead-title"><strong>{lead.name}</strong><span className={`potential ${lead.potential === "alto" ? "high" : lead.potential === "bom" ? "medium" : ""}`}>{potentialLabel(lead.potential)}</span></div>
                       <p>{lead.address || "Endereço não informado"}</p>
                       <div className="lead-meta">
-                        <span className={lead.phone ? "phone ok" : "phone missing"}>{lead.phone ? `Contato: ${lead.phone}` : "Telefone não publicado no cadastro"}</span>
+                        {lead.whatsappCandidate ? (
+                          <span className="phone ok">Celular: {lead.phone}</span>
+                        ) : lead.phoneKind === "landline" ? (
+                          <span className="phone missing">Fixo: {lead.phone} · não liberado para WhatsApp</span>
+                        ) : (
+                          <span className="phone missing">Sem celular válido no cadastro</span>
+                        )}
                         {lead.sourceUrl && <a href={lead.sourceUrl} target="_blank" rel="noreferrer">Ver cadastro ↗</a>}
                       </div>
                     </div>
@@ -282,7 +290,7 @@ export default function ProspeccaoPage() {
                 );
               })}
             </div>
-            <p className="attribution">Dados cadastrais públicos da Receita Federal consultados por fonte aberta. Telefone aparece somente quando existe no cadastro público da empresa.</p>
+            <p className="attribution">Dados cadastrais públicos da Receita Federal consultados por fonte aberta. A validação atual confirma o formato do celular; a confirmação de existência no WhatsApp será feita pela Evolution antes do disparo automático.</p>
           </section>
         </>
       )}
@@ -305,12 +313,12 @@ export default function ProspeccaoPage() {
 
       <section className="flow-card">
         <div className="section-heading">
-          <div><span>3</span><div><strong>Adicionar ao funil</strong><small>Escolha os contatos e prepare as mensagens individuais.</small></div></div>
+          <div><span>3</span><div><strong>Adicionar ao funil</strong><small>Escolha celulares válidos e prepare as mensagens individuais.</small></div></div>
         </div>
         <div className="flow-line">
           <span className="done">Encontrar</span><i>→</i><span className={selected.size ? "done" : ""}>Selecionar</span><i>→</i><span>Preparado</span><i>→</i><span>Contatado</span><i>→</i><span>Interessado</span>
         </div>
-        <button className="prepare-button" type="button" onClick={prepare}>Adicionar {selectedWithPhone.length || ""} contato{selectedWithPhone.length === 1 ? "" : "s"} ao funil</button>
+        <button className="prepare-button" type="button" onClick={prepare}>Adicionar {selectedWithWhatsApp.length || ""} contato{selectedWithWhatsApp.length === 1 ? "" : "s"} ao funil</button>
       </section>
 
       <section className="funnel-card" id="funil">
@@ -322,7 +330,7 @@ export default function ProspeccaoPage() {
           {STATUS_OPTIONS.map(([value, label]) => <div key={value}><strong>{funnelCounts[value] || 0}</strong><span>{label}</span></div>)}
         </div>
         {funnel.length === 0 ? (
-          <div className="empty-funnel"><strong>Seu funil ainda está vazio.</strong><span>Pesquise uma cidade, selecione contatos com telefone e toque em “Adicionar ao funil”.</span></div>
+          <div className="empty-funnel"><strong>Seu funil ainda está vazio.</strong><span>Pesquise uma cidade, selecione celulares válidos e toque em “Adicionar ao funil”.</span></div>
         ) : (
           <div className="funnel-list">
             {funnel.map((item) => (
@@ -333,14 +341,14 @@ export default function ProspeccaoPage() {
                 </select>
                 <div className="funnel-actions">
                   <button type="button" onClick={() => copyText(item.message, "Mensagem")}>Copiar</button>
-                  <button type="button" className="whatsapp" onClick={() => openWhatsApp(item)}>Abrir WhatsApp</button>
+                  <button type="button" className="whatsapp" onClick={() => openWhatsApp(item)}>Testar no WhatsApp</button>
                   <button type="button" className="danger" onClick={() => removeFromFunnel(item.key)}>Remover</button>
                 </div>
               </article>
             ))}
           </div>
         )}
-        <p className="safety-note"><strong>Importante:</strong> abrir o WhatsApp prepara a conversa. O envio continua manual nesta etapa.</p>
+        <p className="safety-note"><strong>Importante:</strong> o celular já passou pela validação de formato. Nesta etapa, “Testar no WhatsApp” confirma manualmente se aquele número possui conta; depois a Evolution fará essa checagem automaticamente.</p>
       </section>
 
       {(error || notice) && <div className={error ? "notice error" : "notice"}>{error || notice}</div>}
