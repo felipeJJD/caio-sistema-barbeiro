@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const execFileAsync = promisify(execFile);
-const USER_AGENT = "CortouAnotouProspeccao/1.4 (https://cortouanotou.com.br)";
+const USER_AGENT = "CortouAnotouProspeccao/1.5 (https://cortouanotou.com.br)";
 const PAGE_SIZE = 40;
 const VALID_UFS = new Set([
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
@@ -206,7 +206,7 @@ async function searchOverture(bbox, offset = 0) {
     String(bbox.south),
     String(bbox.east),
     String(bbox.north),
-    String(PAGE_SIZE),
+    String(PAGE_SIZE + 1),
     String(offset),
   ];
   const { stdout } = await execFileAsync("python3", args, {
@@ -217,10 +217,7 @@ async function searchOverture(bbox, offset = 0) {
     env: process.env,
   });
   const parsed = JSON.parse(stdout);
-  return {
-    places: Array.isArray(parsed?.places) ? parsed.places : [],
-    total: Number.isFinite(Number(parsed?.total)) ? Number(parsed.total) : 0,
-  };
+  return Array.isArray(parsed?.places) ? parsed.places : [];
 }
 
 export async function GET(request) {
@@ -232,10 +229,12 @@ export async function GET(request) {
 
   try {
     const resolved = await resolveCity(query);
-    const result = await searchOverture(resolved.bbox, offset);
+    const rawPlaces = await searchOverture(resolved.bbox, offset);
+    const hasMore = rawPlaces.length > PAGE_SIZE;
+    const pagePlaces = rawPlaces.slice(0, PAGE_SIZE);
     const unique = new Map();
 
-    for (const place of result.places) {
+    for (const place of pagePlaces) {
       const lead = mapOverturePlace(place, resolved.city, resolved.uf);
       const key = lead.phoneE164 ? `phone:${lead.phoneE164}` : `place:${lead.id}`;
       const existing = unique.get(key);
@@ -250,9 +249,7 @@ export async function GET(request) {
         return a.name.localeCompare(b.name, "pt-BR");
       });
 
-    const consumed = result.places.length;
-    const nextOffset = offset + consumed;
-    const hasMore = consumed > 0 && nextOffset < result.total;
+    const nextOffset = offset + pagePlaces.length;
 
     return Response.json({
       query,
@@ -261,13 +258,12 @@ export async function GET(request) {
       scope: "lugares comerciais da cidade",
       leads,
       source: "Overture Maps",
-      totalAvailable: result.total,
       offset,
       nextOffset,
       hasMore,
       pageSize: PAGE_SIZE,
       attribution: "Dados de lugares: Overture Maps Foundation e fontes contribuidoras.",
-      tip: "A busca agora é paginada: a tela começa curta e o botão Ver mais continua carregando outros cadastros disponíveis na fonte para essa cidade.",
+      tip: "A tela começa curta. O botão Ver mais continua buscando novos lotes até chegar ao fim dos cadastros disponíveis na fonte para essa cidade.",
     });
   } catch (error) {
     const status = Number(error?.status) || 503;
