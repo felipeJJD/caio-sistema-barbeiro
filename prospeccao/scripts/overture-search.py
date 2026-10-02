@@ -21,9 +21,9 @@ def main():
     south = parse_float(sys.argv[2], "south")
     east = parse_float(sys.argv[3], "east")
     north = parse_float(sys.argv[4], "north")
-    limit = int(sys.argv[5]) if len(sys.argv) > 5 else 40
+    limit = int(sys.argv[5]) if len(sys.argv) > 5 else 41
     offset = int(sys.argv[6]) if len(sys.argv) > 6 else 0
-    limit = max(1, min(limit, 100))
+    limit = max(1, min(limit, 101))
     offset = max(0, min(offset, 100000))
 
     con = duckdb.connect(database=":memory:")
@@ -47,8 +47,7 @@ def main():
                 CAST(websites AS JSON) AS websites_json,
                 CAST(socials AS JSON) AS socials_json,
                 bbox.xmin AS lon,
-                bbox.ymin AS lat,
-                COUNT(*) OVER() AS total_count
+                bbox.ymin AS lat
             FROM read_parquet('{DATASET}', filename=true, hive_partitioning=1)
             WHERE
                 bbox.xmin BETWEEN ? AND ?
@@ -72,11 +71,9 @@ def main():
         rows = con.execute(query, [west, east, south, north]).fetchall()
 
         results = []
-        total = 0
         for row in rows:
             (place_id, name, category, confidence, operating_status,
-             phones_json, addresses_json, websites_json, socials_json, lon, lat, total_count) = row
-            total = int(total_count or 0)
+             phones_json, addresses_json, websites_json, socials_json, lon, lat) = row
             results.append({
                 "id": place_id,
                 "name": name,
@@ -93,7 +90,6 @@ def main():
 
         print(json.dumps({
             "release": RELEASE,
-            "total": total,
             "offset": offset,
             "limit": limit,
             "places": results,
