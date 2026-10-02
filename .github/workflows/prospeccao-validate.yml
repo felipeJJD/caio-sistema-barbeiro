@@ -1,0 +1,34 @@
+name: Validar C.A. Prospecção
+
+on:
+  pull_request:
+    branches:
+      - feat/ca-prospeccao-google-places-base
+    paths:
+      - "prospeccao/**"
+      - ".github/workflows/prospeccao-validate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  prospeccao:
+    name: Testes e build da Prospecção
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: prospeccao
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v5
+      - name: Preparar Node 24.13.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.13.0
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+      - name: Rodar testes automatizados
+        run: npm test
+      - name: Validar build de produção
+        run: npm run build
