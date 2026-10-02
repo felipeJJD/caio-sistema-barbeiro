@@ -1,4 +1,5 @@
 import "./globals.css";
+import "./prospeccao.css";
 
 export const metadata = {
   title: "C.A. Prospecção | Cortou Anotou",
