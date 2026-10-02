@@ -5,6 +5,7 @@ COPY package.json ./
 RUN npm install --no-audit --no-fund
 COPY . .
 RUN npm test
+RUN npm run test:live
 RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime
