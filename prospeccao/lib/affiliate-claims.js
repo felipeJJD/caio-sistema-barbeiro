@@ -1,0 +1,272 @@
+import pg from "pg";
+import { normalizePhoneE164, text } from "./funnel-records.js";
+
+const { Pool } = pg;
+const RESERVATION_MINUTES = 60;
+let pool;
+let schemaReady;
+
+function databaseUrl() {
+  return String(process.env.PROSPECCAO_DATABASE_URL || "").trim();
+}
+
+function getPool() {
+  if (pool) return pool;
+  const connectionString = databaseUrl();
+  if (!connectionString) {
+    const error = new Error("Banco da Prospecção ainda não foi conectado ao aplicativo.");
+    error.status = 503;
+    throw error;
+  }
+  pool = new Pool({
+    connectionString,
+    max: 5,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 8_000,
+    ssl: process.env.PROSPECCAO_DB_SSL === "true" ? { rejectUnauthorized: false } : undefined,
+  });
+  return pool;
+}
+
+export function normalizeProspectorKey(value) {
+  const key = text(value, 120);
+  if (!/^(?:admin|affiliate):\d{1,12}$/.test(key)) {
+    const error = new Error("Identificação do prospector inválida.");
+    error.status = 400;
+    throw error;
+  }
+  return key;
+}
+
+export function leadKeyFrom(value) {
+  const phoneE164 = normalizePhoneE164(value?.phoneE164);
+  return phoneE164 ? `phone:${phoneE164}` : "";
+}
+
+function normalizeClaimLead(input = {}, fallbackCity = "") {
+  const phoneE164 = normalizePhoneE164(input.phoneE164);
+  if (!phoneE164) {
+    const error = new Error("Contato sem celular brasileiro válido.");
+    error.status = 400;
+    throw error;
+  }
+  return {
+    leadKey: `phone:${phoneE164}`,
+    sourceId: text(input.id || input.sourceId, 180),
+    name: text(input.name || "Barbearia", 240),
+    phone: text(input.phone, 40),
+    phoneE164,
+    address: text(input.address, 600),
+    city: text(input.city || fallbackCity, 180),
+  };
+}
+
+export async function ensureClaimsSchema() {
+  if (schemaReady) return schemaReady;
+  schemaReady = (async () => {
+    const db = getPool();
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS affiliate_prospecting_claims (
+        lead_key TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        phone TEXT NOT NULL DEFAULT '',
+        phone_e164 TEXT NOT NULL,
+        address TEXT NOT NULL DEFAULT '',
+        city TEXT NOT NULL DEFAULT '',
+        prospector_key TEXT NOT NULL,
+        prospector_name TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'reserved'
+          CHECK (status IN ('reserved','contacted','do_not_contact')),
+        reserved_until TIMESTAMPTZ,
+        contacted_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await db.query(`CREATE INDEX IF NOT EXISTS affiliate_prospecting_claims_status_idx ON affiliate_prospecting_claims (status, reserved_until);`);
+    await db.query(`CREATE INDEX IF NOT EXISTS affiliate_prospecting_claims_owner_idx ON affiliate_prospecting_claims (prospector_key, updated_at DESC);`);
+  })().catch((error) => {
+    schemaReady = undefined;
+    throw error;
+  });
+  return schemaReady;
+}
+
+function rowToClaim(row) {
+  return {
+    key: row.lead_key,
+    id: row.source_id,
+    name: row.name,
+    phone: row.phone,
+    phoneE164: row.phone_e164,
+    address: row.address,
+    city: row.city,
+    prospectorKey: row.prospector_key,
+    prospectorName: row.prospector_name,
+    status: row.status,
+    reservedUntil: row.reserved_until instanceof Date ? row.reserved_until.toISOString() : row.reserved_until ? String(row.reserved_until) : null,
+    contactedAt: row.contacted_at instanceof Date ? row.contacted_at.toISOString() : row.contacted_at ? String(row.contacted_at) : null,
+  };
+}
+
+function isActiveReservation(row, now = Date.now()) {
+  if (row?.status !== "reserved" || !row?.reserved_until) return false;
+  const value = row.reserved_until instanceof Date ? row.reserved_until.getTime() : Date.parse(String(row.reserved_until));
+  return Number.isFinite(value) && value > now;
+}
+
+export async function filterAvailableLeads(rawLeads) {
+  const leads = Array.isArray(rawLeads) ? rawLeads : [];
+  const keys = [...new Set(leads.map(leadKeyFrom).filter(Boolean))];
+  if (!keys.length) return { leads, hiddenCount: 0 };
+  await ensureClaimsSchema();
+  const result = await getPool().query(
+    `SELECT lead_key, status, reserved_until
+     FROM affiliate_prospecting_claims
+     WHERE lead_key = ANY($1::text[])`,
+    [keys],
+  );
+  const blocked = new Set();
+  const now = Date.now();
+  for (const row of result.rows) {
+    if (row.status === "contacted" || row.status === "do_not_contact" || isActiveReservation(row, now)) blocked.add(row.lead_key);
+  }
+  const available = leads.filter((lead) => {
+    const key = leadKeyFrom(lead);
+    return !key || !blocked.has(key);
+  });
+  return { leads: available, hiddenCount: leads.length - available.length };
+}
+
+export async function reserveClaimLeads(rawLeads, input = {}) {
+  const prospectorKey = normalizeProspectorKey(input.prospectorKey);
+  const prospectorName = text(input.prospectorName || prospectorKey, 140);
+  const fallbackCity = text(input.city, 180);
+  const leads = Array.isArray(rawLeads) ? rawLeads : [];
+  if (!leads.length) {
+    const error = new Error("Selecione pelo menos uma barbearia.");
+    error.status = 400;
+    throw error;
+  }
+  if (leads.length > 100) {
+    const error = new Error("Selecione no máximo 100 barbearias por vez.");
+    error.status = 400;
+    throw error;
+  }
+
+  await ensureClaimsSchema();
+  const client = await getPool().connect();
+  const reserved = [];
+  const blocked = [];
+  try {
+    await client.query("BEGIN");
+    for (const rawLead of leads) {
+      let lead;
+      try {
+        lead = normalizeClaimLead(rawLead, fallbackCity);
+      } catch (error) {
+        blocked.push({ name: text(rawLead?.name || "Barbearia", 240), reason: error instanceof Error ? error.message : "Contato inválido." });
+        continue;
+      }
+
+      const inserted = await client.query(
+        `INSERT INTO affiliate_prospecting_claims
+          (lead_key, source_id, name, phone, phone_e164, address, city, prospector_key, prospector_name, status, reserved_until)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'reserved', NOW() + ($10 * INTERVAL '1 minute'))
+         ON CONFLICT (lead_key) DO NOTHING
+         RETURNING *`,
+        [lead.leadKey, lead.sourceId, lead.name, lead.phone, lead.phoneE164, lead.address, lead.city, prospectorKey, prospectorName, RESERVATION_MINUTES],
+      );
+      if (inserted.rowCount) {
+        reserved.push(rowToClaim(inserted.rows[0]));
+        continue;
+      }
+
+      const existingResult = await client.query(
+        `SELECT * FROM affiliate_prospecting_claims WHERE lead_key = $1 LIMIT 1 FOR UPDATE`,
+        [lead.leadKey],
+      );
+      const existing = existingResult.rows[0];
+      if (!existing) {
+        blocked.push({ name: lead.name, reason: "Não foi possível reservar agora." });
+        continue;
+      }
+      if (existing.status === "contacted" || existing.status === "do_not_contact") {
+        blocked.push({ name: existing.name || lead.name, reason: "Essa barbearia já foi contatada." });
+        continue;
+      }
+      if (isActiveReservation(existing) && existing.prospector_key !== prospectorKey) {
+        blocked.push({ name: existing.name || lead.name, reason: "Essa barbearia está reservada por outro afiliado." });
+        continue;
+      }
+
+      const updated = await client.query(
+        `UPDATE affiliate_prospecting_claims
+         SET source_id = $2, name = $3, phone = $4, phone_e164 = $5, address = $6, city = $7,
+             prospector_key = $8, prospector_name = $9, status = 'reserved',
+             reserved_until = NOW() + ($10 * INTERVAL '1 minute'), updated_at = NOW()
+         WHERE lead_key = $1
+         RETURNING *`,
+        [lead.leadKey, lead.sourceId, lead.name, lead.phone, lead.phoneE164, lead.address, lead.city, prospectorKey, prospectorName, RESERVATION_MINUTES],
+      );
+      reserved.push(rowToClaim(updated.rows[0]));
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+  return { reserved, blocked, reservationMinutes: RESERVATION_MINUTES };
+}
+
+export async function markClaimContacted(keyValue, input = {}) {
+  const prospectorKey = normalizeProspectorKey(input.prospectorKey);
+  const key = text(keyValue, 220);
+  if (!/^phone:55\d{11}$/.test(key)) {
+    const error = new Error("Barbearia inválida.");
+    error.status = 400;
+    throw error;
+  }
+  await ensureClaimsSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const currentResult = await client.query(
+      `SELECT * FROM affiliate_prospecting_claims WHERE lead_key = $1 LIMIT 1 FOR UPDATE`,
+      [key],
+    );
+    const current = currentResult.rows[0];
+    if (!current) {
+      const error = new Error("Reserve a barbearia antes de marcar como contatada.");
+      error.status = 404;
+      throw error;
+    }
+    if (current.status === "contacted" || current.status === "do_not_contact") {
+      await client.query("COMMIT");
+      return rowToClaim(current);
+    }
+    if (isActiveReservation(current) && current.prospector_key !== prospectorKey) {
+      const error = new Error("Essa barbearia foi reservada por outro afiliado.");
+      error.status = 409;
+      throw error;
+    }
+    const updated = await client.query(
+      `UPDATE affiliate_prospecting_claims
+       SET status = 'contacted', prospector_key = $2, prospector_name = $3,
+           reserved_until = NULL, contacted_at = COALESCE(contacted_at, NOW()), updated_at = NOW()
+       WHERE lead_key = $1
+       RETURNING *`,
+      [key, prospectorKey, text(input.prospectorName || prospectorKey, 140)],
+    );
+    await client.query("COMMIT");
+    return rowToClaim(updated.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
