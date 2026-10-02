@@ -6,7 +6,7 @@ const component = await readFile(new URL("../app/ui/public-product-slider.tsx", 
 const screenshots = [
   ["painel", "painel.webp"],
   ["agenda", "agenda.webp"],
-  ["registrar", "registrar-v2.webp"],
+  ["registrar", "registrar-v3.webp"],
   ["historico", "historico.webp"],
   ["whatsapp", "whatsapp.webp"],
   ["menu", "menu.webp"],
