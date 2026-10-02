@@ -5,6 +5,15 @@ import { useEffect, useMemo, useState } from "react";
 const STORAGE_FUNNEL = "ca-prospeccao-funnel-v2";
 const STORAGE_HISTORY = "ca-prospeccao-search-history-v1";
 
+const STATES = [
+  ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"], ["BA", "Bahia"],
+  ["CE", "Ceará"], ["DF", "Distrito Federal"], ["ES", "Espírito Santo"], ["GO", "Goiás"], ["MA", "Maranhão"],
+  ["MT", "Mato Grosso"], ["MS", "Mato Grosso do Sul"], ["MG", "Minas Gerais"], ["PA", "Pará"], ["PB", "Paraíba"],
+  ["PR", "Paraná"], ["PE", "Pernambuco"], ["PI", "Piauí"], ["RJ", "Rio de Janeiro"], ["RN", "Rio Grande do Norte"],
+  ["RS", "Rio Grande do Sul"], ["RO", "Rondônia"], ["RR", "Roraima"], ["SC", "Santa Catarina"], ["SP", "São Paulo"],
+  ["SE", "Sergipe"], ["TO", "Tocantins"],
+];
+
 const TEMPLATES = {
   curta: "Oi pessoal da {barbearia}! Tudo bem? Aqui é do Cortou Anotou. Criamos um sistema simples para barbearias cuidarem de agenda, atendimentos, equipe e financeiro pelo celular. Posso te mandar o link pra conhecer?",
   consultiva: "Oi pessoal da {barbearia}! Tudo certo? Encontrei o contato de vocês em {cidade}. Eu faço parte do Cortou Anotou, um sistema feito para facilitar agenda, registro de atendimentos, equipe e financeiro. Se fizer sentido, posso te mostrar rapidinho como funciona, sem compromisso.",
@@ -41,8 +50,18 @@ function safeLoad(key, fallback) {
   }
 }
 
+function parseCityUf(value) {
+  const match = String(value || "").trim().match(/^(.+?),\s*([A-Za-z]{2})$/);
+  if (!match) return null;
+  return { city: match[1].trim(), uf: match[2].toUpperCase() };
+}
+
 export default function ProspeccaoPage() {
-  const [city, setCity] = useState("Colombo, PR");
+  const [uf, setUf] = useState("PR");
+  const [city, setCity] = useState("Colombo");
+  const [cities, setCities] = useState([]);
+  const [citiesLoading, setCitiesLoading] = useState(true);
+  const [citiesError, setCitiesError] = useState("");
   const [searchedCity, setSearchedCity] = useState("");
   const [scope, setScope] = useState("");
   const [searchTip, setSearchTip] = useState("");
@@ -71,6 +90,37 @@ export default function ProspeccaoPage() {
     if (ready) localStorage.setItem(STORAGE_HISTORY, JSON.stringify(history));
   }, [history, ready]);
 
+  useEffect(() => {
+    let active = true;
+    setCitiesLoading(true);
+    setCitiesError("");
+
+    fetch(`/api/locations/cities?uf=${encodeURIComponent(uf)}`, { cache: "force-cache" })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Não consegui carregar as cidades.");
+        return Array.isArray(payload.cities) ? payload.cities : [];
+      })
+      .then((nextCities) => {
+        if (!active) return;
+        setCities(nextCities);
+        setCity((current) => nextCities.some((item) => item.name === current) ? current : "");
+      })
+      .catch((loadError) => {
+        if (!active) return;
+        setCities([]);
+        setCity("");
+        setCitiesError(loadError instanceof Error ? loadError.message : "Não consegui carregar as cidades.");
+      })
+      .finally(() => {
+        if (active) setCitiesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [uf]);
+
   const whatsappCount = useMemo(() => leads.filter((lead) => lead.whatsappCandidate).length, [leads]);
   const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id)), [leads, selected]);
   const selectedWithWhatsApp = useMemo(() => selectedLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164), [selectedLeads]);
@@ -81,11 +131,25 @@ export default function ProspeccaoPage() {
   }, [filter, leads]);
   const funnelCounts = useMemo(() => Object.fromEntries(STATUS_OPTIONS.map(([value]) => [value, funnel.filter((item) => item.status === value).length])), [funnel]);
 
+  function selectRegion(nextUf, nextCity = "") {
+    setUf(nextUf);
+    setCity(nextCity);
+    setCitiesError("");
+  }
+
   async function search(event, forcedCity) {
     event?.preventDefault?.();
-    const query = String(forcedCity || city).trim();
-    if (query.length < 2) return;
-    if (forcedCity) setCity(query);
+    const query = String(forcedCity || (city && uf ? `${city}, ${uf}` : "")).trim();
+    if (query.length < 2) {
+      setNotice("Escolha o estado e a cidade antes de pesquisar.");
+      return;
+    }
+
+    if (forcedCity) {
+      const parsed = parseCityUf(query);
+      if (parsed) selectRegion(parsed.uf, parsed.city);
+    }
+
     setLoading(true);
     setError("");
     setNotice("");
@@ -103,7 +167,7 @@ export default function ProspeccaoPage() {
       setScope(payload.scope || "");
       setSearchTip(payload.tip || "");
       setHistory((current) => [query, ...current.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6));
-      if (!nextLeads.length) setNotice("Não achei barbearias nessa cidade. Confira o nome ou informe também a UF.");
+      if (!nextLeads.length) setNotice("Não achei barbearias nessa cidade. Escolha outra cidade e tente novamente.");
     } catch (searchError) {
       setLeads([]);
       setSearchedCity("");
@@ -153,9 +217,9 @@ export default function ProspeccaoPage() {
           whatsappCandidate: true,
           address: lead.address,
           sourceUrl: lead.sourceUrl,
-          city: searchedCity || city,
+          city: searchedCity || (city && uf ? `${city}, ${uf}` : ""),
           status: existing?.status || "preparado",
-          message: personalize(message, lead, searchedCity || city),
+          message: personalize(message, lead, searchedCity || (city && uf ? `${city}, ${uf}` : "")),
           createdAt: existing?.createdAt || now,
           updatedAt: now,
         });
@@ -213,7 +277,7 @@ export default function ProspeccaoPage() {
         <div>
           <span className="eyebrow">NOVOS CLIENTES</span>
           <h1>Encontre barbearias.<br /><em>Organize a abordagem.</em></h1>
-          <p>Digite uma cidade. O sistema procura barbearias reais, valida os telefones encontrados e prepara sua abordagem.</p>
+          <p>Escolha um estado e uma cidade. O sistema procura barbearias reais, valida os telefones encontrados e prepara sua abordagem.</p>
         </div>
         <div className="hero-status">
           <span className="status-dot" />
@@ -223,16 +287,26 @@ export default function ProspeccaoPage() {
 
       <section className="search-card">
         <div className="section-heading">
-          <div><span>1</span><div><strong>Encontrar barbearias</strong><small>Pode escrever “São Paulo” ou, para maior precisão, “São Paulo, SP”.</small></div></div>
+          <div><span>1</span><div><strong>Encontrar barbearias</strong><small>Escolha primeiro o estado e depois uma cidade desse estado.</small></div></div>
           <b>GRÁTIS</b>
         </div>
-        <form className="search-form" onSubmit={search}>
+        <form className="search-form region-form" onSubmit={search}>
+          <label>
+            <span>Estado</span>
+            <select value={uf} onChange={(event) => selectRegion(event.target.value, "")} aria-label="Estado">
+              {STATES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+            </select>
+          </label>
           <label>
             <span>Cidade</span>
-            <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Ex.: São Paulo" minLength={2} maxLength={90} autoComplete="off" required />
+            <select value={city} onChange={(event) => setCity(event.target.value)} disabled={citiesLoading || !cities.length} aria-label="Cidade" required>
+              <option value="">{citiesLoading ? "Carregando cidades..." : "Selecione a cidade"}</option>
+              {cities.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
+            </select>
           </label>
-          <button disabled={loading}>{loading ? "Buscando barbearias..." : "Buscar barbearias"}</button>
+          <button disabled={loading || citiesLoading || !city}>{loading ? "Buscando barbearias..." : "Buscar barbearias"}</button>
         </form>
+        {citiesError && <div className="inline-error">{citiesError}</div>}
         <div className="quick-searches">
           <span>Exemplos:</span>
           {["São Paulo, SP", "Curitiba, PR", "São José dos Pinhais, PR"].map((example) => <button type="button" key={example} onClick={() => search(null, example)}>{example}</button>)}
@@ -330,7 +404,7 @@ export default function ProspeccaoPage() {
           {STATUS_OPTIONS.map(([value, label]) => <div key={value}><strong>{funnelCounts[value] || 0}</strong><span>{label}</span></div>)}
         </div>
         {funnel.length === 0 ? (
-          <div className="empty-funnel"><strong>Seu funil ainda está vazio.</strong><span>Pesquise uma cidade, selecione celulares válidos e toque em “Adicionar ao funil”.</span></div>
+          <div className="empty-funnel"><strong>Seu funil ainda está vazio.</strong><span>Escolha um estado e uma cidade, selecione celulares válidos e toque em “Adicionar ao funil”.</span></div>
         ) : (
           <div className="funnel-list">
             {funnel.map((item) => (
