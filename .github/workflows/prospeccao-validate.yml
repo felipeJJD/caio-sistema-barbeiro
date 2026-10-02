@@ -16,9 +16,6 @@ jobs:
     name: Testes e build da Prospecção
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: prospeccao
     steps:
       - name: Baixar código
         uses: actions/checkout@v5
@@ -26,9 +23,13 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24.13.0
+      - name: Isolar app da Prospecção
+        run: |
+          mkdir -p "$RUNNER_TEMP/ca-prospeccao"
+          cp -R prospeccao/. "$RUNNER_TEMP/ca-prospeccao/"
       - name: Instalar dependências
-        run: npm install --no-audit --no-fund
+        run: cd "$RUNNER_TEMP/ca-prospeccao" && npm install --no-audit --no-fund
       - name: Rodar testes automatizados
-        run: npm test
+        run: cd "$RUNNER_TEMP/ca-prospeccao" && npm test
       - name: Validar build de produção
-        run: npm run build
+        run: cd "$RUNNER_TEMP/ca-prospeccao" && npm run build
