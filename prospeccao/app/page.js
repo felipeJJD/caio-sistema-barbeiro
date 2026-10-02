@@ -103,7 +103,7 @@ export default function ProspeccaoPage() {
       setScope(payload.scope || "");
       setSearchTip(payload.tip || "");
       setHistory((current) => [query, ...current.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6));
-      if (!nextLeads.length) setNotice("Não achei empresas desse ramo nessa cidade. Tente conferir o nome da cidade ou informar também a UF.");
+      if (!nextLeads.length) setNotice("Não achei barbearias nessa cidade. Confira o nome ou informe também a UF.");
     } catch (searchError) {
       setLeads([]);
       setSearchedCity("");
@@ -194,9 +194,9 @@ export default function ProspeccaoPage() {
   }
 
   function potentialLabel(value) {
-    if (value === "alto") return "Nome indica barbearia";
+    if (value === "alto") return "Barbearia confirmada";
     if (value === "bom") return "Celular válido";
-    return "Cadastro do ramo";
+    return "Telefone fixo";
   }
 
   return (
@@ -213,11 +213,11 @@ export default function ProspeccaoPage() {
         <div>
           <span className="eyebrow">NOVOS CLIENTES</span>
           <h1>Encontre barbearias.<br /><em>Organize a abordagem.</em></h1>
-          <p>Digite uma cidade. O sistema procura empresas do ramo, valida os telefones disponíveis e prepara sua abordagem.</p>
+          <p>Digite uma cidade. O sistema procura barbearias reais, valida os telefones encontrados e prepara sua abordagem.</p>
         </div>
         <div className="hero-status">
           <span className="status-dot" />
-          <div><strong>Busca gratuita ativa</strong><small>Cadastros públicos + validação de telefone brasileiro</small></div>
+          <div><strong>Busca gratuita ativa</strong><small>Lugares comerciais + validação de telefone brasileiro</small></div>
         </div>
       </section>
 
@@ -231,7 +231,7 @@ export default function ProspeccaoPage() {
             <span>Cidade</span>
             <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Ex.: São Paulo" minLength={2} maxLength={90} autoComplete="off" required />
           </label>
-          <button disabled={loading}>{loading ? "Buscando empresas..." : "Buscar barbearias"}</button>
+          <button disabled={loading}>{loading ? "Buscando barbearias..." : "Buscar barbearias"}</button>
         </form>
         <div className="quick-searches">
           <span>Exemplos:</span>
@@ -244,7 +244,7 @@ export default function ProspeccaoPage() {
         <>
           <section className="result-context">
             <div><strong>{searchedCity}</strong><small>{scope ? `Pesquisa em ${scope}.` : ""} {searchTip}</small></div>
-            <span>{leads.length} cadastro{leads.length === 1 ? "" : "s"}</span>
+            <span>{leads.length} barbearia{leads.length === 1 ? "" : "s"}</span>
           </section>
 
           <section className="stats-grid">
@@ -255,7 +255,7 @@ export default function ProspeccaoPage() {
 
           <section className="leads-card">
             <div className="leads-toolbar">
-              <div><strong>Contatos encontrados</strong><small>Telefones incompletos são descartados. Para a fila, liberamos só celulares brasileiros com formato válido.</small></div>
+              <div><strong>Barbearias encontradas</strong><small>Números incompletos são descartados. Para a fila, liberamos celulares brasileiros com formato válido.</small></div>
               <div className="toolbar-actions"><button type="button" onClick={selectAllWithWhatsApp}>Selecionar celulares válidos</button>{selected.size > 0 && <button type="button" className="ghost" onClick={() => setSelected(new Set())}>Limpar</button>}</div>
             </div>
             <div className="filters">
@@ -279,18 +279,18 @@ export default function ProspeccaoPage() {
                         {lead.whatsappCandidate ? (
                           <span className="phone ok">Celular: {lead.phone}</span>
                         ) : lead.phoneKind === "landline" ? (
-                          <span className="phone missing">Fixo: {lead.phone} · não liberado para WhatsApp</span>
+                          <span className="phone missing">Fixo: {lead.phone} · ainda não liberado para WhatsApp</span>
                         ) : (
                           <span className="phone missing">Sem celular válido no cadastro</span>
                         )}
-                        {lead.sourceUrl && <a href={lead.sourceUrl} target="_blank" rel="noreferrer">Ver cadastro ↗</a>}
+                        {lead.website && <a href={lead.website} target="_blank" rel="noreferrer">Site ↗</a>}
                       </div>
                     </div>
                   </article>
                 );
               })}
             </div>
-            <p className="attribution">Dados cadastrais públicos da Receita Federal consultados por fonte aberta. A validação atual confirma o formato do celular; a confirmação de existência no WhatsApp será feita pela Evolution antes do disparo automático.</p>
+            <p className="attribution">Dados de lugares: Overture Maps Foundation e fontes contribuidoras. O formato do telefone é validado antes de entrar no funil; quando conectarmos o número de prospecção, a Evolution fará a confirmação automática de WhatsApp.</p>
           </section>
         </>
       )}
