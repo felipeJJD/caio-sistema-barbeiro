@@ -1,27 +1,48 @@
 "use client";
 
 import Image from "next/image";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const slides = [
   { key: "painel", label: "Painel", image: "/landing/real/painel.webp", width: 320, height: 693 },
   { key: "agenda", label: "Agenda", image: "/landing/real/agenda.webp", width: 320, height: 693 },
-  { key: "registrar", label: "Registrar", image: "/landing/real/registrar.webp", width: 320, height: 693 },
+  { key: "registrar", label: "Registrar", image: "/landing/real/registrar.webp", width: 400, height: 866 },
   { key: "historico", label: "Histórico", image: "/landing/real/historico.webp", width: 320, height: 693 },
   { key: "whatsapp", label: "WhatsApp", image: "/landing/real/whatsapp.webp", width: 320, height: 693 },
   { key: "menu", label: "Menu lateral", image: "/landing/real/menu.webp", width: 320, height: 692 },
 ] as const;
 
+const ADVANCE_DELAY_MS = 4200;
+
 export function PublicProductSlider() {
   const trackRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
+  const [motionStopped, setMotionStopped] = useState(false);
 
-  function goTo(index: number) {
+  const goTo = useCallback((index: number, behavior: ScrollBehavior = "smooth") => {
     const track = trackRef.current;
     const target = track?.children.item(index) as HTMLElement | null;
     if (!track || !target) return;
-    track.scrollTo({ left: target.offsetLeft - track.offsetLeft, behavior: "smooth" });
+    track.scrollTo({ left: target.offsetLeft - track.offsetLeft, behavior });
     setActive(index);
+  }, []);
+
+  useEffect(() => {
+    if (motionStopped) return;
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) return;
+
+    const timer = window.setTimeout(() => {
+      const next = (active + 1) % slides.length;
+      goTo(next, next === 0 ? "auto" : "smooth");
+    }, ADVANCE_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [active, goTo, motionStopped]);
+
+  function stopMotion() {
+    setMotionStopped(true);
   }
 
   function syncActive() {
@@ -41,13 +62,21 @@ export function PublicProductSlider() {
   }
 
   return (
-    <section className="public-real-preview" id="produto" aria-label="Capturas reais do aplicativo Cortou Anotou">
+    <section
+      className="public-real-preview"
+      id="produto"
+      aria-label="Capturas reais do aplicativo Cortou Anotou"
+      onMouseEnter={stopMotion}
+      onPointerDown={stopMotion}
+      onFocusCapture={stopMotion}
+      onKeyDownCapture={stopMotion}
+    >
       <div className="public-real-preview-head">
         <div>
           <span>TELAS REAIS DO C|A</span>
           <strong>{slides[active].label}</strong>
         </div>
-        <small>Arraste para o lado</small>
+        <small>{motionStopped ? "Você está no controle" : "Passa sozinho • toque para parar"}</small>
       </div>
 
       <div className="public-real-preview-track" ref={trackRef} onScroll={syncActive}>
@@ -59,7 +88,7 @@ export function PublicProductSlider() {
                 alt={`Tela real do Cortou Anotou — ${slide.label}`}
                 width={slide.width}
                 height={slide.height}
-                sizes="(max-width: 430px) 190px, 205px"
+                sizes="(max-width: 430px) 268px, (max-width: 900px) 276px, 280px"
                 unoptimized
                 priority={index === 0}
               />
@@ -70,7 +99,13 @@ export function PublicProductSlider() {
       </div>
 
       <div className="public-real-preview-controls">
-        <button type="button" onClick={() => goTo(Math.max(0, active - 1))} disabled={active === 0} aria-label="Tela anterior">←</button>
+        <button
+          type="button"
+          onClick={() => goTo((active - 1 + slides.length) % slides.length)}
+          aria-label="Tela anterior"
+        >
+          ←
+        </button>
         <div className="public-real-preview-dots" aria-label="Telas do aplicativo">
           {slides.map((slide, index) => (
             <button
@@ -82,7 +117,13 @@ export function PublicProductSlider() {
             />
           ))}
         </div>
-        <button type="button" onClick={() => goTo(Math.min(slides.length - 1, active + 1))} disabled={active === slides.length - 1} aria-label="Próxima tela">→</button>
+        <button
+          type="button"
+          onClick={() => goTo((active + 1) % slides.length)}
+          aria-label="Próxima tela"
+        >
+          →
+        </button>
       </div>
     </section>
   );
