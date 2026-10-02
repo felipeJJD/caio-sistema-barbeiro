@@ -119,7 +119,7 @@ function isActiveReservation(row, now = Date.now()) {
 export async function filterAvailableLeads(rawLeads) {
   const leads = Array.isArray(rawLeads) ? rawLeads : [];
   const keys = [...new Set(leads.map(leadKeyFrom).filter(Boolean))];
-  if (!keys.length) return { leads, hiddenCount: 0 };
+  if (!keys.length || !databaseUrl()) return { leads, hiddenCount: 0 };
   await ensureClaimsSchema();
   const result = await getPool().query(
     `SELECT lead_key, status, reserved_until
