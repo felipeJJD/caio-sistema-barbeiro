@@ -73,7 +73,6 @@ export function PublicProductSlider() {
           <span>TELAS REAIS DO C|A</span>
           <strong>{slides[active].label}</strong>
         </div>
-        <small>{interacting ? "Pausado • solte para continuar" : "Passa sozinho • toque para pausar"}</small>
       </div>
 
       <div className="public-real-preview-track" ref={trackRef} onScroll={syncActive}>

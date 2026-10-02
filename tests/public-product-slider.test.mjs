@@ -41,7 +41,7 @@ test("slider avança sozinho em loop a cada dois segundos e retoma após intera�
   assert.match(component, /onPointerDown=\{\(\) => setInteracting\(true\)\}/);
   assert.match(component, /onPointerUp=\{\(\) => setInteracting\(false\)\}/);
   assert.match(component, /onPointerCancel=\{\(\) => setInteracting\(false\)\}/);
-  assert.match(component, /Passa sozinho • toque para pausar/);
+  assert.doesNotMatch(component, /Passa sozinho|Pausado • solte para continuar/);
   assert.doesNotMatch(component, /stopMotion/);
 });
 
