@@ -1,7 +1,12 @@
-const USER_AGENT = "CortouAnotouProspeccao/1.1 (https://cortouanotou.com.br)";
+const USER_AGENT = "CortouAnotouProspeccao/1.2 (https://cortouanotou.com.br)";
 const BARBER_CNAE = "9602501";
 const VALID_UFS = new Set([
   "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
+]);
+const VALID_DDDS = new Set([
+  "11","12","13","14","15","16","17","18","19","21","22","24","27","28","31","32","33","34","35","37","38",
+  "41","42","43","44","45","46","47","48","49","51","53","54","55","61","62","63","64","65","66","67","68","69",
+  "71","73","74","75","77","79","81","82","83","84","85","86","87","88","89","91","92","93","94","95","96","97","98","99",
 ]);
 
 const UF_BY_STATE = new Map(Object.entries({
@@ -20,16 +25,43 @@ function normalize(value) {
   return text(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function formatPhone(value) {
+function parseBrazilPhone(value) {
   let digits = text(value).replace(/\D/g, "");
+  if (!digits) return null;
+
+  if (digits.startsWith("0055") && (digits.length === 14 || digits.length === 15)) digits = digits.slice(4);
   if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) digits = digits.slice(2);
-  if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
-  if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-  return text(value);
+  if (digits.startsWith("0") && (digits.length === 11 || digits.length === 12)) digits = digits.slice(1);
+
+  if (digits.length !== 10 && digits.length !== 11) return null;
+  const ddd = digits.slice(0, 2);
+  if (!VALID_DDDS.has(ddd)) return null;
+
+  const subscriber = digits.slice(2);
+  if (/^(\d)\1+$/.test(subscriber)) return null;
+
+  const mobile = digits.length === 11 && digits[2] === "9";
+  const landline = digits.length === 10 && /^[2-5]/.test(digits[2]);
+  if (!mobile && !landline) return null;
+
+  const display = mobile
+    ? `(${ddd}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+    : `(${ddd}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+
+  return {
+    national: digits,
+    e164: `55${digits}`,
+    display,
+    kind: mobile ? "mobile" : "landline",
+    whatsappCandidate: mobile,
+  };
 }
 
-function bestPhone(company) {
-  return formatPhone(company?.ddd_telefone_1 || company?.ddd_telefone_2 || "");
+function bestContact(company) {
+  const contacts = [company?.ddd_telefone_1, company?.ddd_telefone_2]
+    .map(parseBrazilPhone)
+    .filter(Boolean);
+  return contacts.find((contact) => contact.kind === "mobile") || contacts[0] || null;
 }
 
 function companyName(company) {
@@ -45,7 +77,7 @@ function companyAddress(company, fallbackCity) {
 function potentialFor(company) {
   const haystack = normalize(`${company?.nome_fantasia || ""} ${company?.razao_social || ""}`);
   if (/barbearia|barber|barbershop|barber shop/.test(haystack)) return "alto";
-  return bestPhone(company) ? "bom" : "possível";
+  return bestContact(company)?.whatsappCandidate ? "bom" : "possível";
 }
 
 async function fetchJson(url, timeoutMs = 14_000) {
@@ -165,10 +197,14 @@ async function searchCompanies(municipalityCode, uf) {
 
 function toLead(company, fallbackCity) {
   const cnpj = text(company?.cnpj).replace(/\D/g, "");
+  const contact = bestContact(company);
   return {
     id: cnpj ? `cnpj-${cnpj}` : `company-${Math.random().toString(36).slice(2)}`,
     name: companyName(company),
-    phone: bestPhone(company),
+    phone: contact?.display || "",
+    phoneE164: contact?.e164 || "",
+    phoneKind: contact?.kind || "",
+    whatsappCandidate: Boolean(contact?.whatsappCandidate),
     address: companyAddress(company, fallbackCity),
     website: "",
     sourceUrl: cnpj ? `https://minhareceita.org/${cnpj}` : "",
@@ -193,13 +229,14 @@ export async function GET(request) {
     for (const company of companies) {
       if (normalize(company?.descricao_situacao_cadastral) !== "ativa") continue;
       const lead = toLead(company, municipality.nome || resolved.city);
-      const key = lead.cnpj || `${normalize(lead.name)}|${lead.phone.replace(/\D/g, "")}`;
+      const key = lead.cnpj || `${normalize(lead.name)}|${lead.phoneE164}`;
       if (!unique.has(key)) unique.set(key, lead);
     }
 
     const order = { alto: 0, bom: 1, possível: 2 };
     const leads = [...unique.values()]
       .sort((a, b) => {
+        if (a.whatsappCandidate !== b.whatsappCandidate) return a.whatsappCandidate ? -1 : 1;
         if (Boolean(a.phone) !== Boolean(b.phone)) return a.phone ? -1 : 1;
         if (a.potential !== b.potential) return order[a.potential] - order[b.potential];
         return a.name.localeCompare(b.name, "pt-BR");
@@ -214,7 +251,7 @@ export async function GET(request) {
       leads,
       source: "CNPJ público / Minha Receita",
       attribution: "Dados cadastrais públicos da Receita Federal, consultados via Minha Receita.",
-      tip: "O CNAE 9602501 inclui barbearias e também alguns cabeleireiros/manicures; use o nome e telefone para escolher quem faz sentido abordar.",
+      tip: "Telefones incompletos ou com formato inválido são descartados. Nesta etapa, só celulares brasileiros válidos são liberados para o WhatsApp; a confirmação de que a conta existe no WhatsApp será feita pela Evolution.",
     });
   } catch (error) {
     const status = Number(error?.status) || 503;
