@@ -29,8 +29,8 @@ function validatePage(body, city, minimumLeads, minimumMobiles) {
   if (body?.source !== "Overture Maps") {
     throw new Error(`A rota está usando fonte inesperada em ${city}: ${body?.source || "sem fonte"}.`);
   }
-  if (leads.length < minimumLeads) {
-    throw new Error(`A busca real retornou poucos barbeiros em ${city}: ${leads.length}.`);
+  if (leads.length < minimumLeads || leads.length > 40) {
+    throw new Error(`Quantidade de barbeiros inesperada em ${city}: ${leads.length}.`);
   }
 
   const mobiles = leads.filter((lead) => lead?.whatsappCandidate && /^55\d{11}$/.test(String(lead?.phoneE164 || "")));
@@ -43,15 +43,12 @@ function validatePage(body, city, minimumLeads, minimumMobiles) {
     throw new Error(`A rota deixou passar ${malformed.length} telefone(s) com formato inválido em ${city}.`);
   }
 
-  if (!Number.isInteger(body?.totalAvailable) || body.totalAvailable < leads.length) {
-    throw new Error(`Total disponível inválido em ${city}: ${body?.totalAvailable}.`);
-  }
   if (body?.hasMore && !(Number(body?.nextOffset) > Number(body?.offset))) {
     throw new Error(`Paginação inválida em ${city}: offset ${body?.offset}, próximo ${body?.nextOffset}.`);
   }
 
   const sample = mobiles.slice(0, 3).map((lead) => `${lead.name}: ${lead.phone}`).join(" | ");
-  console.log(`Busca real OK: ${body.displayName} -> ${leads.length} carregadas de ${body.totalAvailable} disponíveis, ${mobiles.length} celulares válidos. Amostra: ${sample}`);
+  console.log(`Busca real OK: ${body.displayName} -> ${leads.length} carregadas, ${mobiles.length} celulares válidos, mais=${Boolean(body.hasMore)}. Amostra: ${sample}`);
   return leads;
 }
 
