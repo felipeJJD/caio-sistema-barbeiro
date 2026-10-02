@@ -7,7 +7,7 @@ const STORAGE_HISTORY = "ca-prospeccao-search-history-v1";
 
 const TEMPLATES = {
   curta: "Oi pessoal da {barbearia}! Tudo bem? Aqui é do Cortou Anotou. Criamos um sistema simples para barbearias cuidarem de agenda, atendimentos, equipe e financeiro pelo celular. Posso te mandar o link pra conhecer?",
-  consultiva: "Oi pessoal da {barbearia}! Tudo certo? Vi a barbearia de vocês em {cidade}. Eu faço parte do Cortou Anotou, um sistema feito para facilitar agenda, registro de atendimentos, equipe e financeiro. Se fizer sentido, posso te mostrar rapidinho como funciona, sem compromisso.",
+  consultiva: "Oi pessoal da {barbearia}! Tudo certo? Encontrei o contato de vocês em {cidade}. Eu faço parte do Cortou Anotou, um sistema feito para facilitar agenda, registro de atendimentos, equipe e financeiro. Se fizer sentido, posso te mostrar rapidinho como funciona, sem compromisso.",
 };
 
 const STATUS_OPTIONS = [
@@ -19,7 +19,7 @@ const STATUS_OPTIONS = [
 ];
 
 function initials(name) {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "BA";
+  return String(name || "").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "BA";
 }
 
 function phoneDigits(phone) {
@@ -30,13 +30,13 @@ function phoneDigits(phone) {
 
 function contactKey(lead) {
   const digits = phoneDigits(lead.phone);
-  return digits ? `phone:${digits}` : `osm:${lead.id}`;
+  return digits ? `phone:${digits}` : `lead:${lead.id}`;
 }
 
 function personalize(template, lead, city) {
   return template
     .replaceAll("{barbearia}", lead?.name || "barbearia")
-    .replaceAll("{cidade}", city?.split(",")[0] || "sua cidade");
+    .replaceAll("{cidade}", String(city || "sua cidade").split(",")[0]);
 }
 
 function safeLoad(key, fallback) {
@@ -71,13 +71,11 @@ export default function ProspeccaoPage() {
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
-    localStorage.setItem(STORAGE_FUNNEL, JSON.stringify(funnel));
+    if (ready) localStorage.setItem(STORAGE_FUNNEL, JSON.stringify(funnel));
   }, [funnel, ready]);
 
   useEffect(() => {
-    if (!ready) return;
-    localStorage.setItem(STORAGE_HISTORY, JSON.stringify(history));
+    if (ready) localStorage.setItem(STORAGE_HISTORY, JSON.stringify(history));
   }, [history, ready]);
 
   const phoneCount = useMemo(() => leads.filter((lead) => lead.phone).length, [leads]);
@@ -101,6 +99,7 @@ export default function ProspeccaoPage() {
     setSearchTip("");
     setScope("");
     setSelected(new Set());
+
     try {
       const response = await fetch(`/api/leads/search?city=${encodeURIComponent(query)}`, { cache: "no-store" });
       const payload = await response.json();
@@ -111,7 +110,7 @@ export default function ProspeccaoPage() {
       setScope(payload.scope || "");
       setSearchTip(payload.tip || "");
       setHistory((current) => [query, ...current.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6));
-      if (!nextLeads.length) setNotice("Não achei cadastros públicos de barbearias nessa cidade. Confira o nome e tente cidade + UF, por exemplo: Curitiba, PR.");
+      if (!nextLeads.length) setNotice("Não achei empresas desse ramo nessa cidade. Tente conferir o nome da cidade ou informar também a UF.");
     } catch (searchError) {
       setLeads([]);
       setSearchedCity("");
@@ -136,13 +135,9 @@ export default function ProspeccaoPage() {
     setNotice(ids.length ? `${ids.length} contatos com telefone selecionados.` : "Nenhum contato com telefone nessa lista.");
   }
 
-  function clearSelection() {
-    setSelected(new Set());
-  }
-
   function prepare() {
     if (!selectedWithPhone.length) {
-      setNotice("Selecione pelo menos uma barbearia que tenha telefone público.");
+      setNotice("Selecione pelo menos uma barbearia que tenha telefone.");
       return;
     }
     const now = new Date().toISOString();
@@ -168,7 +163,7 @@ export default function ProspeccaoPage() {
       }
       return [...map.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     });
-    setNotice(`${selectedWithPhone.length} contato${selectedWithPhone.length === 1 ? "" : "s"} adicionado${selectedWithPhone.length === 1 ? "" : "s"} ao funil. Nada foi enviado automaticamente.`);
+    setNotice(`${selectedWithPhone.length} contato${selectedWithPhone.length === 1 ? "" : "s"} adicionado${selectedWithPhone.length === 1 ? "" : "s"} ao funil.`);
     setSelected(new Set());
     setTimeout(() => document.getElementById("funil")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
@@ -192,18 +187,15 @@ export default function ProspeccaoPage() {
 
   function openWhatsApp(item) {
     const digits = phoneDigits(item.phone);
-    if (!digits) {
-      setNotice("Esse contato não tem um número válido para abrir no WhatsApp.");
-      return;
-    }
+    if (!digits) return setNotice("Esse contato não tem um número válido para abrir no WhatsApp.");
     const url = `https://wa.me/${digits}?text=${encodeURIComponent(item.message || personalize(message, item, item.city))}`;
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
   function potentialLabel(value) {
-    if (value === "alto") return "Bom potencial";
-    if (value === "bom") return "Provável barbearia";
-    return "Possível lead";
+    if (value === "alto") return "Nome indica barbearia";
+    if (value === "bom") return "Cadastro com telefone";
+    return "Cadastro do ramo";
   }
 
   return (
@@ -220,29 +212,29 @@ export default function ProspeccaoPage() {
         <div>
           <span className="eyebrow">NOVOS CLIENTES</span>
           <h1>Encontre barbearias.<br /><em>Organize a abordagem.</em></h1>
-          <p>Pesquise uma cidade, escolha os contatos públicos e acompanhe cada oportunidade até virar cliente.</p>
+          <p>Digite uma cidade. O sistema procura empresas do ramo, mostra os telefones disponíveis e prepara sua abordagem.</p>
         </div>
         <div className="hero-status">
           <span className="status-dot" />
-          <div><strong>Busca gratuita ativa</strong><small>OpenStreetMap + busca com rotas alternativas</small></div>
+          <div><strong>Busca gratuita ativa</strong><small>Cadastros públicos de empresas + localização por cidade</small></div>
         </div>
       </section>
 
       <section className="search-card">
         <div className="section-heading">
-          <div><span>1</span><div><strong>Encontrar barbearias</strong><small>Digite uma cidade brasileira. Para ficar preciso, use cidade + UF.</small></div></div>
+          <div><span>1</span><div><strong>Encontrar barbearias</strong><small>Pode escrever “São Paulo” ou, para maior precisão, “São Paulo, SP”.</small></div></div>
           <b>GRÁTIS</b>
         </div>
         <form className="search-form" onSubmit={search}>
           <label>
             <span>Cidade</span>
-            <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Ex.: Curitiba, PR" minLength={2} maxLength={90} autoComplete="off" required />
+            <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Ex.: São Paulo" minLength={2} maxLength={90} autoComplete="off" required />
           </label>
-          <button disabled={loading}>{loading ? "Buscando na região..." : "Buscar barbearias"}</button>
+          <button disabled={loading}>{loading ? "Buscando empresas..." : "Buscar barbearias"}</button>
         </form>
         <div className="quick-searches">
           <span>Exemplos:</span>
-          {["Curitiba, PR", "São José dos Pinhais, PR", "Londrina, PR"].map((example) => <button type="button" key={example} onClick={() => search(null, example)}>{example}</button>)}
+          {["São Paulo, SP", "Curitiba, PR", "São José dos Pinhais, PR"].map((example) => <button type="button" key={example} onClick={() => search(null, example)}>{example}</button>)}
         </div>
         {history.length > 0 && <div className="search-history"><span>Recentes:</span>{history.map((item) => <button type="button" key={item} onClick={() => search(null, item)}>{item}</button>)}</div>}
       </section>
@@ -250,20 +242,20 @@ export default function ProspeccaoPage() {
       {(leads.length > 0 || searchedCity) && (
         <>
           <section className="result-context">
-            <div><strong>{searchedCity}</strong><small>{scope ? `Pesquisa pelo ${scope}.` : ""} {searchTip}</small></div>
-            <span>{leads.length} cadastro{leads.length === 1 ? "" : "s"} público{leads.length === 1 ? "" : "s"}</span>
+            <div><strong>{searchedCity}</strong><small>{scope ? `Pesquisa em ${scope}.` : ""} {searchTip}</small></div>
+            <span>{leads.length} cadastro{leads.length === 1 ? "" : "s"}</span>
           </section>
 
           <section className="stats-grid">
             <article><small>ENCONTRADAS</small><strong>{leads.length}</strong><span>nessa busca</span></article>
-            <article><small>COM TELEFONE</small><strong>{phoneCount}</strong><span>para abordagem manual</span></article>
+            <article><small>COM TELEFONE</small><strong>{phoneCount}</strong><span>prontas para selecionar</span></article>
             <article className="gold"><small>SELECIONADAS</small><strong>{selected.size}</strong><span>{selectedWithPhone.length} com telefone</span></article>
           </section>
 
           <section className="leads-card">
             <div className="leads-toolbar">
-              <div><strong>Barbearias encontradas</strong><small>Incluímos barbearias claras e possíveis cadastros de cabeleireiro masculino para você decidir.</small></div>
-              <div className="toolbar-actions"><button type="button" onClick={selectAllWithPhone}>Selecionar com telefone</button>{selected.size > 0 && <button type="button" className="ghost" onClick={clearSelection}>Limpar</button>}</div>
+              <div><strong>Contatos encontrados</strong><small>O CNAE inclui barbearias e negócios próximos do mesmo ramo. Você escolhe quem faz sentido abordar.</small></div>
+              <div className="toolbar-actions"><button type="button" onClick={selectAllWithPhone}>Selecionar com telefone</button>{selected.size > 0 && <button type="button" className="ghost" onClick={() => setSelected(new Set())}>Limpar</button>}</div>
             </div>
             <div className="filters">
               <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Todas <b>{leads.length}</b></button>
@@ -282,23 +274,22 @@ export default function ProspeccaoPage() {
                       <div className="lead-title"><strong>{lead.name}</strong><span className={`potential ${lead.potential === "alto" ? "high" : lead.potential === "bom" ? "medium" : ""}`}>{potentialLabel(lead.potential)}</span></div>
                       <p>{lead.address || "Endereço não informado"}</p>
                       <div className="lead-meta">
-                        <span className={lead.phone ? "phone ok" : "phone missing"}>{lead.phone ? `Contato: ${lead.phone}` : "Telefone não publicado nessa fonte"}</span>
-                        {lead.website && <a href={/^https?:\/\//i.test(lead.website) ? lead.website : `https://${lead.website.replace(/^@/, "instagram.com/")}`} target="_blank" rel="noreferrer">Site/rede ↗</a>}
-                        {lead.sourceUrl && <a href={lead.sourceUrl} target="_blank" rel="noreferrer">Ver fonte ↗</a>}
+                        <span className={lead.phone ? "phone ok" : "phone missing"}>{lead.phone ? `Contato: ${lead.phone}` : "Telefone não publicado no cadastro"}</span>
+                        {lead.sourceUrl && <a href={lead.sourceUrl} target="_blank" rel="noreferrer">Ver cadastro ↗</a>}
                       </div>
                     </div>
                   </article>
                 );
               })}
             </div>
-            <p className="attribution">Dados públicos de localização: © OpenStreetMap contributors. Telefone, site e nome aparecem somente quando foram publicados na fonte.</p>
+            <p className="attribution">Dados cadastrais públicos da Receita Federal consultados por fonte aberta. Telefone aparece somente quando existe no cadastro público da empresa.</p>
           </section>
         </>
       )}
 
       <section className="message-card">
         <div className="section-heading">
-          <div><span>2</span><div><strong>Mensagem de abordagem</strong><small>Use {"{barbearia}"} e {"{cidade}"}; o sistema troca automaticamente para cada contato.</small></div></div>
+          <div><span>2</span><div><strong>Mensagem de abordagem</strong><small>Use {"{barbearia}"} e {"{cidade}"}; o sistema personaliza cada contato.</small></div></div>
           <b>{message.length} caracteres</b>
         </div>
         <div className="template-row">
@@ -307,14 +298,14 @@ export default function ProspeccaoPage() {
         </div>
         <textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={1200} rows={7} />
         <div className="message-options">
-          <div className="future-ai"><span>✦</span><div><strong>Personalização automática</strong><small>Nome da barbearia e cidade já são adaptados sem chamar IA.</small></div></div>
+          <div className="future-ai"><span>✦</span><div><strong>Personalização automática</strong><small>Nome da barbearia e cidade são adaptados para cada contato.</small></div></div>
           <button type="button" onClick={() => copyText(message, "Modelo")}>Copiar modelo</button>
         </div>
       </section>
 
       <section className="flow-card">
         <div className="section-heading">
-          <div><span>3</span><div><strong>Adicionar ao funil</strong><small>Salva a oportunidade neste navegador e prepara a mensagem individual.</small></div></div>
+          <div><span>3</span><div><strong>Adicionar ao funil</strong><small>Escolha os contatos e prepare as mensagens individuais.</small></div></div>
         </div>
         <div className="flow-line">
           <span className="done">Encontrar</span><i>→</i><span className={selected.size ? "done" : ""}>Selecionar</span><i>→</i><span>Preparado</span><i>→</i><span>Contatado</span><i>→</i><span>Interessado</span>
@@ -324,7 +315,7 @@ export default function ProspeccaoPage() {
 
       <section className="funnel-card" id="funil">
         <div className="section-heading">
-          <div><span>4</span><div><strong>Funil de prospecção</strong><small>Fica salvo neste iPhone/navegador. Você atualiza o andamento de cada barbearia.</small></div></div>
+          <div><span>4</span><div><strong>Funil de prospecção</strong><small>Fica salvo neste navegador e você atualiza o andamento de cada contato.</small></div></div>
           <b>{funnel.length} contatos</b>
         </div>
         <div className="funnel-stats">
@@ -349,14 +340,14 @@ export default function ProspeccaoPage() {
             ))}
           </div>
         )}
-        <p className="safety-note"><strong>Importante:</strong> abrir o WhatsApp só prepara a conversa. O envio continua manual e sob sua confirmação.</p>
+        <p className="safety-note"><strong>Importante:</strong> abrir o WhatsApp prepara a conversa. O envio continua manual nesta etapa.</p>
       </section>
 
       {(error || notice) && <div className={error ? "notice error" : "notice"}>{error || notice}</div>}
 
       <footer>
         <strong>C|A — Prospecção</strong>
-        <span>Projeto separado do Cortou Anotou principal. Nenhum disparo automático está ativo.</span>
+        <span>Projeto separado do Cortou Anotou principal.</span>
       </footer>
     </main>
   );
