@@ -1,4 +1,4 @@
-import { markClaimContacted, reserveClaimLeads } from "../../../lib/affiliate-claims.js";
+import { listClaims, markClaimContacted, recordClaimInbound, reserveClaimLeads } from "../../../lib/affiliate-claims.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +27,20 @@ async function bodyOf(request) {
   }
 }
 
+export async function GET(request) {
+  try {
+    const url = new URL(request.url);
+    const result = await listClaims({
+      ...identity(request),
+      view: url.searchParams.get("view") || "contacted",
+      limit: url.searchParams.get("limit") || "100",
+    });
+    return Response.json(result, { headers: { "cache-control": "no-store" } });
+  } catch (error) {
+    return jsonError(error);
+  }
+}
+
 export async function POST(request) {
   try {
     const body = await bodyOf(request);
@@ -37,8 +51,20 @@ export async function POST(request) {
       return Response.json(result, { status: 201, headers: { "cache-control": "no-store" } });
     }
     if (action === "contacted") {
-      const item = await markClaimContacted(body?.key, actor);
+      const item = await markClaimContacted(body?.key, {
+        ...actor,
+        message: body?.message || "",
+        providerMessageId: body?.providerMessageId || "",
+      });
       return Response.json({ item }, { headers: { "cache-control": "no-store" } });
+    }
+    if (action === "inbound") {
+      const result = await recordClaimInbound({
+        phoneE164: body?.phoneE164 || "",
+        message: body?.message || "Mensagem recebida",
+        providerMessageId: body?.providerMessageId || "",
+      });
+      return Response.json(result, { headers: { "cache-control": "no-store" } });
     }
     return Response.json({ error: "Ação inválida." }, { status: 400, headers: { "cache-control": "no-store" } });
   } catch (error) {
