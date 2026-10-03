@@ -99,6 +99,9 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   const [automaticSending, setAutomaticSending] = useState(false);
   const [jobs, setJobs] = useState<QueueJob[]>([]);
   const [batchId, setBatchId] = useState("");
+  const [jobActionId, setJobActionId] = useState("");
+  const [visibleJobs, setVisibleJobs] = useState(50);
+  const jobActionRef = useRef(false);
   const sendingRef = useRef(false);
   const batchJobs = jobs.filter(job => job.batchId === (batchId || jobs[0]?.batchId));
   const completed = batchJobs.filter(job => ["sent","failed","uncertain","cancelled"].includes(job.status)).length;
@@ -141,6 +144,23 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
       const payload = await response.json() as {jobs?:QueueJob[]};
       if (response.ok) setJobs(payload.jobs || []);
     } catch { /* Existing progress remains visible through a temporary connection loss. */ }
+  }
+
+  async function updateJob(job:QueueJob, action:"retry"|"confirm_sent") {
+    if (jobActionRef.current) return;
+    const question = action === "confirm_sent"
+      ? "Você conferiu no seu WhatsApp e essa mensagem foi realmente enviada?"
+      : "Essa tentativa falhou. Conferiu o número e quer tentar enviar a mesma mensagem novamente?";
+    if (!window.confirm(question)) return;
+    jobActionRef.current = true;setJobActionId(job.id);setError("");setNotice("");
+    try {
+      const response = await fetch("/api/affiliate/prospecting/queue",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action,id:job.id})});
+      const payload = await response.json() as {error?:unknown};
+      if (!response.ok) throw new Error(readableError(payload.error,"Não foi possível atualizar esse envio."));
+      setNotice(action === "retry" ? "Contato voltou para a fila. Os envios concluídos não serão repetidos." : "Envio confirmado. Essa mensagem não será repetida.");
+      await refreshQueue();window.dispatchEvent(new Event("prospecting-history-changed"));
+    } catch(cause) {setError(cause instanceof Error?cause.message:"Não foi possível atualizar esse envio.");}
+    finally {jobActionRef.current=false;setJobActionId("");}
   }
 
   const visibleLeads = useMemo(() => leads.slice(0, visibleCount), [leads, visibleCount]);
@@ -337,6 +357,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
       if (!response.ok) throw new Error(readableError(payload.error,"Não foi possível iniciar o envio."));
       const accepted = new Set((payload.jobs || []).map(job=>job.key));
       setBatchId(payload.jobs?.[0]?.batchId || "");
+      setVisibleJobs(50);
       setQueue(current=>current.filter(lead=>!accepted.has(`phone:${lead.phoneE164}`)));
       for (const lead of queue) if (accepted.has(`phone:${lead.phoneE164}`)) removeContactedFromScreen(lead);
       setQueueIndex(0);
@@ -411,8 +432,8 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
 
     {batchJobs.length > 0 && <section className={styles.card} aria-live="polite">
       <div className={styles.cardTitle}><div><b>Progresso do envio</b><span>{completed}/{batchJobs.length} processadas · {batchJobs.filter(job=>job.status==="sent").length} enviadas</span></div><button type="button" className={styles.secondary} onClick={()=>void refreshQueue()}>Atualizar</button></div>
-      <div className={styles.jobList}>{batchJobs.slice(0,50).map(job=><article key={job.id}><div><strong>{job.name}</strong><span>{job.delivery==="read"?"Lida":job.delivery==="delivered"?"Entregue":({pending:"Na fila",leased:"Preparando",sending:"Enviando",sent:"Enviada",failed:"Falhou",uncertain:"Conferir envio",cancelled:"Cancelada"} as Record<string,string>)[job.status]||job.status}</span></div>{job.error&&<p>{job.error}</p>}{job.status==="uncertain"&&<a href={`https://wa.me/${job.phoneE164}`} target="_blank" rel="noopener noreferrer">Conferir no meu WhatsApp</a>}</article>)}</div>
-      {batchJobs.length>50&&<p className={styles.helper}>Mostrando os 50 primeiros contatos. O progresso inclui o lote inteiro.</p>}
+      <div className={styles.jobList}>{batchJobs.slice(0,visibleJobs).map(job=><article key={job.id}><div><strong>{job.name}</strong><span>{job.delivery==="read"?"Lida":job.delivery==="delivered"?"Entregue":({pending:"Na fila",leased:"Preparando",sending:"Enviando",sent:"Enviada",failed:"Falhou",uncertain:"Conferir envio",cancelled:"Cancelada"} as Record<string,string>)[job.status]||job.status}</span></div>{job.error&&<p>{job.error}</p>}{job.status==="uncertain"&&<><a href={`https://wa.me/${job.phoneE164}`} target="_blank" rel="noopener noreferrer">Conferir no meu WhatsApp</a><button type="button" className={styles.secondary} onClick={()=>void updateJob(job,"confirm_sent")} disabled={Boolean(jobActionId)}>{jobActionId===job.id?"Registrando...":"Conferi: foi enviada"}</button></>}{job.status==="failed"&&<button type="button" className={styles.secondary} onClick={()=>void updateJob(job,"retry")} disabled={Boolean(jobActionId)}>{jobActionId===job.id?"Preparando...":"Tentar novamente"}</button>}</article>)}</div>
+      {batchJobs.length>visibleJobs&&<button type="button" className={styles.more} onClick={()=>setVisibleJobs(value=>value+50)}>Ver mais contatos do lote</button>}
     </section>}
 
     {(error || notice) && <div className={`${styles.notice} ${error ? styles.error : ""}`}>{error || notice}</div>}

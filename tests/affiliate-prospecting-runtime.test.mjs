@@ -57,6 +57,21 @@ test('falha após Evolution aceitar não manda a mensagem novamente',async()=>{
  });
  await api.runProspectingQueue();assert.equal(sends,1);assert.equal(commands.at(-1).status,'uncertain');
 });
+test('ações na fila usam a identidade da sessão e rejeitam acesso inativo e ações indevidas',async()=>{
+ let active=true;const calls=[];
+ const api=runtime('app/api/affiliate/prospecting/queue/route.ts',{
+ ['../'.repeat(5)+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active,affiliateId:42,name:'Afiliado'})},
+ ['../'.repeat(5)+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'}),affiliateProspectingFetch:async(path,options)=>{calls.push({path,...options});return {response:{status:200},payload:{ok:true}};}}
+ });
+ const request=body=>new Request('https://app.test/api/affiliate/prospecting/queue',{method:'POST',body:JSON.stringify(body)});
+ const id='12345678-1234-1234-1234-123456789012';
+ assert.equal((await api.POST(request({action:'retry',id,prospectorKey:'affiliate:99'}))).status,200);
+ assert.equal(calls[0].prospectorKey,'affiliate:42');assert.equal(calls[0].body.action,'retry');
+ assert.equal('prospectorKey' in calls[0].body,false);
+ assert.equal((await api.POST(request({action:'dispatch',id}))).status,400);
+ assert.equal((await api.POST(request({action:'retry',id:'------------------------------------'}))).status,400);
+ active=false;assert.equal((await api.POST(request({action:'confirm_sent',id}))).status,401);assert.equal(calls.length,1);
+});
 test('afiliado pausado cancela o trabalho sem enviar',async()=>{
  let sends=0;const commands=[];const job={id:'j',owner:'affiliate:42',instance:'ca-prospeccao-affiliate-42',leaseToken:'l'};
  const api=runtime('lib/affiliate-prospecting-processor.ts',{
