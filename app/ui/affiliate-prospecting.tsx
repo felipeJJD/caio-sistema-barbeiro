@@ -49,6 +49,22 @@ function mergeLeads(current: Lead[], incoming: Lead[]) {
   return [...map.values()];
 }
 
+function readableError(value: unknown, fallback: string): string {
+  if (typeof value === "string" && value.trim()) return value.trim().replace(/\[object Object\]/g, "").trim() || fallback;
+  if (Array.isArray(value)) {
+    const text: string = value.map((item) => readableError(item, "")).filter(Boolean).join(" · ");
+    return text || fallback;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of ["message", "error", "detail", "description"]) {
+      const text: string = readableError(record[key], "");
+      if (text) return text;
+    }
+  }
+  return fallback;
+}
+
 export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin }: { name: string; initialWhatsapp: string; signupUrl: string; isAdmin: boolean }) {
   const [uf, setUf] = useState("PR");
   const [city, setCity] = useState("Colombo");
@@ -284,36 +300,50 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     setAutomaticSending(true);
     setAutomaticProgress(0);
     setError("");
-    setNotice("Envio automático iniciado. Mantenha esta tela aberta até terminar.");
+    setNotice("Envio automático iniciado. Se algum número falhar, o sistema continua com os próximos.");
     let sent = 0;
+    const failed: Lead[] = [];
+    const failureMessages: string[] = [];
+
     try {
       for (let index = 0; index < batch.length; index += 1) {
         const lead = batch[index];
         setQueueIndex(index);
-        const response = await fetch("/api/affiliate/prospecting/whatsapp", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            action: "send",
-            lead,
-            city: searchedCity,
-            message: personalize(message, lead, signupUrl),
-          }),
-        });
-        const payload = await response.json().catch(() => ({})) as { sent?: boolean; warning?: string; error?: string };
-        if (!response.ok || !payload.sent) throw new Error(payload.error || "O envio automático foi interrompido.");
-        sent += 1;
-        setAutomaticProgress(sent);
-        removeContactedFromScreen(lead);
-        if (payload.warning) setNotice(payload.warning);
+        try {
+          const response = await fetch("/api/affiliate/prospecting/whatsapp", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              action: "send",
+              lead,
+              city: searchedCity,
+              message: personalize(message, lead, signupUrl),
+            }),
+          });
+          const payload = await response.json().catch(() => ({})) as { sent?: boolean; warning?: string; error?: unknown };
+          if (!response.ok || !payload.sent) {
+            throw new Error(readableError(payload.error, "Não foi possível enviar para esse número."));
+          }
+          sent += 1;
+          removeContactedFromScreen(lead);
+          if (payload.warning) setNotice(payload.warning);
+        } catch (cause) {
+          failed.push(lead);
+          failureMessages.push(`${lead.name}: ${cause instanceof Error ? cause.message : "não foi possível enviar"}`);
+        } finally {
+          setAutomaticProgress(index + 1);
+        }
       }
-      setQueue([]);
+
+      setQueue(failed);
       setQueueIndex(0);
-      setNotice(`${sent} mensagem${sent === 1 ? "" : "s"} enviada${sent === 1 ? "" : "s"} automaticamente. As barbearias já saíram das próximas buscas.`);
-    } catch (cause) {
-      setQueue(batch.slice(sent));
-      setQueueIndex(0);
-      setError(`${sent ? `${sent} enviada${sent === 1 ? "" : "s"}. ` : ""}${cause instanceof Error ? cause.message : "O envio automático foi interrompido."}`);
+      if (failed.length) {
+        const sentText = `${sent} mensagem${sent === 1 ? "" : "s"} enviada${sent === 1 ? "" : "s"}`;
+        const failedText = `${failed.length} não enviada${failed.length === 1 ? "" : "s"}`;
+        setError(`${sentText}. ${failedText} e ficou${failed.length === 1 ? "" : "aram"} na fila para tentar novamente. ${failureMessages[0] || ""}`.trim());
+      } else {
+        setNotice(`${sent} mensagem${sent === 1 ? "" : "s"} enviada${sent === 1 ? "" : "s"} automaticamente. As barbearias já saíram das próximas buscas.`);
+      }
     } finally {
       setAutomaticSending(false);
     }
