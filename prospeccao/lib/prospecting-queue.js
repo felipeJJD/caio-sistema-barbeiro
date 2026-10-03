@@ -44,7 +44,7 @@ export async function enqueue(owner, input) {
       const old = (await db.query(`SELECT * FROM affiliate_prospecting_queue WHERE lead_key = $1`, [leadKey])).rows[0];
       if (old && old.prospector_key === key && ['pending','leased','sending','uncertain','sent'].includes(old.status)) { jobs.push(jobView({ ...old, ...{name: claim.name,phone_e164:claim.phone_e164} })); continue; }
       if (claim.status !== 'reserved' || claim.responded_at || !(new Date(claim.reserved_until).getTime() > Date.now())) { blocked.push({ key: leadKey, reason: "Contato indisponível ou reserva expirada." }); continue; }
-      if (old && old.status === 'failed') { blocked.push({key:leadKey,reason:"Veja a falha no progresso antes de tentar novamente."}); continue; }
+      if (old && old.status === 'failed' && old.prospector_key === key) { blocked.push({key:leadKey,reason:"Veja a falha no progresso antes de tentar novamente."}); continue; }
       let message = template.replaceAll("{barbearia}", claim.name).replaceAll("{link}", signupUrl);
       if (!message.includes(signupUrl)) message += `\n${signupUrl}`;
       if (message.length > 1200) { blocked.push({key:leadKey,reason:"Mensagem final muito longa. Reduza o texto."}); continue; }
@@ -65,6 +65,33 @@ export async function listQueue(owner) {
     WHERE q.prospector_key = $1 ORDER BY (q.status IN ('pending','leased','sending','uncertain')) DESC, q.created_at DESC LIMIT 1000`, [normalizeProspectorKey(owner)]);
   return { jobs: result.rows.map(jobView) };
 }
+export async function resolveQueueJob(owner, input) {
+  const key = normalizeProspectorKey(owner);
+  if (!['retry','confirm_sent'].includes(input.action)) fail('Ação inválida.',400);
+  return transaction(async db => {
+    const row = (await db.query(`SELECT q.*,c.prospector_key AS claim_owner,c.status AS claim_status,c.responded_at,c.source_id,c.name,c.phone_e164
+      FROM affiliate_prospecting_queue q JOIN affiliate_prospecting_claims c USING(lead_key) WHERE q.id=$1 FOR UPDATE OF q,c`,[input.id])).rows[0];
+    if (!row || row.prospector_key !== key || row.claim_owner !== key) fail('Esse envio não pertence a você.',403);
+    if (input.action === 'confirm_sent') {
+      if (row.status === 'sent') return {job:jobView(row)};
+      if (row.status !== 'uncertain') fail('Somente um envio incerto pode ser confirmado. Atualize o progresso.');
+      await db.query(`UPDATE affiliate_prospecting_queue SET status='sent',error='Envio confirmado por você no WhatsApp.',lease_token=NULL,lease_until=NULL,updated_at=NOW() WHERE id=$1`,[row.id]);
+      await db.query(`UPDATE affiliate_prospecting_claims SET status=CASE WHEN status='do_not_contact' THEN status ELSE 'contacted' END,
+        reserved_until=NULL,contacted_at=COALESCE(contacted_at,NOW()),last_outbound_message=$2,last_outbound_at=NOW(),updated_at=NOW() WHERE lead_key=$1`,[row.lead_key,row.message]);
+      return {job:jobView({...row,status:'sent',error:'Envio confirmado por você no WhatsApp.'})};
+    }
+    // A repeated tap must not reset a job that is already back in the queue.
+    if (['pending','leased','sending'].includes(row.status)) return {job:jobView(row)};
+    if (row.status !== 'failed') fail('Envios já enviados ou incertos não podem ser repetidos por esta ação.');
+    const blocked = await db.query(`SELECT 1 FROM prospecting_funnel WHERE do_not_contact=TRUE AND (lead_key=$1 OR ($2<>'' AND source_id=$2)) LIMIT 1`,[row.lead_key,row.source_id]);
+    const sameBusiness = await db.query(`SELECT 1 FROM affiliate_prospecting_claims WHERE source_id=$1 AND source_id<>'' AND lead_key<>$2 AND (status IN ('contacted','do_not_contact') OR responded_at IS NOT NULL OR reserved_until>NOW()) LIMIT 1`,[row.source_id,row.lead_key]);
+    if (row.claim_status !== 'reserved' || row.responded_at || blocked.rowCount || sameBusiness.rowCount) fail('Contato já respondeu, foi contatado ou está bloqueado.');
+    await db.query(`UPDATE affiliate_prospecting_queue SET status='pending',attempts=0,error='',provider_id='',delivery_status='',lease_token=NULL,lease_until=NULL,available_at=NOW(),updated_at=NOW() WHERE id=$1`,[row.id]);
+    await db.query(`UPDATE affiliate_prospecting_claims SET reserved_until='infinity',updated_at=NOW() WHERE lead_key=$1`,[row.lead_key]);
+    return {job:jobView({...row,status:'pending',attempts:0,error:'',provider_id:'',delivery_status:''})};
+  });
+}
+
 export async function leaseNext() {
   return transaction(async db => {
     // Leased work has not reached Evolution. Sending work may have reached it: never resend blindly.
@@ -85,9 +112,10 @@ export async function leaseNext() {
 }
 export async function authorizeDispatch(input) {
   return transaction(async db => {
-    const row=(await db.query(`SELECT q.*, c.status AS claim_status,c.responded_at FROM affiliate_prospecting_queue q JOIN affiliate_prospecting_claims c USING(lead_key) WHERE q.id=$1 FOR UPDATE OF q,c`,[input.id])).rows[0];
+    const row=(await db.query(`SELECT q.*, c.status AS claim_status,c.responded_at,c.source_id FROM affiliate_prospecting_queue q JOIN affiliate_prospecting_claims c USING(lead_key) WHERE q.id=$1 FOR UPDATE OF q,c`,[input.id])).rows[0];
     if (!row || row.status !== 'leased' || row.lease_token !== input.leaseToken || !(new Date(row.lease_until).getTime() > Date.now())) return { allowed:false };
-    if (row.claim_status !== 'reserved' || row.responded_at) { await db.query(`UPDATE affiliate_prospecting_queue SET status='cancelled',updated_at=NOW() WHERE id=$1`,[row.id]); return {allowed:false}; }
+    const blocked = await db.query(`SELECT 1 FROM prospecting_funnel WHERE do_not_contact=TRUE AND (lead_key=$1 OR ($2<>'' AND source_id=$2)) LIMIT 1`, [row.lead_key,row.source_id]);
+    if (row.claim_status !== 'reserved' || row.responded_at || blocked.rowCount) { await db.query(`UPDATE affiliate_prospecting_queue SET status='cancelled',updated_at=NOW() WHERE id=$1`,[row.id]); return {allowed:false}; }
     await db.query(`UPDATE affiliate_prospecting_queue SET status='sending',attempts=attempts+1,lease_until=NOW()+INTERVAL '90 seconds',updated_at=NOW() WHERE id=$1`,[row.id]);
     await db.query(`INSERT INTO affiliate_prospecting_send_slots(instance,next_at) VALUES ($1,NOW()+INTERVAL '12 seconds') ON CONFLICT(instance) DO UPDATE SET next_at=EXCLUDED.next_at`,[row.instance]);
     return {allowed:true};

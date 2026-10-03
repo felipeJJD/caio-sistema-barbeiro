@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ensureClaimsSchema,getPool,reserveClaimLeads,markClaimContacted,recordClaimInbound,listClaims } from '../lib/affiliate-claims.js';
-import { enqueue,leaseNext,authorizeDispatch,completeJob,markDoNotContact,registerConnection,recordOutboundReceipt } from '../lib/prospecting-queue.js';
+import { enqueue,leaseNext,authorizeDispatch,completeJob,markDoNotContact,registerConnection,recordOutboundReceipt,resolveQueueJob } from '../lib/prospecting-queue.js';
 const url=process.env.PROSPECCAO_TEST_DATABASE_URL;
 test('fila real em PostgreSQL: concorrência, recuperação, isolamento e deduplicação', {skip:!url}, async t=>{
  if(new URL(url).pathname!=='/prospecting_test')throw Error('Integration tests require the dedicated prospecting_test database.');
@@ -84,6 +84,49 @@ test('fila real em PostgreSQL: concorrência, recuperação, isolamento e dedupl
  await t.test('conexão do mesmo telefone não pode ser apropriada por outro afiliado',async()=>{
   await registerConnection('affiliate:50','5541999999950');
   await assert.rejects(registerConnection('affiliate:51','5541999999950'),/outro afiliado/);
+ });
+ await t.test('retentativa manual é isolada e dois cliques não criam dois envios',async()=>{
+  const key=(await reserveClaimLeads([lead(21)],owner(61))).reserved[0].key;
+  const item=(await queued(61,key)).jobs[0];
+  await db.query(`UPDATE affiliate_prospecting_queue SET status='failed' WHERE id=$1`,[item.id]);
+  await assert.rejects(resolveQueueJob('affiliate:62',{action:'retry',id:item.id}),error=>error.status===403);
+  const results=await Promise.all([resolveQueueJob('affiliate:61',{action:'retry',id:item.id}),resolveQueueJob('affiliate:61',{action:'retry',id:item.id})]);
+  assert.equal(results[0].job.id,results[1].job.id);
+  assert.ok(results.every(result=>result.job.status==='pending'));
+  assert.equal((await db.query(`SELECT COUNT(*) AS count FROM affiliate_prospecting_queue WHERE lead_key=$1`,[key])).rows[0].count,'1');
+  await markDoNotContact('affiliate:61',key);
+ });
+ await t.test('envio incerto exige confirmação e nunca entra na retentativa de falhas',async()=>{
+  const key=(await reserveClaimLeads([lead(22)],owner(62))).reserved[0].key;
+  const item=(await queued(62,key)).jobs[0];
+  await db.query(`UPDATE affiliate_prospecting_queue SET status='uncertain' WHERE id=$1`,[item.id]);
+  await assert.rejects(resolveQueueJob('affiliate:62',{action:'retry',id:item.id}),/incertos/);
+  await assert.rejects(resolveQueueJob('affiliate:63',{action:'confirm_sent',id:item.id}),error=>error.status===403);
+  assert.equal((await resolveQueueJob('affiliate:62',{action:'confirm_sent',id:item.id})).job.status,'sent');
+  assert.equal((await resolveQueueJob('affiliate:62',{action:'confirm_sent',id:item.id})).job.status,'sent');
+  assert.equal((await db.query(`SELECT status FROM affiliate_prospecting_claims WHERE lead_key=$1`,[key])).rows[0].status,'contacted');
+  await assert.rejects(resolveQueueJob('affiliate:62',{action:'retry',id:item.id}),/enviados/);
+ });
+ await t.test('recusa no funil antigo depois de enfileirar também impede despacho e retentativa',async()=>{
+  const itemLead=lead(23),key=(await reserveClaimLeads([itemLead],owner(63))).reserved[0].key;
+  const item=(await queued(63,key)).jobs[0];const {job}=await leaseNext();assert.equal(job.id,item.id);
+  await db.query(`INSERT INTO prospecting_funnel(workspace_id,lead_key,source_id,name,phone_e164,status,do_not_contact) VALUES ('owner-preview',$1,$2,'Recusa recente',$3,'sem_interesse',TRUE)`,[key,itemLead.id,itemLead.phoneE164]);
+  assert.equal((await authorizeDispatch(job)).allowed,false);
+  await db.query(`UPDATE affiliate_prospecting_queue SET status='failed' WHERE id=$1`,[item.id]);
+  await assert.rejects(resolveQueueJob('affiliate:63',{action:'retry',id:item.id}),/bloqueado/);
+ });
+ await t.test('resposta e perda da reserva impedem reenvio de uma falha antiga',async()=>{
+  const itemLead=lead(24),key=(await reserveClaimLeads([itemLead],owner(64))).reserved[0].key;
+  const item=(await queued(64,key)).jobs[0];await db.query(`UPDATE affiliate_prospecting_queue SET status='failed' WHERE id=$1`,[item.id]);
+  await recordClaimInbound({instance:'ca-prospeccao-affiliate-64',phoneE164:itemLead.phoneE164,message:'oi',providerMessageId:'reply-before-retry'});
+  await assert.rejects(resolveQueueJob('affiliate:64',{action:'retry',id:item.id}),/respondeu/);
+  const otherKey=(await reserveClaimLeads([lead(25)],owner(65))).reserved[0].key;
+  const other=(await queued(65,otherKey)).jobs[0];await db.query(`UPDATE affiliate_prospecting_queue SET status='failed' WHERE id=$1`,[other.id]);
+  await db.query(`UPDATE affiliate_prospecting_claims SET reserved_until=NOW()-INTERVAL '1 second' WHERE lead_key=$1`,[otherKey]);
+  await reserveClaimLeads([lead(25)],owner(66));
+  await assert.rejects(resolveQueueJob('affiliate:65',{action:'retry',id:other.id}),error=>error.status===403);
+  const replacement=await queued(66,otherKey);assert.equal(replacement.jobs.length,1);assert.notEqual(replacement.jobs[0].id,other.id);
+  await markDoNotContact('affiliate:66',otherKey);
  });
  await t.test('intervalo é persistido mesmo em falha, concessão de outra instância segue livre',async()=>{
   const a=(await reserveClaimLeads([lead(11),lead(12)],owner(51))).reserved;
