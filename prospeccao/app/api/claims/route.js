@@ -1,3 +1,4 @@
+import { markDoNotContact } from "../../../lib/prospecting-queue.js";
 import { listClaims, markClaimContacted, recordClaimInbound, reserveClaimLeads } from "../../../lib/affiliate-claims.js";
 
 export const runtime = "nodejs";
@@ -33,7 +34,8 @@ export async function GET(request) {
     const result = await listClaims({
       ...identity(request),
       view: url.searchParams.get("view") || "contacted",
-      limit: url.searchParams.get("limit") || "100",
+      limit: url.searchParams.get("limit") || "50",
+      offset: url.searchParams.get("offset") || "0",
     });
     return Response.json(result, { headers: { "cache-control": "no-store" } });
   } catch (error) {
@@ -50,6 +52,7 @@ export async function POST(request) {
       const result = await reserveClaimLeads(body?.leads, { ...actor, city: body?.city || "" });
       return Response.json(result, { status: 201, headers: { "cache-control": "no-store" } });
     }
+    if (action === "do_not_contact") return Response.json(await markDoNotContact(actor.prospectorKey,body.key),{headers:{"cache-control":"no-store"}});
     if (action === "contacted") {
       const item = await markClaimContacted(body?.key, {
         ...actor,
@@ -60,6 +63,7 @@ export async function POST(request) {
     }
     if (action === "inbound") {
       const result = await recordClaimInbound({
+        instance: body?.instance || "",
         phoneE164: body?.phoneE164 || "",
         message: body?.message || "Mensagem recebida",
         providerMessageId: body?.providerMessageId || "",
@@ -71,3 +75,4 @@ export async function POST(request) {
     return jsonError(error);
   }
 }
+
