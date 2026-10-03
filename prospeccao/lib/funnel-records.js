@@ -12,7 +12,9 @@ export function text(value, max = 500) {
 
 export function normalizePhoneE164(value) {
   const digits = String(value ?? "").replace(/\D/g, "");
-  return /^55\d{11}$/.test(digits) ? digits : "";
+  const ddd = Number(digits.slice(2, 4));
+  const validDDD = new Set([11,12,13,14,15,16,17,18,19,21,22,24,27,28,31,32,33,34,35,37,38,41,42,43,44,45,46,47,48,49,51,53,54,55,61,62,63,64,65,66,67,68,69,71,73,74,75,77,79,81,82,83,84,85,86,87,88,89,91,92,93,94,95,96,97,98,99]);
+  return /^55\d{2}9\d{8}$/.test(digits) && validDDD.has(ddd) ? digits : "";
 }
 
 export function normalizeLead(input = {}, fallbackCity = "") {
@@ -53,3 +55,4 @@ export function statusTransition(current = {}, nextStatus) {
     doNotContact: Boolean(current.doNotContact) || status === "sem_interesse",
   };
 }
+
