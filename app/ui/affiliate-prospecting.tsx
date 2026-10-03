@@ -68,10 +68,12 @@ function readableError(value: unknown, fallback: string): string {
 export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin }: { name: string; initialWhatsapp: string; signupUrl: string; isAdmin: boolean }) {
   const [uf, setUf] = useState("PR");
   const [city, setCity] = useState("Colombo");
+  const [businessName, setBusinessName] = useState("");
   const [cities, setCities] = useState<City[]>([]);
   const [citiesLoading, setCitiesLoading] = useState(true);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [searchedCity, setSearchedCity] = useState("");
+  const [searchedName, setSearchedName] = useState("");
   const [hasMore, setHasMore] = useState(false);
   const [nextOffset, setNextOffset] = useState(0);
   const [visibleCount, setVisibleCount] = useState(DISPLAY_STEP);
@@ -167,6 +169,8 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   async function search(event?: FormEvent) {
     event?.preventDefault();
     if (!city) return setNotice("Escolha uma cidade.");
+    const nameQuery = businessName.trim();
+    if (nameQuery.length === 1) return setNotice("Digite pelo menos 2 letras do nome da barbearia.");
     const query = `${city}, ${uf}`;
     setLoading(true);
     setError("");
@@ -175,18 +179,22 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     setQueue([]);
     setVisibleCount(DISPLAY_STEP);
     try {
-      const response = await fetch(`/api/affiliate/prospecting/search?city=${encodeURIComponent(query)}&offset=0`, { cache: "no-store" });
+      const params = new URLSearchParams({ city: query, offset: "0" });
+      if (nameQuery) params.set("name", nameQuery);
+      const response = await fetch(`/api/affiliate/prospecting/search?${params.toString()}`, { cache: "no-store" });
       const payload = await response.json() as { leads?: Lead[]; displayName?: string; hasMore?: boolean; nextOffset?: number; hiddenCount?: number; error?: string };
       if (!response.ok) throw new Error(payload.error || "Não foi possível pesquisar agora.");
       const found = Array.isArray(payload.leads) ? payload.leads : [];
       setLeads(found);
       setSearchedCity(payload.displayName || query);
+      setSearchedName(nameQuery);
       setHasMore(Boolean(payload.hasMore));
       setNextOffset(Number(payload.nextOffset) || found.length);
-      if (!found.length && payload.hasMore) setNotice("Os primeiros resultados já foram contatados ou estão reservados. Toque em Ver mais barbearias.");
-      else if (!found.length) setNotice("Não encontrei novas barbearias disponíveis nessa cidade.");
+      if (!found.length && payload.hasMore) setNotice(nameQuery ? `Os primeiros resultados de “${nameQuery}” já foram contatados ou estão reservados. Toque em Ver mais barbearias.` : "Os primeiros resultados já foram contatados ou estão reservados. Toque em Ver mais barbearias.");
+      else if (!found.length) setNotice(nameQuery ? `Não encontrei uma barbearia disponível com “${nameQuery}” no nome em ${query}.` : "Não encontrei novas barbearias disponíveis nessa cidade.");
     } catch (cause) {
       setLeads([]);
+      setSearchedName(nameQuery);
       setError(cause instanceof Error ? cause.message : "Não foi possível pesquisar agora.");
     } finally {
       setLoading(false);
@@ -202,7 +210,9 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     setMoreLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/affiliate/prospecting/search?city=${encodeURIComponent(searchedCity)}&offset=${nextOffset}`, { cache: "no-store" });
+      const params = new URLSearchParams({ city: searchedCity, offset: String(nextOffset) });
+      if (searchedName) params.set("name", searchedName);
+      const response = await fetch(`/api/affiliate/prospecting/search?${params.toString()}`, { cache: "no-store" });
       const payload = await response.json() as { leads?: Lead[]; hasMore?: boolean; nextOffset?: number; error?: string };
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar mais barbearias.");
       const incoming = Array.isArray(payload.leads) ? payload.leads : [];
@@ -399,16 +409,18 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     </section>
 
     <section className={styles.card}>
-      <div className={styles.cardTitle}><div><b>1. Buscar barbearias</b><span>Escolha o estado e a cidade.</span></div></div>
+      <div className={styles.cardTitle}><div><b>1. Buscar barbearias</b><span>Escolha a cidade e, se quiser, procure uma barbearia específica pelo nome.</span></div></div>
       <form className={styles.searchForm} onSubmit={search}>
         <label><span>Estado</span><select value={uf} onChange={(event) => { setCitiesLoading(true); setUf(event.target.value); setCity(""); }}>{STATES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
         <label><span>Cidade</span><select value={city} onChange={(event) => setCity(event.target.value)} disabled={citiesLoading}><option value="">{citiesLoading ? "Carregando..." : "Selecione"}</option>{cities.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select></label>
-        <button disabled={loading || citiesLoading || !city}>{loading ? "Buscando..." : "Buscar barbearias"}</button>
+        <label><span>Nome da barbearia <small>(opcional)</small></span><input value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Ex.: Kaio Barbearia" maxLength={80} autoComplete="off" /></label>
+        <button disabled={loading || citiesLoading || !city}>{loading ? "Buscando..." : businessName.trim() ? "Buscar pelo nome" : "Buscar barbearias"}</button>
       </form>
+      <p className={styles.helper}>Quando você digita um nome, a busca procura na fonte da cidade inteira — não apenas nos resultados já carregados na tela.</p>
     </section>
 
     {(leads.length > 0 || (searchedCity && hasMore)) && <section className={styles.card}>
-      <div className={styles.cardTitle}><div><b>2. Selecionar</b><span>{searchedCity} · {leads.length}{hasMore ? "+" : ""} disponíveis</span></div>{visibleLeads.length > 0 && <button type="button" className={styles.secondary} onClick={selectVisible}>Selecionar celulares visíveis</button>}</div>
+      <div className={styles.cardTitle}><div><b>2. Selecionar</b><span>{searchedCity}{searchedName ? ` · “${searchedName}”` : ""} · {leads.length}{hasMore ? "+" : ""} disponíveis</span></div>{visibleLeads.length > 0 && <button type="button" className={styles.secondary} onClick={selectVisible}>Selecionar celulares visíveis</button>}</div>
       {visibleLeads.length > 0 && <div className={styles.leadList}>{visibleLeads.map((lead) => {
         const checked = selected.has(lead.id);
         const enabled = Boolean(lead.whatsappCandidate && lead.phoneE164);
