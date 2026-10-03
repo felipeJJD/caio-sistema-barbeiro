@@ -77,7 +77,12 @@ export async function POST(request: Request) {
     const sent = await sendProspectingWhatsappText(phoneE164, message);
     const contacted = await affiliateProspectingFetch("/api/claims", {
       method: "POST",
-      body: { action: "contacted", key: `phone:${phoneE164}` },
+      body: {
+        action: "contacted",
+        key: `phone:${phoneE164}`,
+        message,
+        providerMessageId: sent.providerMessageId,
+      },
       ...identity,
     });
 
