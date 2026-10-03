@@ -56,10 +56,13 @@ export function AffiliateProspectingHistory() {
   }, []);
 
   useEffect(() => {
-    void load(view);
-    if (view !== "responded") return;
-    const timer = window.setInterval(() => void load("responded", true), 30_000);
-    return () => window.clearInterval(timer);
+    const initial = window.setTimeout(() => void load(view), 0);
+    if (view !== "responded") return () => window.clearTimeout(initial);
+    const refresh = window.setInterval(() => void load("responded", true), 30_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(refresh);
+    };
   }, [view, load]);
 
   function choose(nextView: HistoryView) {
