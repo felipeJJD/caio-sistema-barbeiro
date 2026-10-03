@@ -38,6 +38,10 @@ export function normalizeProspectorKey(value) {
   return key;
 }
 
+export function claimViewFrom(value) {
+  return String(value || "contacted").toLowerCase() === "responded" ? "responded" : "contacted";
+}
+
 export function leadKeyFrom(value) {
   const phoneE164 = normalizePhoneE164(value?.phoneE164);
   return phoneE164 ? `phone:${phoneE164}` : "";
@@ -59,6 +63,11 @@ function normalizeClaimLead(input = {}, fallbackCity = "") {
     address: text(input.address, 600),
     city: text(input.city || fallbackCity, 180),
   };
+}
+
+function iso(value) {
+  if (value instanceof Date) return value.toISOString();
+  return value ? String(value) : null;
 }
 
 export async function ensureClaimsSchema() {
@@ -84,8 +93,17 @@ export async function ensureClaimsSchema() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    await db.query(`ALTER TABLE affiliate_prospecting_claims ADD COLUMN IF NOT EXISTS last_outbound_message TEXT NOT NULL DEFAULT '';`);
+    await db.query(`ALTER TABLE affiliate_prospecting_claims ADD COLUMN IF NOT EXISTS last_outbound_provider_id TEXT NOT NULL DEFAULT '';`);
+    await db.query(`ALTER TABLE affiliate_prospecting_claims ADD COLUMN IF NOT EXISTS last_outbound_at TIMESTAMPTZ;`);
+    await db.query(`ALTER TABLE affiliate_prospecting_claims ADD COLUMN IF NOT EXISTS responded_at TIMESTAMPTZ;`);
+    await db.query(`ALTER TABLE affiliate_prospecting_claims ADD COLUMN IF NOT EXISTS last_inbound_message TEXT NOT NULL DEFAULT '';`);
+    await db.query(`ALTER TABLE affiliate_prospecting_claims ADD COLUMN IF NOT EXISTS last_inbound_provider_id TEXT NOT NULL DEFAULT '';`);
+    await db.query(`ALTER TABLE affiliate_prospecting_claims ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ;`);
+    await db.query(`ALTER TABLE affiliate_prospecting_claims ADD COLUMN IF NOT EXISTS reply_count INTEGER NOT NULL DEFAULT 0;`);
     await db.query(`CREATE INDEX IF NOT EXISTS affiliate_prospecting_claims_status_idx ON affiliate_prospecting_claims (status, reserved_until);`);
     await db.query(`CREATE INDEX IF NOT EXISTS affiliate_prospecting_claims_owner_idx ON affiliate_prospecting_claims (prospector_key, updated_at DESC);`);
+    await db.query(`CREATE INDEX IF NOT EXISTS affiliate_prospecting_claims_responses_idx ON affiliate_prospecting_claims (prospector_key, responded_at DESC) WHERE responded_at IS NOT NULL;`);
   })().catch((error) => {
     schemaReady = undefined;
     throw error;
@@ -105,8 +123,16 @@ function rowToClaim(row) {
     prospectorKey: row.prospector_key,
     prospectorName: row.prospector_name,
     status: row.status,
-    reservedUntil: row.reserved_until instanceof Date ? row.reserved_until.toISOString() : row.reserved_until ? String(row.reserved_until) : null,
-    contactedAt: row.contacted_at instanceof Date ? row.contacted_at.toISOString() : row.contacted_at ? String(row.contacted_at) : null,
+    reservedUntil: iso(row.reserved_until),
+    contactedAt: iso(row.contacted_at),
+    lastOutboundMessage: row.last_outbound_message || "",
+    lastOutboundProviderId: row.last_outbound_provider_id || "",
+    lastOutboundAt: iso(row.last_outbound_at),
+    respondedAt: iso(row.responded_at),
+    lastInboundMessage: row.last_inbound_message || "",
+    lastInboundProviderId: row.last_inbound_provider_id || "",
+    lastInboundAt: iso(row.last_inbound_at),
+    replyCount: Number(row.reply_count || 0),
   };
 }
 
@@ -122,7 +148,7 @@ export async function filterAvailableLeads(rawLeads) {
   if (!keys.length || !databaseUrl()) return { leads, hiddenCount: 0 };
   await ensureClaimsSchema();
   const result = await getPool().query(
-    `SELECT lead_key, status, reserved_until
+    `SELECT lead_key, status, reserved_until, responded_at
      FROM affiliate_prospecting_claims
      WHERE lead_key = ANY($1::text[])`,
     [keys],
@@ -130,7 +156,7 @@ export async function filterAvailableLeads(rawLeads) {
   const blocked = new Set();
   const now = Date.now();
   for (const row of result.rows) {
-    if (row.status === "contacted" || row.status === "do_not_contact" || isActiveReservation(row, now)) blocked.add(row.lead_key);
+    if (row.status === "contacted" || row.status === "do_not_contact" || row.responded_at || isActiveReservation(row, now)) blocked.add(row.lead_key);
   }
   const available = leads.filter((lead) => {
     const key = leadKeyFrom(lead);
@@ -192,7 +218,7 @@ export async function reserveClaimLeads(rawLeads, input = {}) {
         blocked.push({ name: lead.name, reason: "Não foi possível reservar agora." });
         continue;
       }
-      if (existing.status === "contacted" || existing.status === "do_not_contact") {
+      if (existing.status === "contacted" || existing.status === "do_not_contact" || existing.responded_at) {
         blocked.push({ name: existing.name || lead.name, reason: "Essa barbearia já foi contatada." });
         continue;
       }
@@ -244,22 +270,28 @@ export async function markClaimContacted(keyValue, input = {}) {
       error.status = 404;
       throw error;
     }
-    if (current.status === "contacted" || current.status === "do_not_contact") {
+    if (current.status === "do_not_contact") {
       await client.query("COMMIT");
       return rowToClaim(current);
     }
-    if (isActiveReservation(current) && current.prospector_key !== prospectorKey) {
+    if (current.status !== "contacted" && isActiveReservation(current) && current.prospector_key !== prospectorKey) {
       const error = new Error("Essa barbearia foi reservada por outro afiliado.");
       error.status = 409;
       throw error;
     }
+    const outboundMessage = text(input.message, 1200);
+    const providerMessageId = text(input.providerMessageId, 240);
     const updated = await client.query(
       `UPDATE affiliate_prospecting_claims
        SET status = 'contacted', prospector_key = $2, prospector_name = $3,
-           reserved_until = NULL, contacted_at = COALESCE(contacted_at, NOW()), updated_at = NOW()
+           reserved_until = NULL, contacted_at = COALESCE(contacted_at, NOW()),
+           last_outbound_message = CASE WHEN $4 <> '' THEN $4 ELSE last_outbound_message END,
+           last_outbound_provider_id = CASE WHEN $5 <> '' THEN $5 ELSE last_outbound_provider_id END,
+           last_outbound_at = CASE WHEN $4 <> '' OR $5 <> '' THEN NOW() ELSE last_outbound_at END,
+           updated_at = NOW()
        WHERE lead_key = $1
        RETURNING *`,
-      [key, prospectorKey, text(input.prospectorName || prospectorKey, 140)],
+      [key, prospectorKey, text(input.prospectorName || prospectorKey, 140), outboundMessage, providerMessageId],
     );
     await client.query("COMMIT");
     return rowToClaim(updated.rows[0]);
@@ -269,4 +301,68 @@ export async function markClaimContacted(keyValue, input = {}) {
   } finally {
     client.release();
   }
+}
+
+export async function recordClaimInbound(input = {}) {
+  const phoneE164 = normalizePhoneE164(input.phoneE164);
+  const providerMessageId = text(input.providerMessageId, 240);
+  const inboundMessage = text(input.message || "Mensagem recebida", 2000);
+  if (!phoneE164) return { matched: false, duplicate: false, item: null };
+  await ensureClaimsSchema();
+  const key = `phone:${phoneE164}`;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const currentResult = await client.query(
+      `SELECT * FROM affiliate_prospecting_claims WHERE lead_key = $1 LIMIT 1 FOR UPDATE`,
+      [key],
+    );
+    const current = currentResult.rows[0];
+    if (!current) {
+      await client.query("COMMIT");
+      return { matched: false, duplicate: false, item: null };
+    }
+    if (providerMessageId && current.last_inbound_provider_id === providerMessageId) {
+      await client.query("COMMIT");
+      return { matched: true, duplicate: true, item: rowToClaim(current) };
+    }
+    const updated = await client.query(
+      `UPDATE affiliate_prospecting_claims
+       SET status = CASE WHEN status = 'do_not_contact' THEN status ELSE 'contacted' END,
+           reserved_until = NULL,
+           contacted_at = COALESCE(contacted_at, NOW()),
+           responded_at = COALESCE(responded_at, NOW()),
+           last_inbound_message = $2,
+           last_inbound_provider_id = $3,
+           last_inbound_at = NOW(),
+           reply_count = reply_count + 1,
+           updated_at = NOW()
+       WHERE lead_key = $1
+       RETURNING *`,
+      [key, inboundMessage, providerMessageId],
+    );
+    await client.query("COMMIT");
+    return { matched: true, duplicate: false, item: rowToClaim(updated.rows[0]) };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listClaims(input = {}) {
+  const prospectorKey = normalizeProspectorKey(input.prospectorKey);
+  const view = claimViewFrom(input.view);
+  const limit = Math.max(1, Math.min(200, Number(input.limit) || 100));
+  await ensureClaimsSchema();
+  const conditions = view === "responded"
+    ? "prospector_key = $1 AND responded_at IS NOT NULL"
+    : "prospector_key = $1 AND status IN ('contacted','do_not_contact')";
+  const order = view === "responded" ? "responded_at DESC NULLS LAST" : "contacted_at DESC NULLS LAST";
+  const result = await getPool().query(
+    `SELECT * FROM affiliate_prospecting_claims WHERE ${conditions} ORDER BY ${order}, updated_at DESC LIMIT $2`,
+    [prospectorKey, limit],
+  );
+  return { view, items: result.rows.map(rowToClaim) };
 }
