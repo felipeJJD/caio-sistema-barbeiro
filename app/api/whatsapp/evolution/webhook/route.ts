@@ -7,6 +7,7 @@ import {
 import { isEvolutionAudioWebhook, transcribeEvolutionAudioWebhook } from "../../../../../db/evolution-audio";
 import { processCaAtendeSmartInboundSafely } from "../../../../../db/ca-atende-smart";
 import { queueWhatsappTextReply } from "../../../../../db/whatsapp";
+import { captureProspectingEvolutionInbound } from "../../../../../lib/affiliate-prospecting-inbound";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,14 @@ export async function POST(request: Request) {
     const raw = await request.text();
     if (raw.length > 1_000_000) return Response.json({ error:"Payload muito grande." }, { status:413 });
     const payload = JSON.parse(raw) as unknown;
+
+    // A instância de prospecção é isolada do C.A. Atende. Respostas recebidas
+    // nela viram histórico do afiliado e nunca entram no bot da barbearia.
+    const prospecting = await captureProspectingEvolutionInbound(payload);
+    if (prospecting.handled) {
+      return Response.json({ ok:true, prospecting:true, recorded:prospecting.recorded, duplicate:prospecting.duplicate ?? false });
+    }
+
     const result = await handleEvolutionWebhook(payload);
     // The webhook handler inserts each inbound message once. A duplicate or an
     // unrecognized instance must never trigger another transcription or reply.
