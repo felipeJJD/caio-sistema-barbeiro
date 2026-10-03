@@ -49,16 +49,16 @@ function mergeLeads(current: Lead[], incoming: Lead[]) {
   return [...map.values()];
 }
 
-function readableError(value: unknown, fallback: string) {
+function readableError(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value.trim().replace(/\[object Object\]/g, "").trim() || fallback;
   if (Array.isArray(value)) {
-    const text = value.map((item) => readableError(item, "")).filter(Boolean).join(" · ");
+    const text: string = value.map((item) => readableError(item, "")).filter(Boolean).join(" · ");
     return text || fallback;
   }
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     for (const key of ["message", "error", "detail", "description"]) {
-      const text = readableError(record[key], "");
+      const text: string = readableError(record[key], "");
       if (text) return text;
     }
   }
