@@ -15,7 +15,7 @@ def parse_float(value, label):
 
 def main():
     if len(sys.argv) < 5:
-        raise SystemExit("uso: overture-search.py west south east north [limit] [offset]")
+        raise SystemExit("uso: overture-search.py west south east north [limit] [offset] [name]")
 
     west = parse_float(sys.argv[1], "west")
     south = parse_float(sys.argv[2], "south")
@@ -23,6 +23,8 @@ def main():
     north = parse_float(sys.argv[4], "north")
     limit = int(sys.argv[5]) if len(sys.argv) > 5 else 41
     offset = int(sys.argv[6]) if len(sys.argv) > 6 else 0
+    name_filter = str(sys.argv[7]).strip()[:80] if len(sys.argv) > 7 else ""
+    name_tokens = [token for token in name_filter.lower().split() if len(token) >= 2][:8]
     limit = max(1, min(limit, 101))
     offset = max(0, min(offset, 100000))
 
@@ -35,6 +37,7 @@ def main():
             con.execute("LOAD httpfs")
 
         con.execute("SET s3_region='us-west-2'")
+        name_conditions = "".join("\n                AND lower(names.primary) LIKE ?" for _ in name_tokens)
         query = f"""
             SELECT
                 id,
@@ -59,7 +62,7 @@ def main():
                 )
                 AND names.primary IS NOT NULL
                 AND (operating_status IS NULL OR operating_status <> 'permanently_closed')
-                AND (confidence IS NULL OR confidence >= 0.35)
+                AND (confidence IS NULL OR confidence >= 0.35){name_conditions}
             ORDER BY
                 CASE WHEN phones IS NULL THEN 1 ELSE 0 END,
                 confidence DESC NULLS LAST,
@@ -68,7 +71,8 @@ def main():
             LIMIT {limit}
             OFFSET {offset}
         """
-        rows = con.execute(query, [west, east, south, north]).fetchall()
+        params = [west, east, south, north, *[f"%{token}%" for token in name_tokens]]
+        rows = con.execute(query, params).fetchall()
 
         results = []
         for row in rows:
@@ -92,6 +96,7 @@ def main():
             "release": RELEASE,
             "offset": offset,
             "limit": limit,
+            "name": name_filter,
             "places": results,
         }, ensure_ascii=False))
     finally:
