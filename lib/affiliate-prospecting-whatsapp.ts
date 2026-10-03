@@ -5,9 +5,9 @@ let sendGate: Promise<void> = Promise.resolve();
 let lastSendAt = 0;
 
 type EvolutionPayload = Record<string, unknown> & {
-  error?: string;
-  message?: string | string[];
-  response?: { message?: string | string[] };
+  error?: unknown;
+  message?: unknown;
+  response?: { message?: unknown };
 };
 
 class EvolutionHttpError extends Error {
@@ -38,6 +38,36 @@ export function normalizeProspectingWhatsappPhone(value: string) {
   return "";
 }
 
+function evolutionErrorDetail(value: unknown, status: number) {
+  const fallback = status === 400
+    ? "O WhatsApp recusou esse número. Ele pode não estar cadastrado no WhatsApp ou pode estar em um formato diferente."
+    : `Evolution respondeu HTTP ${status}`;
+
+  function read(item: unknown, depth = 0): string {
+    if (depth > 3 || item == null) return "";
+    if (typeof item === "string") return item.trim();
+    if (typeof item === "number" || typeof item === "boolean") return String(item);
+    if (Array.isArray(item)) return item.map((entry) => read(entry, depth + 1)).filter(Boolean).join(" · ");
+    if (typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      for (const key of ["message", "error", "detail", "cause", "description"]) {
+        const nested = read(record[key], depth + 1);
+        if (nested) return nested;
+      }
+      try {
+        const json = JSON.stringify(item);
+        if (json && json !== "{}") return json;
+      } catch {
+        return "";
+      }
+    }
+    return "";
+  }
+
+  const text = read(value).replace(/\[object Object\]/g, "").trim();
+  return (text || fallback).slice(0, 500);
+}
+
 async function evolutionRequest<T extends EvolutionPayload>(path: string, init: RequestInit = {}) {
   const config = evolutionConfig();
   const response = await fetch(`${config.url}${path}`, {
@@ -52,9 +82,8 @@ async function evolutionRequest<T extends EvolutionPayload>(path: string, init: 
   });
   const body = await response.json().catch(() => ({})) as T;
   if (!response.ok) {
-    const raw = body.response?.message ?? body.message ?? body.error ?? `Evolution respondeu HTTP ${response.status}`;
-    const detail = Array.isArray(raw) ? raw.join(" · ") : String(raw);
-    throw new EvolutionHttpError(detail.slice(0, 500), response.status);
+    const raw = body.response?.message ?? body.message ?? body.error;
+    throw new EvolutionHttpError(evolutionErrorDetail(raw, response.status), response.status);
   }
   return body;
 }
