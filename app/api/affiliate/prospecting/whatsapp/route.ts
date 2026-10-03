@@ -1,104 +1,46 @@
 import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
+import { getAffiliateDashboard } from "../../../../../db/affiliate-portal";
 import { affiliateProspectingFetch, affiliateProspectorIdentity } from "../../../../../lib/affiliate-prospecting-bridge";
-import {
-  beginProspectingWhatsappPairing,
-  getProspectingWhatsappState,
-  sendProspectingWhatsappText,
-} from "../../../../../lib/affiliate-prospecting-whatsapp";
-
-function noStore(payload: unknown, status = 200) {
-  return Response.json(payload, { status, headers: { "cache-control": "no-store" } });
-}
-
-function errorStatus(error: unknown) {
-  const status = Number((error as { status?: number } | null)?.status);
-  return Number.isInteger(status) && status >= 400 && status <= 599 ? status : 503;
-}
-
+import { beginProspectingWhatsappPairing, getProspectingWhatsappState, normalizeProspectingWhatsappPhone, canonicalProspectingPhone, prospectingInstanceFor } from "../../../../../lib/affiliate-prospecting-whatsapp";
+const reply=(payload:unknown,status=200)=>Response.json(payload,{status,headers:{"cache-control":"no-store"}});
 export async function GET() {
   try {
-    const access = await getAffiliateSessionAccess();
-    if (!access?.active) return noStore({ error: "Entre como afiliado para usar a prospecção." }, 401);
-    return noStore({ ...(await getProspectingWhatsappState()), canConnect: Boolean(access.isAdmin) });
-  } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível consultar o WhatsApp de prospecção." }, errorStatus(error));
-  }
+    const access=await getAffiliateSessionAccess();
+    if(!access?.active)return reply({error:"Entre como afiliado para usar a prospecção."},401);
+    const state=await getProspectingWhatsappState(prospectingInstanceFor(access));
+    if(state.connected) {
+      const result=await affiliateProspectingFetch('/api/connections',{method:'POST',...affiliateProspectorIdentity(access),body:{action:'connected'}});
+      if(!result.response.ok)return reply(result.payload,result.response.status);
+    }
+    return reply({...state,canConnect:true});
+  }catch(error){return reply({error:error instanceof Error?error.message:"Não foi possível consultar seu WhatsApp."},Number((error as {status?:number})?.status)||503);}
 }
-
-export async function POST(request: Request) {
+export async function POST(request:Request) {
   try {
-    const access = await getAffiliateSessionAccess();
-    if (!access?.active) return noStore({ error: "Entre como afiliado para usar a prospecção." }, 401);
-    const body = await request.json().catch(() => null) as {
-      action?: string;
-      phone?: string;
-      message?: string;
-      lead?: { id?: string; name?: string; phone?: string; phoneE164?: string; address?: string };
-      city?: string;
-    } | null;
-    const action = String(body?.action ?? "");
-
-    if (action === "connect") {
-      if (!access.isAdmin) return noStore({ error: "Somente o ADM pode conectar o número automático de prospecção." }, 403);
-      return noStore(await beginProspectingWhatsappPairing(String(body?.phone ?? "")));
+    const access=await getAffiliateSessionAccess();
+    if(!access?.active)return reply({error:"Entre como afiliado para usar a prospecção."},401);
+    const body=await request.json() as {action?:string;phone?:string;keys?:string[];template?:string};
+    const identity=affiliateProspectorIdentity(access);const instance=prospectingInstanceFor(access);
+    if(body.action==='connect') {
+      const phone=normalizeProspectingWhatsappPhone(String(body.phone||''));
+      if(!phone)return reply({error:"Informe o DDD e o número do seu WhatsApp."},400);
+      // Never replace a connected instance or change its registered phone on a repeated click.
+      const state=await getProspectingWhatsappState(instance);
+      if(state.connected)return reply({...state,pairingCode:''});
+      const registration=await affiliateProspectingFetch('/api/connections',{method:'POST',...identity,body:{phone:canonicalProspectingPhone(phone)}});
+      if(!registration.response.ok)return reply(registration.payload,registration.response.status);
+      return reply(await beginProspectingWhatsappPairing(phone,instance));
     }
-
-    if (action !== "send") return noStore({ error: "Ação inválida." }, 400);
-    const lead = body?.lead ?? {};
-    const phoneE164 = String(lead.phoneE164 ?? "").replace(/\D/g, "");
-    const message = String(body?.message ?? "").trim();
-    if (!/^55\d{11}$/.test(phoneE164)) return noStore({ error: "Celular inválido para envio automático." }, 400);
-    if (!message || message.length > 1200) return noStore({ error: "A mensagem precisa ter entre 1 e 1200 caracteres." }, 400);
-
-    const identity = affiliateProspectorIdentity(access);
-    const reserve = await affiliateProspectingFetch("/api/claims", {
-      method: "POST",
-      body: {
-        action: "reserve",
-        leads: [{
-          id: String(lead.id ?? "").slice(0, 180),
-          name: String(lead.name ?? "Barbearia").slice(0, 240),
-          phone: String(lead.phone ?? "").slice(0, 40),
-          phoneE164,
-          address: String(lead.address ?? "").slice(0, 600),
-        }],
-        city: String(body?.city ?? "").slice(0, 180),
-      },
-      ...identity,
-    });
-    const reservePayload = reserve.payload as { reserved?: Array<{ phoneE164?: string }>; blocked?: Array<{ reason?: string }>; error?: string };
-    if (!reserve.response.ok) return noStore(reservePayload, reserve.response.status);
-    const reserved = Array.isArray(reservePayload.reserved) && reservePayload.reserved.some((item) => item.phoneE164 === phoneE164);
-    if (!reserved) {
-      const reason = reservePayload.blocked?.[0]?.reason || "Essa barbearia não está mais disponível para envio.";
-      return noStore({ error: reason }, 409);
+    if(body.action==='enqueue') {
+      const data=await getAffiliateDashboard(access);
+      const link=data.links.find(item=>item.active&&item.isMain)??data.links.find(item=>item.active);
+      const signupUrl=access.isAdmin?'https://cortouanotou.com.br/comece':link?.url;
+      if(!signupUrl)return reply({error:"Ative seu link de indicação antes de enviar."},409);
+      const state=await getProspectingWhatsappState(instance);
+      if(!state.connected)return reply({error:"Conecte seu WhatsApp antes de enviar."},409);
+      const result=await affiliateProspectingFetch('/api/queue',{method:'POST',...identity,body:{action:'enqueue',keys:body.keys,template:String(body.template||''),signupUrl}});
+      return reply(result.payload,result.response.status);
     }
-
-    const sent = await sendProspectingWhatsappText(phoneE164, message);
-    const contacted = await affiliateProspectingFetch("/api/claims", {
-      method: "POST",
-      body: {
-        action: "contacted",
-        key: `phone:${phoneE164}`,
-        message,
-        providerMessageId: sent.providerMessageId,
-      },
-      ...identity,
-    });
-
-    if (!contacted.response.ok) {
-      console.error("[C.A. Prospecção] mensagem enviada, mas contato não foi finalizado", {
-        phoneE164,
-        status: contacted.response.status,
-      });
-      return noStore({ sent: true, ...sent, warning: "Mensagem enviada, mas o registro do contato precisa ser conferido." }, 200);
-    }
-
-    return noStore({ sent: true, ...sent });
-  } catch (error) {
-    console.error("[C.A. Prospecção] WhatsApp automático", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível enviar automaticamente." }, errorStatus(error));
-  }
+    return reply({error:"Ação inválida."},400);
+  }catch(error){console.error('[prospecting-whatsapp]',{type:error instanceof Error?error.name:'Unknown'});return reply({error:error instanceof Error?error.message:"Não foi possível atualizar seu WhatsApp."},Number((error as {status?:number})?.status)||503);}
 }

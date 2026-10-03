@@ -21,6 +21,8 @@ type Lead = {
 type City = { id: number | string; name: string };
 type ReservedClaim = { key: string; phoneE164: string; name?: string };
 type BlockedClaim = { name?: string; reason?: string };
+type QueueJob = { id:string; batchId:string; key:string; name:string; phoneE164:string; status:string; error?:string; delivery?:string };
+
 type AutomaticWhatsappState = { state: string; connected: boolean; canConnect?: boolean };
 
 const STATES = [
@@ -49,6 +51,10 @@ function mergeLeads(current: Lead[], incoming: Lead[]) {
   return [...map.values()];
 }
 
+function nationalPhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits.startsWith("55") && (digits.length === 12 || digits.length === 13) ? digits.slice(2) : digits;
+}
 function readableError(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value.trim().replace(/\[object Object\]/g, "").trim() || fallback;
   if (Array.isArray(value)) {
@@ -84,15 +90,21 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [whatsapp, setWhatsapp] = useState(initialWhatsapp || "");
-  const [savingWhatsapp, setSavingWhatsapp] = useState(false);
+  const [whatsapp, setWhatsapp] = useState(nationalPhone(initialWhatsapp || ""));
   const [queue, setQueue] = useState<Lead[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
   const [automatic, setAutomatic] = useState<AutomaticWhatsappState>({ state: "loading", connected: false });
   const [automaticLoading, setAutomaticLoading] = useState(true);
   const [automaticConnecting, setAutomaticConnecting] = useState(false);
   const [automaticSending, setAutomaticSending] = useState(false);
-  const [automaticProgress, setAutomaticProgress] = useState(0);
+  const [jobs, setJobs] = useState<QueueJob[]>([]);
+  const [batchId, setBatchId] = useState("");
+  const [jobActionId, setJobActionId] = useState("");
+  const [visibleJobs, setVisibleJobs] = useState(50);
+  const jobActionRef = useRef(false);
+  const sendingRef = useRef(false);
+  const batchJobs = jobs.filter(job => job.batchId === (batchId || jobs[0]?.batchId));
+  const completed = batchJobs.filter(job => ["sent","failed","uncertain","cancelled"].includes(job.status)).length;
   const [pairingCode, setPairingCode] = useState("");
   const sendRef = useRef<HTMLElement | null>(null);
 
@@ -115,15 +127,48 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   }, [uf]);
 
   useEffect(() => {
-    void refreshAutomatic(false);
+    const initial = window.setTimeout(() => { void refreshAutomatic(false); void refreshQueue(); }, 0);
+    const interval = window.setInterval(() => { void refreshQueue(); }, 5000);
+    return () => { window.clearTimeout(initial); window.clearInterval(interval); };
   }, []);
+
+  useEffect(() => {
+    if (!pairingCode) return;
+    const interval = window.setInterval(() => void refreshAutomatic(false), 4000);
+    return () => window.clearInterval(interval);
+  }, [pairingCode]);
+
+  async function refreshQueue() {
+    try {
+      const response = await fetch("/api/affiliate/prospecting/queue", {cache:"no-store"});
+      const payload = await response.json() as {jobs?:QueueJob[]};
+      if (response.ok) setJobs(payload.jobs || []);
+    } catch { /* Existing progress remains visible through a temporary connection loss. */ }
+  }
+
+  async function updateJob(job:QueueJob, action:"retry"|"confirm_sent") {
+    if (jobActionRef.current) return;
+    const question = action === "confirm_sent"
+      ? "Você conferiu no seu WhatsApp e essa mensagem foi realmente enviada?"
+      : "Essa tentativa falhou. Conferiu o número e quer tentar enviar a mesma mensagem novamente?";
+    if (!window.confirm(question)) return;
+    jobActionRef.current = true;setJobActionId(job.id);setError("");setNotice("");
+    try {
+      const response = await fetch("/api/affiliate/prospecting/queue",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action,id:job.id})});
+      const payload = await response.json() as {error?:unknown};
+      if (!response.ok) throw new Error(readableError(payload.error,"Não foi possível atualizar esse envio."));
+      setNotice(action === "retry" ? "Contato voltou para a fila. Os envios concluídos não serão repetidos." : "Envio confirmado. Essa mensagem não será repetida.");
+      await refreshQueue();window.dispatchEvent(new Event("prospecting-history-changed"));
+    } catch(cause) {setError(cause instanceof Error?cause.message:"Não foi possível atualizar esse envio.");}
+    finally {jobActionRef.current=false;setJobActionId("");}
+  }
 
   const visibleLeads = useMemo(() => leads.slice(0, visibleCount), [leads, visibleCount]);
   const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id) && lead.whatsappCandidate && lead.phoneE164), [leads, selected]);
   const currentQueueLead = queue[queueIndex];
 
   async function refreshAutomatic(showNotice = true) {
-    setAutomaticLoading(true);
+    if (showNotice) setAutomaticLoading(true);
     try {
       const response = await fetch("/api/affiliate/prospecting/whatsapp", { cache: "no-store" });
       const payload = await response.json() as AutomaticWhatsappState & { error?: string };
@@ -136,7 +181,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
         setNotice("O número ainda não terminou a conexão. Confira o código no WhatsApp e tente novamente.");
       }
     } catch (cause) {
-      if (showNotice) setError(cause instanceof Error ? cause.message : "Não foi possível consultar o envio automático.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível consultar o envio automático.");
     } finally {
       setAutomaticLoading(false);
     }
@@ -158,7 +203,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
       setAutomatic({ state: payload.state || "connecting", connected: Boolean(payload.connected), canConnect: true });
       setPairingCode(payload.pairingCode || "");
       if (payload.connected) setNotice("Envio automático já está conectado.");
-      else setNotice("Código gerado. Vincule esse número no WhatsApp e depois toque em Conferir conexão.");
+      else setNotice("Código gerado. Abra Aparelhos conectados no seu WhatsApp.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível iniciar a conexão automática.");
     } finally {
@@ -238,7 +283,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   }
 
   function selectVisible() {
-    setSelected(new Set(visibleLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164).map((lead) => lead.id)));
+    setSelected(current => new Set([...current, ...visibleLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164).map((lead) => lead.id)]));
   }
 
   async function prepareQueue() {
@@ -285,99 +330,41 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
 
   function openWhatsApp() {
     if (!currentQueueLead?.phoneE164 || !/^55\d{11}$/.test(currentQueueLead.phoneE164)) return;
+    const text = personalize(message, currentQueueLead, signupUrl);
+    window.open(`https://wa.me/${currentQueueLead.phoneE164}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    setNotice("Depois de enviar no WhatsApp, volte e toque em Já enviei para registrar o contato.");
+  }
+  async function confirmManualSend() {
+    if (!currentQueueLead || automaticSending) return;
     const current = currentQueueLead;
-    const text = personalize(message, current, signupUrl);
-    window.open(`https://wa.me/${current.phoneE164}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
-    void fetch("/api/affiliate/prospecting/claims", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "contacted", key: `phone:${current.phoneE164}` }),
-      keepalive: true,
-    }).then(async (response) => {
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Não foi possível registrar o contato.");
+    try {
+      const response = await fetch("/api/affiliate/prospecting/claims", {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"contacted",key:`phone:${current.phoneE164}`,message:personalize(message,current,signupUrl)})});
+      const payload = await response.json() as {error?:unknown};
+      if (!response.ok) throw new Error(readableError(payload.error,"Não foi possível registrar o envio."));
       removeContactedFromScreen(current);
-      setNotice(`${current.name} foi marcada como contatada e não aparecerá novamente nas buscas.`);
-    }).catch((cause) => {
-      setError(cause instanceof Error ? cause.message : "Não foi possível registrar o contato.");
-    });
+      setQueue(items=>items.filter(item=>item.phoneE164!==current.phoneE164));setQueueIndex(0);
+      setNotice("Contato registrado. Essa barbearia não receberá outra abordagem.");
+      window.dispatchEvent(new Event("prospecting-history-changed"));
+    }catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível registrar o envio.");}
   }
-
   async function sendAutomatically() {
-    if (!automatic.connected) return setNotice("O envio automático ainda não está conectado.");
-    if (!queue.length || automaticSending) return;
-    const batch = [...queue];
-    setAutomaticSending(true);
-    setAutomaticProgress(0);
-    setError("");
-    setNotice("Envio automático iniciado. Se algum número falhar, o sistema continua com os próximos.");
-    let sent = 0;
-    const failed: Lead[] = [];
-    const failureMessages: string[] = [];
-
+    if (!automatic.connected) return setNotice("Conecte seu WhatsApp antes de enviar.");
+    if (!queue.length || sendingRef.current) return;
+    sendingRef.current = true;setAutomaticSending(true);setError("");setNotice("");
     try {
-      for (let index = 0; index < batch.length; index += 1) {
-        const lead = batch[index];
-        setQueueIndex(index);
-        try {
-          const response = await fetch("/api/affiliate/prospecting/whatsapp", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              action: "send",
-              lead,
-              city: searchedCity,
-              message: personalize(message, lead, signupUrl),
-            }),
-          });
-          const payload = await response.json().catch(() => ({})) as { sent?: boolean; warning?: string; error?: unknown };
-          if (!response.ok || !payload.sent) {
-            throw new Error(readableError(payload.error, "Não foi possível enviar para esse número."));
-          }
-          sent += 1;
-          removeContactedFromScreen(lead);
-          if (payload.warning) setNotice(payload.warning);
-        } catch (cause) {
-          failed.push(lead);
-          failureMessages.push(`${lead.name}: ${cause instanceof Error ? cause.message : "não foi possível enviar"}`);
-        } finally {
-          setAutomaticProgress(index + 1);
-        }
-      }
-
-      setQueue(failed);
+      const response = await fetch("/api/affiliate/prospecting/whatsapp",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"enqueue",keys:queue.map(lead=>`phone:${lead.phoneE164}`),template:message})});
+      const payload = await response.json() as {jobs?:QueueJob[];blocked?:BlockedClaim[];error?:unknown};
+      if (!response.ok) throw new Error(readableError(payload.error,"Não foi possível iniciar o envio."));
+      const accepted = new Set((payload.jobs || []).map(job=>job.key));
+      setBatchId(payload.jobs?.[0]?.batchId || "");
+      setVisibleJobs(50);
+      setQueue(current=>current.filter(lead=>!accepted.has(`phone:${lead.phoneE164}`)));
+      for (const lead of queue) if (accepted.has(`phone:${lead.phoneE164}`)) removeContactedFromScreen(lead);
       setQueueIndex(0);
-      if (failed.length) {
-        const sentText = `${sent} mensagem${sent === 1 ? "" : "s"} enviada${sent === 1 ? "" : "s"}`;
-        const failedText = `${failed.length} não enviada${failed.length === 1 ? "" : "s"}`;
-        setError(`${sentText}. ${failedText} e ficou${failed.length === 1 ? "" : "aram"} na fila para tentar novamente. ${failureMessages[0] || ""}`.trim());
-      } else {
-        setNotice(`${sent} mensagem${sent === 1 ? "" : "s"} enviada${sent === 1 ? "" : "s"} automaticamente. As barbearias já saíram das próximas buscas.`);
-      }
-    } finally {
-      setAutomaticSending(false);
-    }
-  }
-
-  async function saveWhatsapp() {
-    setSavingWhatsapp(true);
-    setError("");
-    setNotice("");
-    try {
-      const response = await fetch("/api/affiliate/prospecting/profile", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ whatsapp }),
-      });
-      const payload = await response.json() as { whatsapp?: string; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Não foi possível salvar o WhatsApp.");
-      setWhatsapp(payload.whatsapp || "");
-      setNotice("WhatsApp de prospecção salvo.");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível salvar o WhatsApp.");
-    } finally {
-      setSavingWhatsapp(false);
-    }
+      setNotice(`${accepted.size} contato${accepted.size===1?"":"s"} na fila. O envio continua mesmo se você fechar a tela.${payload.blocked?.length?` ${payload.blocked.length} não entrou na fila: ${payload.blocked[0].reason || "contato indisponível"}`:""}`);
+      await refreshQueue();window.dispatchEvent(new Event("prospecting-history-changed"));
+    } catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível iniciar o envio.");}
+    finally{sendingRef.current=false;setAutomaticSending(false);}
   }
 
   return <main className={styles.page}>
@@ -392,20 +379,13 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     </section>
 
     <section className={styles.card}>
-      <div className={styles.cardTitle}><div><b>Seu WhatsApp de prospecção</b><span>Salve o número que você pretende usar para falar com as barbearias.</span></div></div>
-      <div className={styles.whatsappRow}><input value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} inputMode="tel" placeholder="(41) 99999-9999" /><button type="button" onClick={saveWhatsapp} disabled={savingWhatsapp}>{savingWhatsapp ? "Salvando..." : "Salvar WhatsApp"}</button></div>
-      <p className={styles.helper}>Ao abrir manualmente, a conversa continua abrindo no WhatsApp que estiver logado no aparelho. Esse número também pode ser usado pelo ADM para conectar o envio automático uma única vez.</p>
-    </section>
-
-    <section className={styles.card}>
-      <div className={styles.cardTitle}><div><b>Envio automático</b><span>{automaticLoading ? "Conferindo conexão..." : automatic.connected ? "Conectado e pronto para disparar as mensagens selecionadas." : "Ainda não conectado ao número separado de prospecção."}</span></div><strong className={automatic.connected ? styles.statusOn : styles.statusOff}>{automatic.connected ? "ATIVO" : "DESLIGADO"}</strong></div>
-      {isAdmin && !automatic.connected && <div className={styles.automaticActions}>
-        <button type="button" className={styles.primary} onClick={connectAutomatic} disabled={automaticConnecting || automaticLoading}>{automaticConnecting ? "Gerando código..." : "Conectar número para envio automático"}</button>
-        <button type="button" className={styles.secondary} onClick={() => void refreshAutomatic(true)} disabled={automaticLoading}>Conferir conexão</button>
-      </div>}
-      {pairingCode && <div className={styles.pairingBox}><small>CÓDIGO DE CONEXÃO</small><strong>{pairingCode}</strong><p>No WhatsApp desse número, abra Aparelhos conectados, escolha conectar com número de telefone e digite este código. Depois volte aqui e toque em Conferir conexão.</p></div>}
-      {!isAdmin && !automatic.connected && <p className={styles.helper}>O ADM conecta o número central uma vez. Depois os afiliados usam o envio automático sem precisar parear outro aparelho.</p>}
-      {automatic.connected && <p className={styles.helper}>As mensagens automáticas saem pelo número separado de prospecção. O C.A. Atende continua em outra instância e não é usado nesses disparos.</p>}
+      <div className={styles.cardTitle}><div><b>Seu WhatsApp</b><span>Envie e receba as respostas pelo seu próprio número.</span></div><strong className={automatic.connected?styles.statusOn:styles.statusOff}>{automaticLoading?"CONFERINDO":automatic.connected?"CONECTADO":"CONECTAR"}</strong></div>
+      {!automatic.connected && <>
+        <div className={styles.phoneFields}><label>País<select aria-label="País"><option>Brasil (+55)</option></select></label><label>DDD e número<input value={whatsapp} onChange={event=>setWhatsapp(event.target.value)} type="tel" autoComplete="tel-national" inputMode="tel" placeholder="(41) 99999-9999" maxLength={20}/></label></div>
+        <div className={styles.automaticActions}><button type="button" className={styles.primary} onClick={connectAutomatic} disabled={automaticConnecting||automaticLoading}>{automaticConnecting?"Gerando código...":"Conectar meu WhatsApp"}</button><button type="button" className={styles.secondary} onClick={()=>void refreshAutomatic(true)} disabled={automaticLoading}>Conferir conexão</button></div>
+      </>}
+      {pairingCode && <div className={styles.pairingBox}><small>CÓDIGO DE CONEXÃO</small><strong>{pairingCode}</strong><button type="button" className={styles.secondary} onClick={()=>void navigator.clipboard.writeText(pairingCode).then(()=>setNotice("Código copiado.")).catch(()=>setNotice("Selecione o código para copiar."))}>Copiar código</button><p>No WhatsApp: Configurações ou menu → Aparelhos conectados → Conectar aparelho → Conectar com número de telefone. Digite o código acima.</p></div>}
+      {automatic.connected && <p className={styles.helper}>Suas mensagens e respostas usam esta conexão. Seu link de indicação é incluído automaticamente.</p>}
     </section>
 
     <section className={styles.card}>
@@ -414,7 +394,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
         <label><span>Estado</span><select value={uf} onChange={(event) => { setCitiesLoading(true); setUf(event.target.value); setCity(""); }}>{STATES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
         <label><span>Cidade</span><select value={city} onChange={(event) => setCity(event.target.value)} disabled={citiesLoading}><option value="">{citiesLoading ? "Carregando..." : "Selecione"}</option>{cities.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select></label>
         <label><span>Nome da barbearia <small>(opcional)</small></span><input value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Ex.: Kaio Barbearia" maxLength={80} autoComplete="off" /></label>
-        <button disabled={loading || citiesLoading || !city}>{loading ? "Buscando..." : businessName.trim() ? "Buscar pelo nome" : "Buscar barbearias"}</button>
+        <button disabled={automaticSending || loading || citiesLoading || !city}>{loading ? "Buscando..." : businessName.trim() ? "Buscar pelo nome" : "Buscar barbearias"}</button>
       </form>
       <p className={styles.helper}>Quando você digita um nome, a busca procura na fonte da cidade inteira — não apenas nos resultados já carregados na tela.</p>
     </section>
@@ -434,19 +414,26 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     <section className={styles.card}>
       <div className={styles.cardTitle}><div><b>3. Mensagem</b><span>Use {"{barbearia}"} e {"{link}"}. O sistema troca automaticamente.</span></div></div>
       <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={6} maxLength={1200} />
-      <button type="button" className={styles.primary} onClick={prepareQueue} disabled={preparing}>{preparing ? "Reservando barbearias..." : `Preparar ${selectedLeads.length || ""} mensagem${selectedLeads.length === 1 ? "" : "s"}`}</button>
+      <button type="button" className={styles.primary} onClick={prepareQueue} disabled={preparing || automaticSending}>{preparing ? "Reservando barbearias..." : `Preparar ${selectedLeads.length || ""} mensagem${selectedLeads.length === 1 ? "" : "s"}`}</button>
       <p className={styles.helper}>Ao preparar, essas barbearias ficam reservadas para você por 1 hora. Outro afiliado não consegue pegá-las nesse período.</p>
     </section>
 
     {queue.length > 0 && <section className={styles.card} ref={sendRef}>
-      <div className={styles.cardTitle}><div><b>4. Enviar</b><span>{automatic.connected ? "Você pode disparar a fila automaticamente ou abrir uma conversa manualmente." : "Uma conversa por vez. Ao abrir o WhatsApp, a barbearia fica registrada como contatada."}</span></div><strong>{automaticSending ? `${automaticProgress}/${queue.length}` : `${queueIndex + 1}/${queue.length}`}</strong></div>
-      {automatic.connected && <button type="button" className={styles.automaticButton} onClick={sendAutomatically} disabled={automaticSending}>{automaticSending ? `Enviando ${automaticProgress}/${queue.length}...` : `Enviar automaticamente ${queue.length} mensagem${queue.length === 1 ? "" : "s"}`}</button>}
+      <div className={styles.cardTitle}><div><b>4. Enviar</b><span>{automatic.connected ? "Você pode disparar a fila automaticamente ou abrir uma conversa manualmente." : "Ao enviar manualmente, confirme o envio para registrar o contato."}</span></div><strong>{automaticSending ? `Preparando...` : `${queueIndex + 1}/${queue.length}`}</strong></div>
+      {automatic.connected && <button type="button" className={styles.automaticButton} onClick={sendAutomatically} disabled={automaticSending}>{automaticSending ? `Preparando fila...` : `Enviar automaticamente ${queue.length} mensagem${queue.length === 1 ? "" : "s"}`}</button>}
       {currentQueueLead && <div className={styles.sendPanel}>
         <div><small>BARBEARIA ATUAL</small><h2>{currentQueueLead.name}</h2><p>{currentQueueLead.phone} · {currentQueueLead.address}</p></div>
         <div className={styles.preview}>{personalize(message, currentQueueLead, signupUrl)}</div>
         <button type="button" className={styles.whatsappButton} onClick={openWhatsApp} disabled={automaticSending}>Abrir no WhatsApp</button>
+        <button type="button" className={styles.secondary} onClick={confirmManualSend} disabled={automaticSending}>Já enviei essa mensagem</button>
         <div className={styles.queueNav}><button type="button" onClick={() => setQueueIndex((value) => Math.max(0, value - 1))} disabled={queueIndex === 0 || automaticSending}>Anterior</button><button type="button" onClick={() => setQueueIndex((value) => Math.min(queue.length - 1, value + 1))} disabled={queueIndex >= queue.length - 1 || automaticSending}>Próxima</button></div>
       </div>}
+    </section>}
+
+    {batchJobs.length > 0 && <section className={styles.card} aria-live="polite">
+      <div className={styles.cardTitle}><div><b>Progresso do envio</b><span>{completed}/{batchJobs.length} processadas · {batchJobs.filter(job=>job.status==="sent").length} enviadas</span></div><button type="button" className={styles.secondary} onClick={()=>void refreshQueue()}>Atualizar</button></div>
+      <div className={styles.jobList}>{batchJobs.slice(0,visibleJobs).map(job=><article key={job.id}><div><strong>{job.name}</strong><span>{job.delivery==="read"?"Lida":job.delivery==="delivered"?"Entregue":({pending:"Na fila",leased:"Preparando",sending:"Enviando",sent:"Enviada",failed:"Falhou",uncertain:"Conferir envio",cancelled:"Cancelada"} as Record<string,string>)[job.status]||job.status}</span></div>{job.error&&<p>{job.error}</p>}{job.status==="uncertain"&&<><a href={`https://wa.me/${job.phoneE164}`} target="_blank" rel="noopener noreferrer">Conferir no meu WhatsApp</a><button type="button" className={styles.secondary} onClick={()=>void updateJob(job,"confirm_sent")} disabled={Boolean(jobActionId)}>{jobActionId===job.id?"Registrando...":"Conferi: foi enviada"}</button></>}{job.status==="failed"&&<button type="button" className={styles.secondary} onClick={()=>void updateJob(job,"retry")} disabled={Boolean(jobActionId)}>{jobActionId===job.id?"Preparando...":"Tentar novamente"}</button>}</article>)}</div>
+      {batchJobs.length>visibleJobs&&<button type="button" className={styles.more} onClick={()=>setVisibleJobs(value=>value+50)}>Ver mais contatos do lote</button>}
     </section>}
 
     {(error || notice) && <div className={`${styles.notice} ${error ? styles.error : ""}`}>{error || notice}</div>}

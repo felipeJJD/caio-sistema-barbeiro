@@ -6,7 +6,7 @@ const source = await readFile(new URL("../lib/affiliate-prospecting-whatsapp.ts"
 
 test("instância dedicada configura webhook autenticado de respostas", () => {
   assert.match(source, /EVOLUTION_WEBHOOK_SECRET/);
-  assert.match(source, /\/webhook\/set\/\$\{encodeURIComponent\(INSTANCE_NAME\)\}/);
+  assert.match(source, /\/webhook\/set\/\$\{encodeURIComponent\(instance\)\}/);
   assert.match(source, /https:\/\/cortouanotou\.com\.br\/api\/whatsapp\/evolution\/webhook/);
   assert.match(source, /MESSAGES_UPSERT/);
   assert.match(source, /authorization:\s*`Bearer \$\{secret\}`/);
@@ -14,5 +14,5 @@ test("instância dedicada configura webhook autenticado de respostas", () => {
 
 test("criação da instância já nasce com webhook e consulta de estado garante configuração", () => {
   assert.match(source, /webhook:\s*prospectingWebhook\(secret\)/);
-  assert.match(source, /if \(connected\) await ensureProspectingWebhook\(\)/);
+  assert.match(source, /if \(connected\) await ensureProspectingWebhook\(instance\)/);
 });

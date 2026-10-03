@@ -12,7 +12,7 @@ export default async function AffiliateProspectingPage() {
   if (!access.active) redirect("/afiliado");
 
   const data = await getAffiliateDashboard(access);
-  const mainLink = data.links.find((link) => link.isMain && link.active) ?? data.links.find((link) => link.active) ?? data.links[0];
+  const mainLink = data.links.find((link) => link.isMain && link.active) ?? data.links.find((link) => link.active);
   const signupUrl = access.isAdmin ? "https://cortouanotou.com.br/comece" : (mainLink?.url ?? "");
 
   return <>

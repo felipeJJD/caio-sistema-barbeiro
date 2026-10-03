@@ -23,7 +23,10 @@ export async function POST(request: Request) {
 
     // A instância de prospecção é isolada do C.A. Atende. Respostas recebidas
     // nela viram histórico do afiliado e nunca entram no bot da barbearia.
-    const prospecting = await captureProspectingEvolutionInbound(payload);
+    const prospecting = await captureProspectingEvolutionInbound(payload).catch(() => {
+      const error = new Error("Recebimento da prospecção temporariamente indisponível.");
+      Object.assign(error, { status: 503 }); throw error;
+    });
     if (prospecting.handled) {
       return Response.json({ ok:true, prospecting:true, recorded:prospecting.recorded, duplicate:prospecting.duplicate ?? false });
     }
@@ -61,6 +64,6 @@ export async function POST(request: Request) {
     }
     return Response.json({ ok:true, received:result.received, statuses:result.statuses });
   } catch (error) {
-    return Response.json({ error:error instanceof Error ? error.message : "Webhook inválido." }, { status:400 });
+    return Response.json({ error:error instanceof Error ? error.message : "Webhook inválido." }, { status:Number((error as {status?:number})?.status) === 503 ? 503 : 400 });
   }
 }

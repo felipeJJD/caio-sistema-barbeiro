@@ -185,3 +185,7 @@
     gap: 5px;
   }
 }
+
+.contactActions { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; align-items:center; }
+.contactActions a,.contactActions button,.moreButton { display:inline-flex; align-items:center; min-height:44px; border:1px solid #d8dfd8; border-radius:10px; padding:10px 12px; font:inherit; color:#275d41; background:#fff; text-decoration:none; }
+.moreButton {margin-top:16px; width:100%;justify-content:center;}
