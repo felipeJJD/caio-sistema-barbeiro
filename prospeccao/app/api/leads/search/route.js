@@ -200,7 +200,7 @@ async function resolveCity(query) {
   throw error;
 }
 
-async function searchOverture(bbox, offset = 0) {
+async function searchOverture(bbox, offset = 0, name = "") {
   const args = [
     "scripts/overture-search.py",
     String(bbox.west),
@@ -209,6 +209,7 @@ async function searchOverture(bbox, offset = 0) {
     String(bbox.north),
     String(PAGE_SIZE + 1),
     String(offset),
+    text(name).slice(0, 80),
   ];
   const { stdout } = await execFileAsync("python3", args, {
     cwd: process.cwd(),
@@ -224,13 +225,15 @@ async function searchOverture(bbox, offset = 0) {
 export async function GET(request) {
   const url = new URL(request.url);
   const query = text(url.searchParams.get("city") || url.searchParams.get("search")).slice(0, 90);
+  const name = text(url.searchParams.get("name")).slice(0, 80);
   const parsedOffset = Number.parseInt(url.searchParams.get("offset") || "0", 10);
   const offset = Number.isFinite(parsedOffset) ? Math.max(0, Math.min(parsedOffset, 100000)) : 0;
   if (query.length < 2) return Response.json({ error: "Digite uma cidade para pesquisar." }, { status: 400 });
+  if (name.length === 1) return Response.json({ error: "Digite pelo menos 2 letras do nome da barbearia." }, { status: 400 });
 
   try {
     const resolved = await resolveCity(query);
-    const rawPlaces = await searchOverture(resolved.bbox, offset);
+    const rawPlaces = await searchOverture(resolved.bbox, offset, name);
     const hasMore = rawPlaces.length > PAGE_SIZE;
     const pagePlaces = rawPlaces.slice(0, PAGE_SIZE);
     const unique = new Map();
@@ -254,9 +257,10 @@ export async function GET(request) {
 
     return Response.json({
       query,
+      name,
       displayName: `${resolved.city}, ${resolved.uf}`,
       regionKind: "city",
-      scope: "lugares comerciais da cidade",
+      scope: name ? `barbearias com “${name}” no nome` : "lugares comerciais da cidade",
       leads: filtered.leads,
       hiddenCount: filtered.hiddenCount,
       source: "Overture Maps",
@@ -265,7 +269,9 @@ export async function GET(request) {
       hasMore,
       pageSize: PAGE_SIZE,
       attribution: "Dados de lugares: Overture Maps Foundation e fontes contribuidoras.",
-      tip: "Barbearias já contatadas ou temporariamente reservadas não voltam a aparecer na busca.",
+      tip: name
+        ? "A busca por nome procura em toda a cidade, não apenas nos resultados já carregados na tela."
+        : "Barbearias já contatadas ou temporariamente reservadas não voltam a aparecer na busca.",
     });
   } catch (error) {
     const status = Number(error?.status) || 503;
@@ -273,7 +279,7 @@ export async function GET(request) {
     if (/timed out|timeout|aborted|fetch failed|SIGTERM|ENOENT|duckdb|httpfs|s3/i.test(message)) {
       message = "A busca de barbearias demorou mais que o normal. Tente novamente em alguns segundos.";
     }
-    console.error("[C.A. Prospecção] busca falhou", { query, offset, message: error instanceof Error ? error.message : String(error) });
+    console.error("[C.A. Prospecção] busca falhou", { query, name, offset, message: error instanceof Error ? error.message : String(error) });
     return Response.json({ error: message }, { status });
   }
 }
