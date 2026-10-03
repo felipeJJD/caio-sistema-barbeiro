@@ -1,8 +1,13 @@
 const INSTANCE_NAME = "ca-prospeccao-outbound";
 const MIN_SEND_INTERVAL_MS = 12_000;
+const WEBHOOK_REFRESH_MS = 5 * 60_000;
+const WEBHOOK_URL = "https://cortouanotou.com.br/api/whatsapp/evolution/webhook";
+const WEBHOOK_EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"] as const;
 
 let sendGate: Promise<void> = Promise.resolve();
 let lastSendAt = 0;
+let webhookConfiguredAt = 0;
+let webhookSetup: Promise<void> | null = null;
 
 type EvolutionPayload = Record<string, unknown> & {
   error?: unknown;
@@ -19,12 +24,37 @@ class EvolutionHttpError extends Error {
 function evolutionConfig() {
   const url = String(process.env.EVOLUTION_API_URL ?? "").trim().replace(/\/$/, "");
   const apiKey = String(process.env.EVOLUTION_API_KEY ?? "").trim();
+  const webhookSecret = String(process.env.EVOLUTION_WEBHOOK_SECRET ?? "").trim();
   if (!/^https:\/\//.test(url) || apiKey.length < 24) {
     const error = new Error("O envio automático da prospecção ainda não está configurado.");
     Object.assign(error, { status: 503 });
     throw error;
   }
-  return { url, apiKey };
+  return { url, apiKey, webhookSecret };
+}
+
+function requiredWebhookSecret() {
+  const { webhookSecret } = evolutionConfig();
+  if (webhookSecret.length < 24) {
+    const error = new Error("O recebimento das respostas da prospecção ainda não está configurado.");
+    Object.assign(error, { status: 503 });
+    throw error;
+  }
+  return webhookSecret;
+}
+
+function prospectingWebhook(secret: string) {
+  return {
+    enabled: true,
+    url: WEBHOOK_URL,
+    headers: {
+      authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json",
+    },
+    byEvents: false,
+    base64: false,
+    events: [...WEBHOOK_EVENTS],
+  };
 }
 
 export function normalizeProspectingWhatsappPhone(value: string) {
@@ -88,6 +118,24 @@ async function evolutionRequest<T extends EvolutionPayload>(path: string, init: 
   return body;
 }
 
+async function ensureProspectingWebhook(force = false) {
+  if (!force && webhookConfiguredAt && Date.now() - webhookConfiguredAt < WEBHOOK_REFRESH_MS) return;
+  if (webhookSetup) return webhookSetup;
+
+  webhookSetup = (async () => {
+    const secret = requiredWebhookSecret();
+    await evolutionRequest<EvolutionPayload>(`/webhook/set/${encodeURIComponent(INSTANCE_NAME)}`, {
+      method: "POST",
+      body: JSON.stringify({ webhook: prospectingWebhook(secret) }),
+    });
+    webhookConfiguredAt = Date.now();
+  })().finally(() => {
+    webhookSetup = null;
+  });
+
+  return webhookSetup;
+}
+
 function pairingCodeFrom(value: unknown) {
   if (!value || typeof value !== "object") return "";
   const body = value as Record<string, unknown>;
@@ -113,7 +161,9 @@ export async function getProspectingWhatsappState() {
     const body = await evolutionRequest<EvolutionPayload>(`/instance/connectionState/${encodeURIComponent(INSTANCE_NAME)}`);
     const nested = body.instance && typeof body.instance === "object" ? body.instance as Record<string, unknown> : {};
     const state = String(nested.state ?? body.state ?? "disconnected").toLowerCase();
-    return { state, connected: state === "open" || state === "connected", instance: INSTANCE_NAME };
+    const connected = state === "open" || state === "connected";
+    if (connected) await ensureProspectingWebhook();
+    return { state, connected, instance: INSTANCE_NAME };
   } catch (error) {
     if (error instanceof EvolutionHttpError && error.status === 404) return { state: "disconnected", connected: false, instance: INSTANCE_NAME };
     throw error;
@@ -138,6 +188,7 @@ export async function beginProspectingWhatsappPairing(phoneValue: string) {
   });
 
   if (!existing) {
+    const secret = requiredWebhookSecret();
     result = await evolutionRequest<EvolutionPayload>("/instance/create", {
       method: "POST",
       body: JSON.stringify({
@@ -150,8 +201,12 @@ export async function beginProspectingWhatsappPairing(phoneValue: string) {
         readMessages: false,
         readStatus: false,
         syncFullHistory: false,
+        webhook: prospectingWebhook(secret),
       }),
     });
+    webhookConfiguredAt = Date.now();
+  } else {
+    await ensureProspectingWebhook(true);
   }
 
   let pairingCode = pairingCodeFrom(result);
