@@ -1,6 +1,7 @@
+import { isProspectingInstance } from "./affiliate-prospecting-whatsapp";
 import { affiliateProspectingFetch } from "./affiliate-prospecting-bridge";
 
-const PROSPECTING_INSTANCE = "ca-prospeccao-outbound";
+
 
 type ObjectLike = Record<string, unknown>;
 
@@ -13,7 +14,9 @@ function eventName(value: unknown) {
 }
 
 function phoneFromJid(value: unknown) {
-  let digits = String(value ?? "").split("@")[0].replace(/\D/g, "");
+  const jid = String(value ?? "");
+  if (!/^\d+@(s\.whatsapp\.net|c\.us)$/.test(jid)) return "";
+  let digits = jid.split("@")[0];
   if (/^55\d{11}$/.test(digits)) return digits;
   if (/^55\d{10}$/.test(digits)) {
     digits = `${digits.slice(0, 4)}9${digits.slice(4)}`;
@@ -24,6 +27,7 @@ function phoneFromJid(value: unknown) {
 
 function inboundPhone(data: ObjectLike) {
   const key = objectOf(data.key);
+  if (String(key.remoteJid || "").endsWith("@g.us")) return "";
   for (const candidate of [key.remoteJidAlt, key.remoteJid]) {
     const phone = phoneFromJid(candidate);
     if (phone) return phone;
@@ -32,7 +36,12 @@ function inboundPhone(data: ObjectLike) {
 }
 
 function inboundText(data: ObjectLike) {
-  const message = objectOf(data.message);
+  let message = objectOf(data.message);
+  for (let depth = 0; depth < 3; depth++) {
+    const wrapped = objectOf(message.ephemeralMessage ?? message.viewOnceMessage ?? message.viewOnceMessageV2);
+    if (!wrapped.message) break;
+    message = objectOf(wrapped.message);
+  }
   const direct = String(message.conversation ?? "").trim();
   if (direct) return direct.slice(0, 2000);
 
@@ -65,29 +74,32 @@ function inboundText(data: ObjectLike) {
 export async function captureProspectingEvolutionInbound(payload: unknown) {
   const body = objectOf(payload);
   const instance = String(body.instance ?? body.instanceName ?? "").trim();
-  if (instance !== PROSPECTING_INSTANCE) return { handled: false, recorded: false };
-
-  if (eventName(body.event) !== "messages.upsert") {
-    return { handled: true, recorded: false };
+  if (!isProspectingInstance(instance)) return { handled: false, recorded: false };
+  const event = eventName(body.event);
+  if (event !== "messages.upsert" && event !== "messages.update") return { handled: true, recorded: false };
+  const entries = Array.isArray(body.data) ? body.data : [body.data];
+  let recorded = false;
+  for (const entry of entries) {
+    const data = objectOf(entry); const key = objectOf(data.key);
+    const providerMessageId = String(key.id ?? data.id ?? "").trim().slice(0, 240);
+    if (!providerMessageId) continue;
+    if (event === "messages.update") {
+      const update = objectOf(data.update);
+      const status = String(data.status ?? update.status ?? "").toUpperCase();
+      const delivery = ["3","DELIVERY_ACK"].includes(status) ? "delivered" : ["4","5","READ","PLAYED"].includes(status) ? "read" : "";
+      if (!delivery) continue;
+      const result = await affiliateProspectingFetch("/api/queue", { method:"POST",body:{action:"delivery",instance,providerMessageId,delivery} });
+      if (!result.response.ok) throw new Error("Não foi possível registrar o status da prospecção.");
+      continue;
+    }
+    const phoneE164 = inboundPhone(data); if (!phoneE164) continue;
+    const message = inboundText(data);
+    const outgoing = key.fromMe === true;
+    const { response, payload: result } = await affiliateProspectingFetch(outgoing ? "/api/queue" : "/api/claims", {
+      method: "POST", body: { action: outgoing ? "outbound" : "inbound", instance, phoneE164, message, providerMessageId },
+    });
+    if (!response.ok) throw new Error("Não foi possível registrar a resposta da prospecção.");
+    const record = objectOf(result); recorded = recorded || Boolean(record.matched);
   }
-
-  const data = objectOf(body.data);
-  const key = objectOf(data.key);
-  if (Boolean(key.fromMe)) return { handled: true, recorded: false };
-
-  const phoneE164 = inboundPhone(data);
-  if (!phoneE164) return { handled: true, recorded: false };
-
-  const providerMessageId = String(key.id ?? data.id ?? "").trim().slice(0, 240);
-  const message = inboundText(data);
-  const { response, payload: result } = await affiliateProspectingFetch("/api/claims", {
-    method: "POST",
-    body: { action: "inbound", phoneE164, message, providerMessageId },
-  });
-  if (!response.ok) {
-    const error = result && typeof result === "object" ? String((result as { error?: unknown }).error ?? "") : "";
-    throw new Error(error || "Não foi possível registrar a resposta da prospecção.");
-  }
-  const record = result && typeof result === "object" ? result as { matched?: boolean; duplicate?: boolean } : {};
-  return { handled: true, recorded: Boolean(record.matched), duplicate: Boolean(record.duplicate), phoneE164 };
+  return { handled: true, recorded, duplicate: false };
 }

@@ -11,19 +11,23 @@ await bootstrapAdmin(getStorage().DB, {
 delete process.env.INITIAL_ADMIN_PASSWORD;
 
 const child = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-H', '0.0.0.0', '-p', process.env.PORT || '3000'], { stdio: 'inherit' });
+const prospectingWorker = spawn(process.execPath, ['scripts/prospecting-worker.mjs'], { stdio: 'inherit' });
 const whatsappWorker = spawn(process.execPath, ['scripts/whatsapp-worker.mjs'], { stdio: 'inherit' });
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
     child.kill(signal);
     whatsappWorker.kill(signal);
+    prospectingWorker.kill(signal);
   });
 }
 
 child.on('exit', code => {
   whatsappWorker.kill('SIGTERM');
+  prospectingWorker.kill('SIGTERM');
   process.exit(code ?? 1);
 });
+prospectingWorker.on('exit', code => { if (code) console.error('[prospecting-worker]', { event: 'exited', code }); });
 whatsappWorker.on('exit', code => {
   if (code && code !== 0) console.error('[whatsapp-worker] exited', { code });
 });

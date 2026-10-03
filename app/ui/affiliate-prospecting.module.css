@@ -427,3 +427,14 @@
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
   }
 }
+
+.phoneFields { display:grid; grid-template-columns: minmax(110px, 1fr) minmax(160px, 2fr); gap:12px; margin:18px 0; }
+.phoneFields label { display:grid; gap:8px; font-size:16px; }
+.phoneFields input,.phoneFields select { width:100%; min-width:0; min-height:48px; border:1px solid #dedbd0; border-radius:12px; padding:12px; font:inherit; background:white; color:#202820; }
+.pairingBox strong { display:block; font-size:clamp(32px,8vw,48px); letter-spacing:.12em; line-height:1.4; overflow-wrap:anywhere; user-select:all; }
+.jobList { display:grid; gap:10px; margin-top:16px; }
+.jobList article { padding:14px; border:1px solid #e3e1d8; border-radius:12px; }
+.jobList article > div { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; }
+.jobList p { margin:8px 0 0; font-size:15px; }
+.jobList a { display:inline-block; padding:12px 0; color:#28643e; font-weight:600; }
+@media(max-width:380px) { .phoneFields {grid-template-columns:1fr;} }

@@ -43,9 +43,18 @@ export async function affiliateProspectingFetch(path: string, options: Prospecti
   if (options.prospectorName) headers["x-ca-prospector-name"] = options.prospectorName.slice(0, 140);
   if (options.body !== undefined) headers["content-type"] = "application/json";
 
+  const timestamp = String(Date.now());
+  const serializedBody = options.body === undefined ? "" : JSON.stringify(options.body);
+  const digest = await sha256(serializedBody);
+  const signingKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(process.env.AFFILIATE_PROSPECTING_ACCESS_CODE || "").trim()), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const canonical = [timestamp, options.method ?? "GET", path, options.prospectorKey ?? "", options.prospectorName?.slice(0, 140) ?? "", digest].join("\n");
+  const signature = await crypto.subtle.sign("HMAC", signingKey, new TextEncoder().encode(canonical));
+  headers["x-ca-bridge-time"] = timestamp;
+  headers["x-ca-bridge-signature"] = Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, "0")).join("");
+
   const response = await fetch(`${serviceUrl()}${path}`, {
     method: options.method ?? "GET",
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: serializedBody || undefined,
     cache: "no-store",
     signal: AbortSignal.timeout(80_000),
     headers,

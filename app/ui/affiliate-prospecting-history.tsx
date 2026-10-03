@@ -38,15 +38,19 @@ export function AffiliateProspectingHistory() {
   const [items, setItems] = useState<ProspectingContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState(0);
 
-  const load = useCallback(async (nextView: HistoryView, silent = false) => {
+  const load = useCallback(async (nextView: HistoryView, silent = false, offset = 0) => {
     if (!silent) setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/affiliate/prospecting/claims?view=${nextView}`, { cache: "no-store" });
-      const payload = await response.json().catch(() => ({})) as { items?: ProspectingContact[]; error?: string };
+      const response = await fetch(`/api/affiliate/prospecting/claims?view=${nextView}&offset=${offset}`, { cache: "no-store" });
+      const payload = await response.json().catch(() => ({})) as { items?: ProspectingContact[]; hasMore?:boolean; nextOffset?:number; error?: string };
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar o histórico.");
-      setItems(Array.isArray(payload.items) ? payload.items : []);
+      const incoming = Array.isArray(payload.items) ? payload.items : [];
+      setItems(current=>offset?[...current,...incoming]:incoming);
+      setHasMore(Boolean(payload.hasMore));setNextOffset(Number(payload.nextOffset)||0);
     } catch (cause) {
       if (!silent) setItems([]);
       setError(cause instanceof Error ? cause.message : "Não foi possível carregar o histórico.");
@@ -57,11 +61,13 @@ export function AffiliateProspectingHistory() {
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(view), 0);
-    if (view !== "responded") return () => window.clearTimeout(initial);
-    const refresh = window.setInterval(() => void load("responded", true), 30_000);
+    const onChange=()=>void load(view,true);
+    window.addEventListener("prospecting-history-changed",onChange);
+    const refresh = window.setInterval(() => void load(view, true), 30_000);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(refresh);
+      window.removeEventListener("prospecting-history-changed",onChange);
     };
   }, [view, load]);
 
@@ -73,6 +79,12 @@ export function AffiliateProspectingHistory() {
     setView(nextView);
   }
 
+  async function stopContact(item:ProspectingContact) {
+    if(!window.confirm(`Marcar ${item.name} para não receber novas abordagens?`)) return;
+    try {const response=await fetch('/api/affiliate/prospecting/claims',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'do_not_contact',key:item.key})});
+      if(!response.ok)throw new Error('Não foi possível atualizar o contato.');await load(view,true);
+    }catch(cause){setError(cause instanceof Error?cause.message:'Não foi possível atualizar o contato.');}
+  }
   return <section className={styles.shell}>
     <div className={styles.card}>
       <div className={styles.heading}>
@@ -112,8 +124,10 @@ export function AffiliateProspectingHistory() {
             {item.respondedAt && <span className={styles.respondedBadge}>Já respondeu</span>}
             {item.lastOutboundMessage && <p className={styles.message}>{item.lastOutboundMessage}</p>}
           </>}
+          <div className={styles.contactActions}><a href={`https://wa.me/${item.phoneE164}`} target="_blank" rel="noopener noreferrer">Abrir conversa no WhatsApp</a>{item.status==="do_not_contact"?<span>Não contatar</span>:<button type="button" onClick={()=>void stopContact(item)}>Não tem interesse</button>}</div>
         </article>;
       })}</div>}
+      {hasMore&&!loading&&<button type="button" className={styles.moreButton} onClick={()=>void load(view,false,nextOffset)}>Ver mais contatos</button>}
     </div>
   </section>;
 }

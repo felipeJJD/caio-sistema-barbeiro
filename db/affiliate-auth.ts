@@ -280,6 +280,18 @@ export async function getAffiliateSessionAccess(): Promise<AffiliateAccess | nul
   return { ...row, isAdmin: row.email === ADMIN_INTERNAL_EMAIL };
 }
 
+export async function getAffiliateProspectorAccess(key: string): Promise<AffiliateAccess | null> {
+  const match = /^(admin|affiliate):([1-9]\d*)$/.exec(key);
+  if (!match) return null;
+  const db = await getDb();
+  const row = (await db.select({ accountId: affiliateAccounts.id, affiliateId: affiliates.id, name: affiliates.name, email: affiliateAccounts.email, active: affiliates.active })
+    .from(affiliateAccounts).innerJoin(affiliates, eq(affiliates.id, affiliateAccounts.affiliateId)).where(eq(affiliates.id, Number(match[2]))).limit(1))[0];
+  if (!row) return null;
+  const isAdmin = row.email === ADMIN_INTERNAL_EMAIL;
+  if (isAdmin !== (match[1] === "admin")) return null;
+  return { ...row, isAdmin };
+}
+
 export async function logoutCurrentAffiliateSession() {
   const token = (await cookies()).get(AFFILIATE_SESSION_COOKIE)?.value;
   if (!token) return;
