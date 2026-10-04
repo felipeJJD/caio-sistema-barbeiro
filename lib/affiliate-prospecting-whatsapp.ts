@@ -213,7 +213,17 @@ export async function beginProspectingWhatsappPairing(phoneValue: string, instan
     const owner = normalizeProspectingWhatsappPhone(String(nested.ownerJid ?? nested.number ?? "").split("@")[0]);
     const existingName = String(nested.name ?? nested.instanceName ?? entry.name ?? "");
     if (canonicalProspectingPhone(owner) === canonicalProspectingPhone(phone) && existingName && existingName !== instance) {
-      const error = new Error("Esse número já está conectado em outra área. Use um WhatsApp próprio para a prospecção."); Object.assign(error, {status:409}); throw error;
+      const connection = await evolutionRequest<EvolutionPayload>(`/instance/connectionState/${encodeURIComponent(existingName)}`).catch((error) => {
+        if (error instanceof EvolutionHttpError && error.status === 404) return {} as EvolutionPayload;
+        throw error;
+      });
+      const connectionNested = connection.instance && typeof connection.instance === "object" ? connection.instance as Record<string, unknown> : {};
+      const existingState = String(connectionNested.state ?? connection.state ?? "disconnected").toLowerCase();
+      if (existingState === "open" || existingState === "connected") {
+        const error = new Error("Esse número já está conectado em outra área. Use um WhatsApp próprio para a prospecção.");
+        Object.assign(error, { status: 409 });
+        throw error;
+      }
     }
   }
   let result: EvolutionPayload = {};
