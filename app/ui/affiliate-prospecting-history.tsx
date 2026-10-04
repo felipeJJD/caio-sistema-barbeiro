@@ -63,7 +63,6 @@ export function AffiliateProspectingHistory({signupUrl}:{signupUrl:string}) {
   }, []);
 
   useEffect(() => {
-    setVisibleCount(5);
     const initial = window.setTimeout(() => void load(view), 0);
     const onChange=()=>void load(view,true);
     window.addEventListener("prospecting-history-changed",onChange);
@@ -82,6 +81,7 @@ export function AffiliateProspectingHistory({signupUrl}:{signupUrl:string}) {
       void load(nextView);
       return;
     }
+    setVisibleCount(5);
     setView(nextView);
   }
 
