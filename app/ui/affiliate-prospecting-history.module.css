@@ -58,13 +58,14 @@
   font-weight: 800;
 }
 
-.heading button:disabled {
+.heading button:disabled,
+.contactActions button:disabled {
   opacity: 0.55;
 }
 
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -134,15 +135,32 @@
   font-size: 12px;
 }
 
-.respondedBadge {
+.respondedBadge,
+.interestedBadge,
+.blockedBadge {
   display: inline-flex;
   margin-top: 10px;
   padding: 5px 9px;
   border-radius: 999px;
-  background: #e0f1e8;
-  color: #1f6948;
   font-size: 11px;
   font-weight: 900;
+}
+
+.respondedBadge {
+  background: #e0f1e8;
+  color: #1f6948;
+}
+
+.interestedBadge {
+  background: #e4f2e8;
+  color: #1e6944;
+  border: 1px solid #c5dfcc;
+}
+
+.blockedBadge {
+  margin-top: 0;
+  background: #f2e5e1;
+  color: #8b3a31;
 }
 
 .empty,
@@ -160,6 +178,42 @@
 .error {
   background: #f5dfdc;
   color: #7d2929;
+}
+
+.contactActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  align-items: center;
+}
+
+.contactActions a,
+.contactActions button,
+.moreButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid #d8dfd8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  color: #275d41;
+  background: #fff;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.contactActions .interestButton {
+  background: #1f6b48;
+  border-color: #1f6b48;
+  color: #fff;
+}
+
+.moreButton {
+  margin-top: 16px;
+  width: 100%;
 }
 
 @media (max-width: 760px) {
@@ -186,6 +240,18 @@
   }
 }
 
-.contactActions { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; align-items:center; }
-.contactActions a,.contactActions button,.moreButton { display:inline-flex; align-items:center; min-height:44px; border:1px solid #d8dfd8; border-radius:10px; padding:10px 12px; font:inherit; color:#275d41; background:#fff; text-decoration:none; }
-.moreButton {margin-top:16px; width:100%;justify-content:center;}
+@media (max-width: 520px) {
+  .tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs button {
+    min-height: 40px;
+  }
+
+  .contactActions a,
+  .contactActions button,
+  .blockedBadge {
+    width: 100%;
+  }
+}

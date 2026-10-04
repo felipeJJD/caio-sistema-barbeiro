@@ -10,7 +10,8 @@ export async function GET(request: Request) {
     const access = await getAffiliateSessionAccess();
     if (!access?.active) return noStore({ error: "Entre como afiliado para usar a prospecção." }, 401);
     const url = new URL(request.url);
-    const view = url.searchParams.get("view") === "responded" ? "responded" : "contacted";
+    const requestedView = url.searchParams.get("view");
+    const view = requestedView === "responded" || requestedView === "interested" ? requestedView : "contacted";
     const identity = affiliateProspectorIdentity(access);
     const { response, payload } = await affiliateProspectingFetch(`/api/claims?view=${view}&limit=50&offset=${Math.max(0, Math.min(100000, Number(url.searchParams.get("offset")) || 0))}`, {
       ...identity,
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
       providerMessageId?: string;
     } | null;
     const action = String(body?.action ?? "");
-    if (action !== "reserve" && action !== "contacted" && action !== "do_not_contact") return noStore({ error: "Ação inválida." }, 400);
+    if (action !== "reserve" && action !== "contacted" && action !== "do_not_contact" && action !== "interested") return noStore({ error: "Ação inválida." }, 400);
     const identity = affiliateProspectorIdentity(access);
     const { response, payload } = await affiliateProspectingFetch("/api/claims", {
       method: "POST",
