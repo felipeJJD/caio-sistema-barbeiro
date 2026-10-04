@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { spawn, spawnSync } from 'node:child_process';
 import ts from 'typescript';
+import { validAppOrigin } from '../lib/request-origin.ts';
 function runtime(path,imports={},extra={}) {
  const module={exports:{}};
  const source=ts.transpile(fs.readFileSync(new URL('../'+path,import.meta.url),'utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022});
@@ -12,6 +13,27 @@ function runtime(path,imports={},extra={}) {
 }
 const ok=body=>Promise.resolve(Response.json(body));
 const credentials={EVOLUTION_API_URL:'https://evolution.test',EVOLUTION_API_KEY:'unit-key-not-real-0123456789',EVOLUTION_WEBHOOK_SECRET:'unit-hook-not-real-0123456789'};
+test('roteiro e áudio aceitam origem pública atrás do proxy e recusam origem externa',async()=>{
+ let scriptWrites=0,audioWrites=0;
+ const prefix='../'.repeat(5);
+ const profile={script:'Oi',audioId:'12345678-1234-1234-1234-123456789012'};
+ const api=runtime('app/api/affiliate/prospecting/audio/route.ts',{
+  [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active:true,affiliateId:42})},
+  [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'})},
+  [prefix+'lib/affiliate-prospecting-audio']:{saveVoiceScript:async(owner)=>{assert.equal(owner,'affiliate:42');scriptWrites++;return profile;},saveVoiceAudio:async(owner)=>{assert.equal(owner,'affiliate:42');audioWrites++;return profile;}},
+  [prefix+'lib/request-origin']:{validAppOrigin}
+ },{Buffer});
+ const target='http://0.0.0.0:8080/api/affiliate/prospecting/audio';
+ const headers={origin:'https://cortouanotou.com.br','x-forwarded-host':'cortouanotou.com.br','x-forwarded-proto':'https'};
+ assert.equal((await api.POST(new Request(target,{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({script:'Oi'})}))).status,200);
+ assert.equal((await api.POST(new Request(target,{method:'POST',headers:{...headers,'content-type':'audio/mp4','x-audio-duration':'26'},body:Buffer.alloc(200)}))).status,200);
+ assert.equal(scriptWrites,1);assert.equal(audioWrites,1);
+ for(const origin of ['https://evil.invalid','null','http://cortouanotou.com.br','https://cortouanotou.com.br.evil.invalid']) {
+  const response=await api.POST(new Request(target,{method:'POST',headers:{...headers,origin,'content-type':'application/json'},body:JSON.stringify({script:'No'})}));
+  assert.equal(response.status,403);
+ }
+ assert.equal(scriptWrites,1);
+});
 test('instâncias são por afiliado, ADM atual é preservado e normalização não duplica 55',()=>{
  const api=runtime('lib/affiliate-prospecting-whatsapp.ts');
  assert.equal(api.prospectingInstanceFor({affiliateId:42}),'ca-prospeccao-affiliate-42');
@@ -163,7 +185,8 @@ test('prévia de áudio autenticada suporta Range do Safari e ignora dono inform
  const api=runtime('app/api/affiliate/prospecting/audio/route.ts',{
   [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active:true,affiliateId:42,name:'Afiliado'})},
   [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'})},
-  [prefix+'lib/affiliate-prospecting-audio']:{getVoiceProfile:async()=>({audioId:id,mimeType:'audio/mp4',durationSeconds:10,script:''}),getVoiceAudio:async(owner)=>{ownerSeen=owner;return Buffer.from('0123456789');}}
+  [prefix+'lib/affiliate-prospecting-audio']:{getVoiceProfile:async()=>({audioId:id,mimeType:'audio/mp4',durationSeconds:10,script:''}),getVoiceAudio:async(owner)=>{ownerSeen=owner;return Buffer.from('0123456789');}},
+  [prefix+'lib/request-origin']:{validAppOrigin}
  },{Buffer,URL});
  const response=await api.GET(new Request(`https://app.test/api/affiliate/prospecting/audio?play=1&owner=affiliate:99`,{headers:{range:'bytes=2-5'}}));
  assert.equal(response.status,206);assert.equal(ownerSeen,'affiliate:42');assert.equal(await response.text(),'2345');

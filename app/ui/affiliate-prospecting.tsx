@@ -293,6 +293,8 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   async function prepareQueue() {
     if (!selectedLeads.length) return setNotice("Selecione pelo menos uma barbearia com celular válido.");
     if (!signupUrl) return setError("Seu link de afiliado ainda não foi configurado. Fale com o administrador.");
+    if (approachMode !== 'text' && !audioId) return setError("Grave e salve seu áudio antes de preparar a abordagem por voz.");
+    if (approachMode !== 'text' && !automatic.connected) return setError("Conecte seu WhatsApp antes de preparar o envio com áudio.");
     setPreparing(true);
     setError("");
     setNotice("");
@@ -417,10 +419,8 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     </section>}
 
     <section className={styles.card}>
-      <div className={styles.cardTitle}><div><b>3. Mensagem</b><span>Use {"{barbearia}"} e {"{link}"}. O sistema troca automaticamente.</span></div></div>
-      <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={6} maxLength={1200} />
-      <button type="button" className={styles.primary} onClick={prepareQueue} disabled={preparing || automaticSending}>{preparing ? "Reservando barbearias..." : `Preparar ${selectedLeads.length || ""} mensagem${selectedLeads.length === 1 ? "" : "s"}`}</button>
-      <p className={styles.helper}>Ao preparar, essas barbearias ficam reservadas para você por 1 hora. Outro afiliado não consegue pegá-las nesse período.</p>
+      <div className={styles.cardTitle}><div><b>3. Abordagem</b><span>Escolha abaixo entre mensagem normal e áudio antes de preparar os contatos.</span></div></div>
+      {approachMode === 'text' ? <><p className={styles.helper}>Use {"{barbearia}"} e {"{link}"}. O sistema troca automaticamente.</p><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={6} maxLength={1200} /></> : <p className={styles.helper}>Sua mensagem curta e sua gravação são configuradas no cartão de áudio abaixo. O roteiro é só para você ler durante a gravação.</p>}
     </section>
 
     <AffiliateProspectingAudio mode={approachMode} onChange={value=>{
@@ -429,8 +429,14 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
       if(value.intro!==undefined)setVoiceIntro(value.intro);
     }}/>
 
+    <section className={styles.card}>
+      <div className={styles.cardTitle}><div><b>4. Preparar contatos</b><span>Depois de escolher a abordagem, reserve as barbearias selecionadas.</span></div></div>
+      <button type="button" className={styles.primary} onClick={prepareQueue} disabled={preparing || automaticSending}>{preparing ? "Reservando barbearias..." : `Preparar ${selectedLeads.length || ""} contato${selectedLeads.length === 1 ? "" : "s"}`}</button>
+      <p className={styles.helper}>Preparar apenas reserva por 1 hora; não envia nada. Depois, toque em “Enviar automaticamente” para mandar a abordagem escolhida.</p>
+    </section>
+
     {queue.length > 0 && <section className={styles.card} ref={sendRef}>
-      <div className={styles.cardTitle}><div><b>4. Enviar</b><span>{automatic.connected ? "Você pode disparar a fila automaticamente ou abrir uma conversa manualmente." : "Ao enviar manualmente, confirme o envio para registrar o contato."}</span></div><strong>{automaticSending ? `Preparando...` : `${queueIndex + 1}/${queue.length}`}</strong></div>
+      <div className={styles.cardTitle}><div><b>5. Enviar</b><span>{approachMode !== 'text' ? 'O botão abaixo envia a mensagem curta e depois o áudio salvo.' : automatic.connected ? "Você pode disparar a fila automaticamente ou abrir uma conversa manualmente." : "Ao enviar manualmente, confirme o envio para registrar o contato."}</span></div><strong>{automaticSending ? `Preparando...` : `${queueIndex + 1}/${queue.length}`}</strong></div>
       {automatic.connected && <button type="button" className={styles.automaticButton} onClick={sendAutomatically} disabled={automaticSending}>{automaticSending ? `Preparando fila...` : `Enviar automaticamente ${queue.length} abordagem${queue.length === 1 ? "" : "ens"}`}</button>}
       {currentQueueLead && <div className={styles.sendPanel}>
         <div><small>BARBEARIA ATUAL</small><h2>{currentQueueLead.name}</h2><p>{currentQueueLead.phone} · {currentQueueLead.address}</p></div>
