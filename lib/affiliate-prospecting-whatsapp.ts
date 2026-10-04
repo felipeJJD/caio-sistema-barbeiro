@@ -309,3 +309,27 @@ export async function sendProspectingWhatsappText(phoneValue: string, textValue:
     release();
   }
 }
+
+export async function sendProspectingWhatsappAudio(phoneValue: string, ogg: Buffer, instance = INSTANCE_NAME) {
+  validInstance(instance);
+  const phone=normalizeProspectingWhatsappPhone(phoneValue);
+  if(!/^55\d{11}$/.test(phone)||ogg.length<64||ogg.length>2*1024*1024||ogg.subarray(0,4).toString()!=='OggS') {
+    const error=new Error('Áudio ou número inválido para WhatsApp.');Object.assign(error,{status:400});throw error;
+  }
+  const state=await getProspectingWhatsappState(instance);
+  if(!state.connected){const error=new Error('Conecte seu WhatsApp antes de enviar o áudio.');Object.assign(error,{status:409});throw error;}
+  const release=await waitForSendSlot(instance);
+  try {
+    // No public media URL: pass private Ogg/Opus bytes directly to the voice-message endpoint.
+    const body=await evolutionRequest<EvolutionPayload>(`/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`,{
+      method:'POST',body:JSON.stringify({number:phone,audio:ogg.toString('base64'),encoding:false,delay:1200}),
+    });
+    const key=body.key&&typeof body.key==='object'?body.key as Record<string,unknown>:{};
+    const data=body.data&&typeof body.data==='object'?body.data as Record<string,unknown>:{};
+    const dataKey=data.key&&typeof data.key==='object'?data.key as Record<string,unknown>:{};
+    const providerMessageId=String(key.id??dataKey.id??body.messageId??body.id??'').trim();
+    if(!providerMessageId)throw new Error('Áudio aceito sem identificador. Confira no WhatsApp antes de tentar novamente.');
+    console.info('[prospecting-voice]',{event:'provider_accepted',instance,providerMessageId});
+    return {providerMessageId,phone};
+  }finally{gates.get(instance)!.lastSendAt=Date.now();release();}
+}

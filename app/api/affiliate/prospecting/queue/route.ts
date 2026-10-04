@@ -11,7 +11,7 @@ export async function POST(request:Request) {
     const access=await getAffiliateSessionAccess();
     if(!access?.active)return Response.json({error:'Entre como afiliado.'},{status:401});
     const body=await request.json().catch(()=>null) as {action?:string;id?:string}|null;
-    if(!body || !['retry','confirm_sent'].includes(body.action||'') || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(body.id||''))return Response.json({error:'Ação ou envio inválido.'},{status:400});
+    if(!body || !['retry','confirm_sent','cancel_failed'].includes(body.action||'') || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(body.id||''))return Response.json({error:'Ação ou envio inválido.'},{status:400});
     const result=await affiliateProspectingFetch('/api/queue',{method:'POST',...affiliateProspectorIdentity(access),body:{action:body.action,id:body.id}});
     return Response.json(result.payload,{status:result.response.status,headers:{'cache-control':'no-store'}});
   }catch{return Response.json({error:'Não foi possível atualizar esse envio.'},{status:503});}
