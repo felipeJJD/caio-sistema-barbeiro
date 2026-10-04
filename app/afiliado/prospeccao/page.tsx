@@ -17,6 +17,6 @@ export default async function AffiliateProspectingPage() {
 
   return <>
     <AffiliateProspecting name={data.profile.name} initialWhatsapp={data.profile.whatsapp} signupUrl={signupUrl} isAdmin={Boolean(access.isAdmin)} />
-    <AffiliateProspectingHistory />
+    <AffiliateProspectingHistory signupUrl={signupUrl} />
   </>;
 }

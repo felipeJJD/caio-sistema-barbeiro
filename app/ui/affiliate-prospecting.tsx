@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "./brand-logo";
+import { AffiliateProspectingAudio, DEFAULT_VOICE_INTRO, type ApproachMode } from './affiliate-prospecting-audio';
 import styles from "./affiliate-prospecting.module.css";
 
 type Lead = {
@@ -21,7 +22,7 @@ type Lead = {
 type City = { id: number | string; name: string };
 type ReservedClaim = { key: string; phoneE164: string; name?: string };
 type BlockedClaim = { name?: string; reason?: string };
-type QueueJob = { id:string; batchId:string; key:string; name:string; phoneE164:string; status:string; error?:string; delivery?:string };
+type QueueJob = { id:string; batchId:string; key:string; name:string; phoneE164:string; status:string; error?:string; delivery?:string; stage?:string; approachMode?:string; textProviderId?:string; audioProviderId?:string };
 
 type AutomaticWhatsappState = { state: string; connected: boolean; canConnect?: boolean };
 
@@ -85,6 +86,9 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   const [visibleCount, setVisibleCount] = useState(DISPLAY_STEP);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
+  const [approachMode,setApproachMode]=useState<ApproachMode>('text');
+  const [voiceIntro,setVoiceIntro]=useState(DEFAULT_VOICE_INTRO);
+  const [audioId,setAudioId]=useState('');
   const [loading, setLoading] = useState(false);
   const [moreLoading, setMoreLoading] = useState(false);
   const [preparing, setPreparing] = useState(false);
@@ -146,18 +150,18 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     } catch { /* Existing progress remains visible through a temporary connection loss. */ }
   }
 
-  async function updateJob(job:QueueJob, action:"retry"|"confirm_sent") {
+  async function updateJob(job:QueueJob, action:"retry"|"confirm_sent"|"cancel_failed") {
     if (jobActionRef.current) return;
     const question = action === "confirm_sent"
-      ? "Você conferiu no seu WhatsApp e essa mensagem foi realmente enviada?"
-      : "Essa tentativa falhou. Conferiu o número e quer tentar enviar a mesma mensagem novamente?";
+      ? `Você conferiu no seu WhatsApp e ${job.stage==='audio'?'esse áudio':'essa mensagem'} foi realmente enviado?`
+      : action==='cancel_failed'?'Descartar esta falha? Esta abordagem não será tentada novamente.':`Essa tentativa falhou. Quer tentar enviar ${job.stage==='audio'?'somente o áudio':'a mensagem'} novamente?`;
     if (!window.confirm(question)) return;
     jobActionRef.current = true;setJobActionId(job.id);setError("");setNotice("");
     try {
       const response = await fetch("/api/affiliate/prospecting/queue",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action,id:job.id})});
       const payload = await response.json() as {error?:unknown};
       if (!response.ok) throw new Error(readableError(payload.error,"Não foi possível atualizar esse envio."));
-      setNotice(action === "retry" ? "Contato voltou para a fila. Os envios concluídos não serão repetidos." : "Envio confirmado. Essa mensagem não será repetida.");
+      setNotice(action === "retry" ? "Somente a etapa que falhou voltou para a fila." : action==='cancel_failed'?'Falha descartada.':'Etapa confirmada. Ela não será repetida.');
       await refreshQueue();window.dispatchEvent(new Event("prospecting-history-changed"));
     } catch(cause) {setError(cause instanceof Error?cause.message:"Não foi possível atualizar esse envio.");}
     finally {jobActionRef.current=false;setJobActionId("");}
@@ -349,10 +353,11 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
   }
   async function sendAutomatically() {
     if (!automatic.connected) return setNotice("Conecte seu WhatsApp antes de enviar.");
+    if (approachMode!=='text'&&!audioId)return setError('Grave e salve seu áudio antes de enviar esta abordagem.');
     if (!queue.length || sendingRef.current) return;
     sendingRef.current = true;setAutomaticSending(true);setError("");setNotice("");
     try {
-      const response = await fetch("/api/affiliate/prospecting/whatsapp",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"enqueue",keys:queue.map(lead=>`phone:${lead.phoneE164}`),template:message})});
+      const response = await fetch("/api/affiliate/prospecting/whatsapp",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"enqueue",keys:queue.map(lead=>`phone:${lead.phoneE164}`),template:approachMode==='text'?message:voiceIntro,approachMode,audioId})});
       const payload = await response.json() as {jobs?:QueueJob[];blocked?:BlockedClaim[];error?:unknown};
       if (!response.ok) throw new Error(readableError(payload.error,"Não foi possível iniciar o envio."));
       const accepted = new Set((payload.jobs || []).map(job=>job.key));
@@ -385,7 +390,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
         <div className={styles.automaticActions}><button type="button" className={styles.primary} onClick={connectAutomatic} disabled={automaticConnecting||automaticLoading}>{automaticConnecting?"Gerando código...":"Conectar meu WhatsApp"}</button><button type="button" className={styles.secondary} onClick={()=>void refreshAutomatic(true)} disabled={automaticLoading}>Conferir conexão</button></div>
       </>}
       {pairingCode && <div className={styles.pairingBox}><small>CÓDIGO DE CONEXÃO</small><strong>{pairingCode}</strong><button type="button" className={styles.secondary} onClick={()=>void navigator.clipboard.writeText(pairingCode).then(()=>setNotice("Código copiado.")).catch(()=>setNotice("Selecione o código para copiar."))}>Copiar código</button><p>No WhatsApp: Configurações ou menu → Aparelhos conectados → Conectar aparelho → Conectar com número de telefone. Digite o código acima.</p></div>}
-      {automatic.connected && <p className={styles.helper}>Suas mensagens e respostas usam esta conexão. Seu link de indicação é incluído automaticamente.</p>}
+      {automatic.connected && <p className={styles.helper}>Suas mensagens e respostas usam esta conexão. No modo “Áudio e esperar resposta”, o link só é enviado por você após o retorno.</p>}
     </section>
 
     <section className={styles.card}>
@@ -418,21 +423,26 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
       <p className={styles.helper}>Ao preparar, essas barbearias ficam reservadas para você por 1 hora. Outro afiliado não consegue pegá-las nesse período.</p>
     </section>
 
+    <AffiliateProspectingAudio mode={approachMode} onChange={value=>{
+      if(value.mode)setApproachMode(value.mode);
+      if(value.audioId!==undefined)setAudioId(value.audioId);
+      if(value.intro!==undefined)setVoiceIntro(value.intro);
+    }}/>
+
     {queue.length > 0 && <section className={styles.card} ref={sendRef}>
       <div className={styles.cardTitle}><div><b>4. Enviar</b><span>{automatic.connected ? "Você pode disparar a fila automaticamente ou abrir uma conversa manualmente." : "Ao enviar manualmente, confirme o envio para registrar o contato."}</span></div><strong>{automaticSending ? `Preparando...` : `${queueIndex + 1}/${queue.length}`}</strong></div>
-      {automatic.connected && <button type="button" className={styles.automaticButton} onClick={sendAutomatically} disabled={automaticSending}>{automaticSending ? `Preparando fila...` : `Enviar automaticamente ${queue.length} mensagem${queue.length === 1 ? "" : "s"}`}</button>}
+      {automatic.connected && <button type="button" className={styles.automaticButton} onClick={sendAutomatically} disabled={automaticSending}>{automaticSending ? `Preparando fila...` : `Enviar automaticamente ${queue.length} abordagem${queue.length === 1 ? "" : "ens"}`}</button>}
       {currentQueueLead && <div className={styles.sendPanel}>
         <div><small>BARBEARIA ATUAL</small><h2>{currentQueueLead.name}</h2><p>{currentQueueLead.phone} · {currentQueueLead.address}</p></div>
-        <div className={styles.preview}>{personalize(message, currentQueueLead, signupUrl)}</div>
-        <button type="button" className={styles.whatsappButton} onClick={openWhatsApp} disabled={automaticSending}>Abrir no WhatsApp</button>
-        <button type="button" className={styles.secondary} onClick={confirmManualSend} disabled={automaticSending}>Já enviei essa mensagem</button>
+        <div className={styles.preview}>{approachMode==='text'?personalize(message,currentQueueLead,signupUrl):personalize(voiceIntro,currentQueueLead,approachMode==='audio_wait'?'':signupUrl)+(approachMode==='text_audio'&&!voiceIntro.includes('{link}')?`\n${signupUrl}`:'')}</div>
+        {approachMode==='text'?<><button type="button" className={styles.whatsappButton} onClick={openWhatsApp} disabled={automaticSending}>Abrir no WhatsApp</button><button type="button" className={styles.secondary} onClick={confirmManualSend} disabled={automaticSending}>Já enviei essa mensagem</button></>:<p className={styles.helper}>Para enviar sua voz como mensagem de áudio, use o envio automático acima.</p>}
         <div className={styles.queueNav}><button type="button" onClick={() => setQueueIndex((value) => Math.max(0, value - 1))} disabled={queueIndex === 0 || automaticSending}>Anterior</button><button type="button" onClick={() => setQueueIndex((value) => Math.min(queue.length - 1, value + 1))} disabled={queueIndex >= queue.length - 1 || automaticSending}>Próxima</button></div>
       </div>}
     </section>}
 
     {batchJobs.length > 0 && <section className={styles.card} aria-live="polite">
       <div className={styles.cardTitle}><div><b>Progresso do envio</b><span>{completed}/{batchJobs.length} processadas · {batchJobs.filter(job=>job.status==="sent").length} enviadas</span></div><button type="button" className={styles.secondary} onClick={()=>void refreshQueue()}>Atualizar</button></div>
-      <div className={styles.jobList}>{batchJobs.slice(0,visibleJobs).map(job=><article key={job.id}><div><strong>{job.name}</strong><span>{job.delivery==="read"?"Lida":job.delivery==="delivered"?"Entregue":({pending:"Na fila",leased:"Preparando",sending:"Enviando",sent:"Enviada",failed:"Falhou",uncertain:"Conferir envio",cancelled:"Cancelada"} as Record<string,string>)[job.status]||job.status}</span></div>{job.error&&<p>{job.error}</p>}{job.status==="uncertain"&&<><a href={`https://wa.me/${job.phoneE164}`} target="_blank" rel="noopener noreferrer">Conferir no meu WhatsApp</a><button type="button" className={styles.secondary} onClick={()=>void updateJob(job,"confirm_sent")} disabled={Boolean(jobActionId)}>{jobActionId===job.id?"Registrando...":"Conferi: foi enviada"}</button></>}{job.status==="failed"&&<button type="button" className={styles.secondary} onClick={()=>void updateJob(job,"retry")} disabled={Boolean(jobActionId)}>{jobActionId===job.id?"Preparando...":"Tentar novamente"}</button>}</article>)}</div>
+      <div className={styles.jobList}>{batchJobs.slice(0,visibleJobs).map(job=><article key={job.id}><div><strong>{job.name}</strong><span>{job.delivery==="read"?"Lida":job.delivery==="delivered"?"Entregue":({pending:"Na fila",leased:"Preparando",sending:"Enviando",sent:"Enviada",failed:"Falhou",uncertain:"Conferir envio",cancelled:"Cancelada"} as Record<string,string>)[job.status]||job.status}</span></div>{job.approachMode!=='text'&&<p>{job.textProviderId?'Mensagem enviada':job.stage==='text'&&job.status==='failed'?'Mensagem falhou':'Mensagem na fila'} · {job.audioProviderId?'Áudio enviado':job.stage==='audio'?job.status==='failed'?'Áudio falhou — tente somente o áudio':job.status==='uncertain'?'Áudio incerto — confira no WhatsApp':'Áudio na fila':'Áudio aguardando mensagem'}</p>}{job.error&&<p>{job.error}</p>}{job.status==="uncertain"&&<><a href={`https://wa.me/${job.phoneE164}`} target="_blank" rel="noopener noreferrer">Conferir no meu WhatsApp</a><button type="button" className={styles.secondary} onClick={()=>void updateJob(job,"confirm_sent")} disabled={Boolean(jobActionId)}>{jobActionId===job.id?"Registrando...":"Conferi: foi enviada"}</button></>}{job.status==="failed"&&<><button type="button" className={styles.secondary} onClick={()=>void updateJob(job,"retry")} disabled={Boolean(jobActionId)}>{jobActionId===job.id?"Preparando...":job.stage==='audio'?"Tentar só o áudio":"Tentar novamente"}</button><button type="button" className={styles.secondary} onClick={()=>void updateJob(job,"cancel_failed")} disabled={Boolean(jobActionId)}>Descartar falha</button></>}</article>)}</div>
       {batchJobs.length>visibleJobs&&<button type="button" className={styles.more} onClick={()=>setVisibleJobs(value=>value+50)}>Ver mais contatos do lote</button>}
     </section>}
 

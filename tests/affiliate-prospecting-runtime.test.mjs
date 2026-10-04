@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { spawn, spawnSync } from 'node:child_process';
 import ts from 'typescript';
 function runtime(path,imports={},extra={}) {
  const module={exports:{}};
@@ -53,6 +54,7 @@ test('falha após Evolution aceitar não manda a mensagem novamente',async()=>{
  const api=runtime('lib/affiliate-prospecting-processor.ts',{
  '../db/affiliate-auth':{getAffiliateProspectorAccess:async()=>({active:true,affiliateId:42})},
  './affiliate-prospecting-whatsapp':{prospectingInstanceFor:()=>job.instance,getProspectingWhatsappState:async()=>({connected:true}),sendProspectingWhatsappText:async()=>{sends++;return {providerMessageId:'accepted'};}},
+ './affiliate-prospecting-audio':{getVoiceAudio:async()=>null},
  './affiliate-prospecting-bridge':{affiliateProspectingFetch:async(path,{body})=>{commands.push(body);if(body.action==='lease')return {response:{ok:true},payload:{job}};if(body.action==='dispatch')return {response:{ok:true},payload:{allowed:true}};if(body.status==='sent')throw Error('database temporarily unavailable');return {response:{ok:true},payload:{ok:true}};}}
  });
  await api.runProspectingQueue();assert.equal(sends,1);assert.equal(commands.at(-1).status,'uncertain');
@@ -77,6 +79,94 @@ test('afiliado pausado cancela o trabalho sem enviar',async()=>{
  const api=runtime('lib/affiliate-prospecting-processor.ts',{
  '../db/affiliate-auth':{getAffiliateProspectorAccess:async()=>({active:false,affiliateId:42})},
  './affiliate-prospecting-whatsapp':{prospectingInstanceFor:()=>job.instance,sendProspectingWhatsappText:async()=>sends++},
+ './affiliate-prospecting-audio':{getVoiceAudio:async()=>null},
  './affiliate-prospecting-bridge':{affiliateProspectingFetch:async(path,{body})=>{commands.push(body);return {response:{ok:true},payload:body.action==='lease'?{job}:{ok:true}};}}
  });await api.runProspectingQueue();assert.equal(sends,0);assert.equal(commands.at(-1).status,'cancelled');
+});
+test('envio de voz usa Ogg/Opus em base64 e apenas instância de Prospecção',async()=>{
+ const calls=[];
+ const api=runtime('lib/affiliate-prospecting-whatsapp.ts',{}, {Buffer,process:{env:credentials},fetch:async(url,init={})=>{
+   calls.push({url,body:init.body});
+   if(url.includes('connectionState'))return ok({instance:{state:'open'}});
+   if(url.includes('/webhook/set/'))return ok({ok:true});
+   if(url.includes('/message/sendWhatsAppAudio/'))return ok({key:{id:'voice-provider-1'}});
+   throw Error('unexpected '+url);
+ }});
+ const bytes=Buffer.concat([Buffer.from('OggS'),Buffer.alloc(200)]);
+ const result=await api.sendProspectingWhatsappAudio('5541999999999',bytes,'ca-prospeccao-affiliate-42');
+ assert.equal(result.providerMessageId,'voice-provider-1');
+ const outbound=calls.find(call=>call.url.includes('/message/sendWhatsAppAudio/'));
+ assert.ok(outbound.url.endsWith('/ca-prospeccao-affiliate-42'));
+ const payload=JSON.parse(outbound.body);
+ assert.equal(payload.audio,bytes.toString('base64'));assert.equal(payload.encoding,false);
+ await assert.rejects(api.sendProspectingWhatsappAudio('5541999999999',bytes,'ca-org-42'));
+});
+test('retentativa do áudio não repete texto; falha da etapa é explícita',async()=>{
+ let textSends=0,audioSends=0;const commands=[];
+ const job={id:'voice-job',owner:'affiliate:42',instance:'ca-prospeccao-affiliate-42',phoneE164:'5541999999999',message:'Oi',leaseToken:'token',stage:'audio',audioId:'12345678-1234-1234-1234-123456789012',approachMode:'audio_wait',attempts:0};
+ const api=runtime('lib/affiliate-prospecting-processor.ts',{
+   '../db/affiliate-auth':{getAffiliateProspectorAccess:async()=>({active:true,affiliateId:42})},
+   './affiliate-prospecting-audio':{getVoiceAudio:async(owner,id)=>{assert.equal(owner,'affiliate:42');assert.equal(id,job.audioId);return Buffer.from('OggS');}},
+   './affiliate-prospecting-whatsapp':{prospectingInstanceFor:()=>job.instance,getProspectingWhatsappState:async()=>({connected:true}),sendProspectingWhatsappText:async()=>textSends++,sendProspectingWhatsappAudio:async()=>{audioSends++;const error=Error('rejected');error.status=422;throw error;}},
+   './affiliate-prospecting-bridge':{affiliateProspectingFetch:async(path,{body})=>{commands.push(body);return {response:{ok:true},payload:body.action==='lease'?{job}:body.action==='dispatch'?{allowed:true}:{ok:true}};}}
+ });
+ await api.runProspectingQueue();assert.equal(audioSends,1);assert.equal(textSends,0);
+ assert.equal(commands.at(-1).status,'failed');assert.equal(commands.at(-1).stage,'audio');
+});
+test('roteiro e bytes privados são separados por afiliado e pelo ADM',async()=>{
+ const objects=new Map();
+ const bucket={put:async(key,value)=>objects.set(key,Buffer.from(value)),get:async key=>objects.has(key)?{body:new Response(objects.get(key)).body}:null,delete:async key=>objects.delete(key)};
+ const audio=runtime('lib/affiliate-prospecting-audio.ts',{
+   'server-only':{},'node:crypto':{randomUUID:()=> '12345678-1234-1234-1234-123456789012'},'node:child_process':{spawn:()=>{throw Error('not used');}},
+   '../runtime/storage.mjs':{getStorage:()=>({BUCKET:bucket})}
+ },{Buffer,URL});
+ await audio.saveVoiceScript('affiliate:42','Roteiro do 42');
+ assert.equal((await audio.getVoiceProfile('affiliate:42')).script,'Roteiro do 42');
+ assert.equal((await audio.getVoiceProfile('affiliate:43')).script,'');
+ assert.equal((await audio.getVoiceProfile('admin:42')).script,'');
+ const id='12345678-1234-1234-1234-123456789012';
+ await bucket.put(`affiliate-prospecting/voice/affiliate/42/${id}.ogg`,Buffer.from('OggS'));
+ assert.ok(await audio.getVoiceAudio('affiliate:42',id,'ogg'));
+ assert.equal(await audio.getVoiceAudio('affiliate:43',id,'ogg'),null);
+ assert.equal(await audio.getVoiceAudio('admin:42',id,'ogg'),null);
+});
+test('MP4 do iPhone é convertido para Ogg/Opus antes de chegar à Evolution',{skip:spawnSync('ffmpeg',['-version']).status!==0},async()=>{
+ const input=spawnSync('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i','sine=frequency=400:duration=1','-c:a','aac','-movflags','frag_keyframe+empty_moov','-f','mp4','pipe:1'],{maxBuffer:2*1024*1024});
+ assert.equal(input.status,0);
+ const audio=runtime('lib/affiliate-prospecting-audio.ts',{'server-only':{},'node:crypto':{randomUUID:()=>''},'node:child_process':{spawn},'../runtime/storage.mjs':{getStorage:()=>{throw Error('not needed');}}},{Buffer});
+ const ogg=await audio.transcodeVoice(input.stdout);
+ assert.equal(ogg.subarray(0,4).toString(),'OggS');
+ const info=spawnSync('ffprobe',['-v','error','-select_streams','a:0','-show_entries','stream=codec_name,sample_rate','-of','default=noprint_wrappers=1','pipe:0'],{input:ogg,encoding:'utf8'});
+ assert.match(info.stdout,/codec_name=opus/);assert.match(info.stdout,/sample_rate=48000/);
+});
+test('URL da abordagem continua derivada no servidor: ADM sem ref e afiliado com ref real',async()=>{
+ let admin=true;const calls=[];
+ const prefix='../'.repeat(5),id='12345678-1234-4234-8234-123456789012';
+ const route=runtime('app/api/affiliate/prospecting/whatsapp/route.ts',{
+   [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active:true,affiliateId:42,isAdmin:admin,name:'Pessoa'})},
+   [prefix+'db/affiliate-portal']:{getAffiliateDashboard:async()=>({links:[{active:true,isMain:true,url:'https://cortouanotou.com.br/comece?ref=CODIGO_REAL'}]})},
+   [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:access=>({prospectorKey:`${access.isAdmin?'admin':'affiliate'}:${access.affiliateId}`}),affiliateProspectingFetch:async(path,options)=>{calls.push(options);return {response:{status:200},payload:{jobs:[]}};}},
+   [prefix+'lib/affiliate-prospecting-whatsapp']:{prospectingInstanceFor:()=> 'ca-prospeccao-outbound',getProspectingWhatsappState:async()=>({connected:true})},
+   [prefix+'lib/affiliate-prospecting-audio']:{getVoiceProfile:async()=>({audioId:id}),getVoiceAudio:async()=>Buffer.from('OggS'),validVoiceId:()=>true}
+ },{Buffer});
+ const request=()=>new Request('https://cortouanotou.com.br/api/affiliate/prospecting/whatsapp',{method:'POST',body:JSON.stringify({action:'enqueue',keys:['phone:5541999999999'],template:'Oi {barbearia}',approachMode:'audio_wait',audioId:id})});
+ assert.equal((await route.POST(request())).status,200);
+ assert.equal(calls[0].body.signupUrl,'https://cortouanotou.com.br/comece');
+ assert.equal(calls[0].prospectorKey,'admin:42');
+ admin=false;assert.equal((await route.POST(request())).status,200);
+ assert.equal(calls[1].body.signupUrl,'https://cortouanotou.com.br/comece?ref=CODIGO_REAL');
+ assert.equal(calls[1].prospectorKey,'affiliate:42');
+});
+test('prévia de áudio autenticada suporta Range do Safari e ignora dono informado pelo cliente',async()=>{
+ const id='12345678-1234-4234-8234-123456789012';let ownerSeen='';
+ const prefix='../'.repeat(5);
+ const api=runtime('app/api/affiliate/prospecting/audio/route.ts',{
+  [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active:true,affiliateId:42,name:'Afiliado'})},
+  [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'})},
+  [prefix+'lib/affiliate-prospecting-audio']:{getVoiceProfile:async()=>({audioId:id,mimeType:'audio/mp4',durationSeconds:10,script:''}),getVoiceAudio:async(owner)=>{ownerSeen=owner;return Buffer.from('0123456789');}}
+ },{Buffer,URL});
+ const response=await api.GET(new Request(`https://app.test/api/affiliate/prospecting/audio?play=1&owner=affiliate:99`,{headers:{range:'bytes=2-5'}}));
+ assert.equal(response.status,206);assert.equal(ownerSeen,'affiliate:42');assert.equal(await response.text(),'2345');
+ assert.equal(response.headers.get('content-range'),'bytes 2-5/10');
+ assert.equal(response.headers.get('cache-control'),'private, no-store');
 });

@@ -33,7 +33,7 @@ function dateLabel(value?: string | null) {
   }).format(date);
 }
 
-export function AffiliateProspectingHistory() {
+export function AffiliateProspectingHistory({signupUrl}:{signupUrl:string}) {
   const [view, setView] = useState<HistoryView>("contacted");
   const [items, setItems] = useState<ProspectingContact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +124,7 @@ export function AffiliateProspectingHistory() {
             {item.respondedAt && <span className={styles.respondedBadge}>Já respondeu</span>}
             {item.lastOutboundMessage && <p className={styles.message}>{item.lastOutboundMessage}</p>}
           </>}
-          <div className={styles.contactActions}><a href={`https://wa.me/${item.phoneE164}`} target="_blank" rel="noopener noreferrer">Abrir conversa no WhatsApp</a>{item.status==="do_not_contact"?<span>Não contatar</span>:<button type="button" onClick={()=>void stopContact(item)}>Não tem interesse</button>}</div>
+          <div className={styles.contactActions}><a href={`https://wa.me/${item.phoneE164}`} target="_blank" rel="noopener noreferrer">Abrir conversa no WhatsApp</a>{view==='responded'&&item.status!=='do_not_contact'&&signupUrl&&<a href={`https://wa.me/${item.phoneE164}?text=${encodeURIComponent(`Claro! Aqui está o link para conhecer o Cortou Anotou: ${signupUrl}`)}`} target="_blank" rel="noopener noreferrer">Enviar link do Cortou Anotou</a>}{item.status==="do_not_contact"?<span>Não contatar</span>:<button type="button" onClick={()=>void stopContact(item)}>Não tem interesse</button>}</div>
         </article>;
       })}</div>}
       {hasMore&&!loading&&<button type="button" className={styles.moreButton} onClick={()=>void load(view,false,nextOffset)}>Ver mais contatos</button>}

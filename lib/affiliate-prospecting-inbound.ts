@@ -94,12 +94,14 @@ export async function captureProspectingEvolutionInbound(payload: unknown) {
     }
     const phoneE164 = inboundPhone(data); if (!phoneE164) continue;
     const message = inboundText(data);
+    const mediaType = String(data.messageType ?? '').toLowerCase().includes('audio') || Boolean(objectOf(data.message).audioMessage) ? 'audio' : 'text';
     const outgoing = key.fromMe === true;
     const { response, payload: result } = await affiliateProspectingFetch(outgoing ? "/api/queue" : "/api/claims", {
-      method: "POST", body: { action: outgoing ? "outbound" : "inbound", instance, phoneE164, message, providerMessageId },
+      method: "POST", body: { action: outgoing ? "outbound" : "inbound", instance, phoneE164, message, providerMessageId, mediaType },
     });
     if (!response.ok) throw new Error("Não foi possível registrar a resposta da prospecção.");
     const record = objectOf(result); recorded = recorded || Boolean(record.matched);
+    if(!outgoing&&record.matched)console.info('[prospecting-inbound]',{event:'reply_recorded',instance,providerMessageId});
   }
   return { handled: true, recorded, duplicate: false };
 }

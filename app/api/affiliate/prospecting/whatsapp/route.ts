@@ -2,6 +2,7 @@ import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
 import { getAffiliateDashboard } from "../../../../../db/affiliate-portal";
 import { affiliateProspectingFetch, affiliateProspectorIdentity } from "../../../../../lib/affiliate-prospecting-bridge";
 import { beginProspectingWhatsappPairing, getProspectingWhatsappState, normalizeProspectingWhatsappPhone, canonicalProspectingPhone, prospectingInstanceFor } from "../../../../../lib/affiliate-prospecting-whatsapp";
+import { getVoiceAudio, getVoiceProfile, validVoiceId } from '../../../../../lib/affiliate-prospecting-audio';
 const reply=(payload:unknown,status=200)=>Response.json(payload,{status,headers:{"cache-control":"no-store"}});
 export async function GET() {
   try {
@@ -19,7 +20,7 @@ export async function POST(request:Request) {
   try {
     const access=await getAffiliateSessionAccess();
     if(!access?.active)return reply({error:"Entre como afiliado para usar a prospecção."},401);
-    const body=await request.json() as {action?:string;phone?:string;keys?:string[];template?:string};
+    const body=await request.json() as {action?:string;phone?:string;keys?:string[];template?:string;approachMode?:string;audioId?:string};
     const identity=affiliateProspectorIdentity(access);const instance=prospectingInstanceFor(access);
     if(body.action==='connect') {
       const phone=normalizeProspectingWhatsappPhone(String(body.phone||''));
@@ -32,13 +33,20 @@ export async function POST(request:Request) {
       return reply(await beginProspectingWhatsappPairing(phone,instance));
     }
     if(body.action==='enqueue') {
+      const mode=body.approachMode||'text';
+      if(!['text','text_audio','audio_wait'].includes(mode))return reply({error:'Abordagem inválida.'},400);
+      if(mode!=='text') {
+        const profile=await getVoiceProfile(identity.prospectorKey);
+        if(!body.audioId||!validVoiceId(body.audioId)||profile.audioId!==body.audioId||!await getVoiceAudio(identity.prospectorKey,body.audioId,'ogg'))
+          return reply({error:'Salve um áudio próprio antes de iniciar esse envio.'},409);
+      }
       const data=await getAffiliateDashboard(access);
       const link=data.links.find(item=>item.active&&item.isMain)??data.links.find(item=>item.active);
       const signupUrl=access.isAdmin?'https://cortouanotou.com.br/comece':link?.url;
       if(!signupUrl)return reply({error:"Ative seu link de indicação antes de enviar."},409);
       const state=await getProspectingWhatsappState(instance);
       if(!state.connected)return reply({error:"Conecte seu WhatsApp antes de enviar."},409);
-      const result=await affiliateProspectingFetch('/api/queue',{method:'POST',...identity,body:{action:'enqueue',keys:body.keys,template:String(body.template||''),signupUrl}});
+      const result=await affiliateProspectingFetch('/api/queue',{method:'POST',...identity,body:{action:'enqueue',keys:body.keys,template:String(body.template||''),signupUrl,approachMode:mode,audioId:mode==='text'?undefined:body.audioId}});
       return reply(result.payload,result.response.status);
     }
     return reply({error:"Ação inválida."},400);
