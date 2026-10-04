@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { formatHelpVoiceTime, useHelpVoiceRecorder, type HelpVoicePayload } from './help-voice';
 import styles from './affiliate-prospecting-audio.module.css';
 
-export type ApproachMode='text'|'text_audio'|'audio_wait';
+export type ApproachMode='text'|'text_audio'|'audio_wait'|'audio_only';
 type VoiceProfile={script:string;audioId:string;durationSeconds:number;mimeType:string;recordedAt:string};
 
 type Props={
@@ -77,7 +77,7 @@ export function AffiliateProspectingAudio({mode,embedded=false,onChange}:Props) 
     {error&&<p className={styles.error} role="alert">{error}</p>}
     {notice&&<p className={styles.success} role="status">{notice}</p>}
     <fieldset className={styles.modes}><legend>Como abordar</legend>
-      {([['text','Mensagem'],['audio_wait','Somente áudio']] as const).map(([value,label])=><label key={value}><input type="radio" name="prospecting-approach" checked={mode===value} onChange={()=>{onChange(value==='audio_wait'?{mode:value,intro:''}:{mode:value});if(value!=='text')setOpen(true);}}/>{label}</label>)}
+      {([['text','Mensagem'],['audio_only','Somente áudio']] as const).map(([value,label])=><label key={value}><input type="radio" name="prospecting-approach" checked={mode===value} onChange={()=>{onChange(value==='audio_only'?{mode:value,intro:''}:{mode:value});if(value!=='text')setOpen(true);}}/>{label}</label>)}
     </fieldset>
     {mode!=='text'&&<div className={styles.audioSummary}><div><strong>{profile?.audioId?'Áudio pronto':'Grave sua apresentação'}</strong><span>{profile?.audioId?`${formatHelpVoiceTime(profile.durationSeconds)} salvo para este afiliado`:'Você grava uma vez e reaproveita nas abordagens.'}</span></div><button type="button" onClick={()=>setOpen(value=>!value)} aria-expanded={open}>{open?'Fechar':'Configurar áudio'}</button></div>}
     {open&&mode!=='text'&&<div className={styles.content}>
