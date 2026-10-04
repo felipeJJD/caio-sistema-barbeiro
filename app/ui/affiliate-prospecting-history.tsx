@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./affiliate-prospecting-history.module.css";
 
-type HistoryView = "contacted" | "responded";
+type HistoryView = "contacted" | "responded" | "interested";
 
 type ProspectingContact = {
   key: string;
@@ -12,6 +12,7 @@ type ProspectingContact = {
   phoneE164: string;
   city: string;
   status: string;
+  qualification?: string;
   contactedAt?: string | null;
   lastOutboundMessage?: string;
   lastOutboundAt?: string | null;
@@ -38,6 +39,7 @@ export function AffiliateProspectingHistory({signupUrl}:{signupUrl:string}) {
   const [items, setItems] = useState<ProspectingContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [actionKey, setActionKey] = useState("");
   const [error, setError] = useState("");
   const [hasMore, setHasMore] = useState(false);
   const [nextOffset, setNextOffset] = useState(0);
@@ -97,14 +99,44 @@ export function AffiliateProspectingHistory({signupUrl}:{signupUrl:string}) {
     setLoadingMore(false);
   }
 
+  async function markInterested(item: ProspectingContact) {
+    if (actionKey) return;
+    setActionKey(item.key);
+    setError("");
+    try {
+      const response = await fetch("/api/affiliate/prospecting/claims", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "interested", key: item.key }),
+      });
+      const payload = await response.json().catch(() => ({})) as { item?: ProspectingContact; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Não foi possível marcar esse contato como interessado.");
+      setItems(current => current.map(currentItem => currentItem.key === item.key ? { ...currentItem, qualification: "interested" } : currentItem));
+      window.dispatchEvent(new Event("prospecting-history-changed"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível marcar esse contato como interessado.");
+    } finally {
+      setActionKey("");
+    }
+  }
+
   async function stopContact(item:ProspectingContact) {
     if(!window.confirm(`Marcar ${item.name} para não receber novas abordagens?`)) return;
+    setActionKey(item.key);
     try {
       const response=await fetch('/api/affiliate/prospecting/claims',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'do_not_contact',key:item.key})});
       if(!response.ok)throw new Error('Não foi possível atualizar o contato.');
       await load(view,true);
+      window.dispatchEvent(new Event("prospecting-history-changed"));
     }catch(cause){setError(cause instanceof Error?cause.message:'Não foi possível atualizar o contato.');}
+    finally { setActionKey(""); }
   }
+
+  const emptyText = view === "responded"
+    ? "Nenhuma mensagem recebida ainda."
+    : view === "interested"
+      ? "Nenhuma barbearia marcada com interesse ainda."
+      : "Nenhuma barbearia contatada ainda.";
 
   return <section className={styles.shell}>
     <div className={styles.card}>
@@ -112,7 +144,7 @@ export function AffiliateProspectingHistory({signupUrl}:{signupUrl:string}) {
         <div>
           <span>HISTÓRICO DA PROSPECÇÃO</span>
           <h2>Contatos e mensagens</h2>
-          <p>Somente o que aconteceu na Prospecção, separado dos cadastros por indicação.</p>
+          <p>Acompanhe quem recebeu, quem respondeu e quem demonstrou interesse.</p>
         </div>
         <button type="button" onClick={() => void load(view)} disabled={loading}>{loading ? "Atualizando..." : "Atualizar"}</button>
       </div>
@@ -120,14 +152,17 @@ export function AffiliateProspectingHistory({signupUrl}:{signupUrl:string}) {
       <div className={styles.tabs} role="tablist" aria-label="Histórico da prospecção">
         <button type="button" className={view === "contacted" ? styles.active : ""} onClick={() => choose("contacted")}>Já contatadas</button>
         <button type="button" className={view === "responded" ? styles.active : ""} onClick={() => choose("responded")}>Mensagens recebidas</button>
+        <button type="button" className={view === "interested" ? styles.active : ""} onClick={() => choose("interested")}>Tem interesse</button>
       </div>
 
       {error && <div className={styles.error}>{error}</div>}
       {loading && <div className={styles.empty}>Carregando...</div>}
-      {!loading && !error && items.length === 0 && <div className={styles.empty}>{view === "responded" ? "Nenhuma mensagem recebida ainda." : "Nenhuma barbearia contatada ainda."}</div>}
+      {!loading && !error && items.length === 0 && <div className={styles.empty}>{emptyText}</div>}
 
       {!loading && visibleItems.length > 0 && <div className={styles.list}>{visibleItems.map((item) => {
-        const when = view === "responded" ? dateLabel(item.lastInboundAt || item.respondedAt) : dateLabel(item.lastOutboundAt || item.contactedAt);
+        const hasReply = Boolean(item.respondedAt || item.lastInboundAt);
+        const when = hasReply ? dateLabel(item.lastInboundAt || item.respondedAt) : dateLabel(item.lastOutboundAt || item.contactedAt);
+        const interested = item.qualification === "interested" || view === "interested";
         return <article className={styles.item} key={item.key}>
           <div className={styles.itemTop}>
             <div>
@@ -137,15 +172,23 @@ export function AffiliateProspectingHistory({signupUrl}:{signupUrl:string}) {
             {when && <time>{when}</time>}
           </div>
 
-          {view === "responded" ? <>
+          {interested && <span className={styles.interestedBadge}>Tem interesse</span>}
+          {(view === "responded" || view === "interested") && hasReply ? <>
             <div className={styles.replyLabel}>MENSAGEM RECEBIDA{Number(item.replyCount) > 1 ? ` · ${item.replyCount} mensagens` : ""}</div>
             <p className={styles.message}>{item.lastInboundMessage || "Mensagem recebida"}</p>
-            <p className={styles.helper}>Esse contato continua bloqueado para novos disparos. A mensagem pode ser humana ou automática do WhatsApp.</p>
+            <p className={styles.helper}>Esse contato continua bloqueado para novos disparos. A classificação de interesse é somente para organização.</p>
           </> : <>
             {item.respondedAt && <span className={styles.respondedBadge}>Mensagem recebida</span>}
             {item.lastOutboundMessage && <p className={styles.message}>{item.lastOutboundMessage}</p>}
           </>}
-          <div className={styles.contactActions}><a href={`https://wa.me/${item.phoneE164}`} target="_blank" rel="noopener noreferrer">Abrir conversa no WhatsApp</a>{view==='responded'&&item.status!=='do_not_contact'&&signupUrl&&<a href={`https://wa.me/${item.phoneE164}?text=${encodeURIComponent(`Claro! Aqui está o link para conhecer o Cortou Anotou: ${signupUrl}`)}`} target="_blank" rel="noopener noreferrer">Enviar link do Cortou Anotou</a>}{item.status==="do_not_contact"?<span>Não contatar</span>:<button type="button" onClick={()=>void stopContact(item)}>Não tem interesse</button>}</div>
+          <div className={styles.contactActions}>
+            <a href={`https://wa.me/${item.phoneE164}`} target="_blank" rel="noopener noreferrer">Abrir conversa no WhatsApp</a>
+            {hasReply && signupUrl && <a href={`https://wa.me/${item.phoneE164}?text=${encodeURIComponent(`Claro! Aqui está o link para conhecer o Cortou Anotou: ${signupUrl}`)}`} target="_blank" rel="noopener noreferrer">Enviar link do Cortou Anotou</a>}
+            {item.status === "do_not_contact" ? <span className={styles.blockedBadge}>Não contatar</span> : <>
+              {hasReply && !interested && <button className={styles.interestButton} type="button" onClick={() => void markInterested(item)} disabled={Boolean(actionKey)}>{actionKey === item.key ? "Salvando..." : "Tem interesse"}</button>}
+              <button type="button" onClick={()=>void stopContact(item)} disabled={Boolean(actionKey)}>{actionKey === item.key ? "Salvando..." : "Não tem interesse"}</button>
+            </>}
+          </div>
         </article>;
       })}</div>}
       {!loading && (visibleCount < items.length || hasMore) && <button type="button" className={styles.moreButton} onClick={() => void showMore()} disabled={loadingMore}>{loadingMore ? "Carregando..." : "Ver mais contatos"}</button>}
