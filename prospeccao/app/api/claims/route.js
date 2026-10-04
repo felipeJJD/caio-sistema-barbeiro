@@ -1,5 +1,6 @@
 import { markDoNotContact } from "../../../lib/prospecting-queue.js";
-import { getClaimSummary, listClaims, markClaimContacted, recordClaimInbound, reserveClaimLeads } from "../../../lib/affiliate-claims.js";
+import { listClaims, markClaimContacted, recordClaimInbound, reserveClaimLeads } from "../../../lib/affiliate-claims.js";
+import { getClaimSummary } from "../../../lib/affiliate-summary.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
