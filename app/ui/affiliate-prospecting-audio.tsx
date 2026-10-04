@@ -77,7 +77,7 @@ export function AffiliateProspectingAudio({mode,embedded=false,onChange}:Props) 
     {error&&<p className={styles.error} role="alert">{error}</p>}
     {notice&&<p className={styles.success} role="status">{notice}</p>}
     <fieldset className={styles.modes}><legend>Como abordar</legend>
-      {([['text','Mensagem'],['audio_only','Somente áudio']] as const).map(([value,label])=><label key={value}><input type="radio" name="prospecting-approach" checked={mode===value} onChange={()=>{onChange(value==='audio_only'?{mode:value,intro:''}:{mode:value});if(value!=='text')setOpen(true);}}/>{label}</label>)}
+      {([['text','Mensagem'],['text_audio','Mensagem + áudio'],['audio_only','Somente áudio']] as const).map(([value,label])=><label key={value}><input type="radio" name="prospecting-approach" checked={mode===value} onChange={()=>{onChange(value==='audio_only'?{mode:value,intro:''}:{mode:value});if(value!=='text')setOpen(true);}}/>{label}</label>)}
     </fieldset>
     {mode!=='text'&&<div className={styles.audioSummary}><div><strong>{profile?.audioId?'Áudio pronto':'Grave sua apresentação'}</strong><span>{profile?.audioId?`${formatHelpVoiceTime(profile.durationSeconds)} salvo para este afiliado`:'Você grava uma vez e reaproveita nas abordagens.'}</span></div><button type="button" onClick={()=>setOpen(value=>!value)} aria-expanded={open}>{open?'Fechar':'Configurar áudio'}</button></div>}
     {open&&mode!=='text'&&<div className={styles.content}>
@@ -85,7 +85,7 @@ export function AffiliateProspectingAudio({mode,embedded=false,onChange}:Props) 
       <div className={styles.actions}><button type="button" onClick={()=>void saveScript()} disabled={busy}>{busy?'Salvando...':'Salvar roteiro'}</button><button type="button" onClick={startRecording} disabled={busy||recorder.requesting}>{recorder.requesting?'Pedindo microfone...':profile?.audioId?'Gravar novamente':'Gravar meu áudio'}</button></div>
       {draft&&<div className={styles.draft}><strong>Ouça antes de salvar</strong><audio src={draftUrl} controls preload="metadata" /><div className={styles.actions}><button type="button" onClick={()=>void saveDraft()} disabled={busy}>{busy?'Salvando...':'Salvar este áudio'}</button><button type="button" onClick={startRecording} disabled={busy}>Gravar novamente</button><button type="button" onClick={()=>{setDraft(null);setDraftUrl('');}} disabled={busy}>Descartar</button></div></div>}
       {profile?.audioId&&!draft&&<div className={styles.draft}><strong>Áudio salvo · {formatHelpVoiceTime(profile.durationSeconds)}</strong><audio key={profile.audioId} src="/api/affiliate/prospecting/audio?play=1" controls preload="none" /><div className={styles.actions}><button type="button" onClick={startRecording} disabled={busy}>Gravar novamente</button><button type="button" onClick={()=>void removeAudio()} disabled={busy}>Excluir</button></div></div>}
-      <p className={styles.hint}>O sistema envia somente este áudio. Se a barbearia responder, você decide se manda o link do Cortou Anotou.</p>
+      <p className={styles.hint}>{mode==='text_audio'?'O sistema envia a mensagem configurada primeiro e depois este áudio.':'O sistema envia somente este áudio. Se a barbearia responder, você decide se manda o link do Cortou Anotou.'}</p>
     </div>}
   </>;
 
