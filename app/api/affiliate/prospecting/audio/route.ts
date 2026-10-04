@@ -1,6 +1,7 @@
 import { getAffiliateSessionAccess } from '../../../../../db/affiliate-auth';
 import { affiliateProspectorIdentity, affiliateProspectingFetch } from '../../../../../lib/affiliate-prospecting-bridge';
 import { deleteVoiceAudio, getVoiceAudio, getVoiceProfile, saveVoiceAudio, saveVoiceScript } from '../../../../../lib/affiliate-prospecting-audio';
+import { validAppOrigin } from '../../../../../lib/request-origin';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -9,10 +10,6 @@ const reply=(data:unknown,status=200)=>Response.json(data,{status,headers});
 async function identity() {
   const access=await getAffiliateSessionAccess();
   return access?.active?affiliateProspectorIdentity(access).prospectorKey:null;
-}
-function sameOrigin(request:Request) {
-  const origin=request.headers.get('origin');
-  return !origin || origin===new URL(request.url).origin;
 }
 export async function GET(request:Request) {
   try {
@@ -37,7 +34,7 @@ export async function GET(request:Request) {
 export async function POST(request:Request) {
   try {
     const owner=await identity();if(!owner)return reply({error:'Entre como afiliado.'},401);
-    if(!sameOrigin(request))return reply({error:'Origem inválida.'},403);
+    if(!validAppOrigin(request))return reply({error:'Origem inválida.'},403);
     if(request.headers.get('content-type')?.startsWith('application/json')) {
       if(Number(request.headers.get('content-length')||0)>16_384)return reply({error:'Roteiro muito longo.'},413);
       const data=await request.json() as {script?:unknown};
@@ -61,7 +58,7 @@ export async function POST(request:Request) {
 }
 export async function DELETE(request:Request) {
   try {const owner=await identity();if(!owner)return reply({error:'Entre como afiliado.'},401);
-    if(!sameOrigin(request))return reply({error:'Origem inválida.'},403);
+    if(!validAppOrigin(request))return reply({error:'Origem inválida.'},403);
     const {response,payload}=await affiliateProspectingFetch('/api/queue',{method:'POST',prospectorKey:owner,prospectorName:'',body:{action:'audio_in_use'}});
     if(!response.ok)return reply({error:'Não foi possível conferir os envios de áudio. Tente novamente.'},503);
     if((payload as {inUse?:boolean}).inUse)return reply({error:'Há um lote usando sua gravação. Termine ou resolva os envios antes de excluir.'},409);
