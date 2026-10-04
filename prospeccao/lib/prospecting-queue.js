@@ -35,12 +35,13 @@ export async function enqueue(owner, input) {
   const keys = [...new Set(Array.isArray(input.keys) ? input.keys : [])];
   if (!keys.length || keys.length > 1000 || keys.some(value => !/^phone:55\d{11}$/.test(value))) fail("Seleção inválida. Prepare as barbearias antes de enviar.", 400);
   const mode = input.approachMode || 'text';
-  if (!['text','text_audio','audio_wait'].includes(mode)) fail('Abordagem inválida.',400);
-  const audioOnly = mode === 'audio_wait';
+  if (!['text','text_audio','audio_wait','audio_only'].includes(mode)) fail('Abordagem inválida.',400);
+  const audioOnly = mode === 'audio_only';
   const template = text(input.template, 1200); const signupUrl = text(input.signupUrl, 500);
   if ((!audioOnly && !template) || !/^https:\/\/cortouanotou\.com\.br\/comece(?:\?ref=[A-Za-z0-9_-]+)?$/.test(signupUrl)) fail("Mensagem ou link de indicação inválido.", 400);
   const audioId = input.audioId;
   if (mode !== 'text' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(audioId || ''))) fail('Salve seu áudio antes de enviar.',400);
+  if (mode === 'audio_wait' && (template.includes('{link}') || /(?:cortouanotou\.com\.br|https?:\/\/|wa\.me\/)/i.test(template))) fail('No modo de esperar resposta, a primeira mensagem não pode conter links.',400);
   const batchId = randomUUID(); const blocked = [];
   const result = await transaction(async db => {
     const jobs = [];
@@ -52,7 +53,7 @@ export async function enqueue(owner, input) {
       if (claim.status !== 'reserved' || claim.responded_at || !(new Date(claim.reserved_until).getTime() > Date.now())) { blocked.push({ key: leadKey, reason: "Contato indisponível ou reserva expirada." }); continue; }
       if (old && old.status === 'failed' && old.prospector_key === key) { blocked.push({key:leadKey,reason:"Veja a falha no progresso antes de tentar novamente."}); continue; }
       let message = audioOnly ? '[Áudio de apresentação]' : template.replaceAll("{barbearia}", claim.name).replaceAll("{link}", signupUrl);
-      if (!audioOnly && !message.includes(signupUrl)) message += `\n${signupUrl}`;
+      if (!audioOnly && mode !== 'audio_wait' && !message.includes(signupUrl)) message += `\n${signupUrl}`;
       if (message.length > 1200) { blocked.push({key:leadKey,reason:"Mensagem final muito longa. Reduza o texto."}); continue; }
       const initialStage = audioOnly ? 'audio' : 'text';
       const row = (await db.query(`INSERT INTO affiliate_prospecting_queue(id, batch_id, lead_key, prospector_key, instance, message, status, approach_mode, stage, audio_id)
@@ -127,7 +128,7 @@ export async function leaseNext() {
     await db.query(`UPDATE affiliate_prospecting_queue q SET status='cancelled', error='Contato indisponível ou já respondeu.', updated_at=NOW()
       FROM affiliate_prospecting_claims c WHERE q.lead_key=c.lead_key AND q.status='pending'
       AND (c.responded_at IS NOT NULL OR c.prospector_key <> q.prospector_key OR
-        (q.stage='audio' AND ((q.approach_mode='audio_wait' AND c.status <> 'reserved') OR (q.approach_mode<>'audio_wait' AND (c.status <> 'contacted' OR q.text_provider_id='')))) OR
+        (q.stage='audio' AND ((q.approach_mode='audio_only' AND c.status <> 'reserved') OR (q.approach_mode<>'audio_only' AND (c.status <> 'contacted' OR q.text_provider_id='')))) OR
         (q.stage='text' AND c.status <> 'reserved'))`);
     const row = (await db.query(`SELECT q.*,c.phone_e164,c.name FROM affiliate_prospecting_queue q JOIN affiliate_prospecting_claims c USING(lead_key)
       LEFT JOIN affiliate_prospecting_send_slots s ON s.instance=q.instance
@@ -145,7 +146,7 @@ export async function authorizeDispatch(input) {
     const row=(await db.query(`SELECT q.*, c.status AS claim_status,c.responded_at,c.source_id FROM affiliate_prospecting_queue q JOIN affiliate_prospecting_claims c USING(lead_key) WHERE q.id=$1 FOR UPDATE OF q,c`,[input.id])).rows[0];
     if (!row || row.status !== 'leased' || row.lease_token !== input.leaseToken || !(new Date(row.lease_until).getTime() > Date.now())) return { allowed:false };
     const blocked = await db.query(`SELECT 1 FROM prospecting_funnel WHERE do_not_contact=TRUE AND (lead_key=$1 OR ($2<>'' AND source_id=$2)) LIMIT 1`, [row.lead_key,row.source_id]);
-    const canSend = row.stage === 'audio' && row.approach_mode === 'audio_wait'
+    const canSend = row.stage === 'audio' && row.approach_mode === 'audio_only'
       ? row.claim_status === 'reserved'
       : row.stage === 'audio' && row.approach_mode !== 'text'
         ? row.claim_status === 'contacted' && Boolean(row.text_provider_id)
@@ -183,7 +184,7 @@ export async function completeJob(input) {
     }
     // At least 12s after completion, including rejected attempts; serial across replicas.
     await db.query(`INSERT INTO affiliate_prospecting_send_slots(instance,next_at) VALUES ($1,NOW()+INTERVAL '12 seconds') ON CONFLICT(instance) DO UPDATE SET next_at=GREATEST(affiliate_prospecting_send_slots.next_at,EXCLUDED.next_at)`,[row.instance]);
-    if(status==='sent' && (row.stage==='text' || row.approach_mode==='audio_wait')) await db.query(`UPDATE affiliate_prospecting_claims SET status=CASE WHEN status='do_not_contact' THEN status ELSE 'contacted' END, reserved_until=NULL,
+    if(status==='sent' && (row.stage==='text' || row.approach_mode==='audio_only')) await db.query(`UPDATE affiliate_prospecting_claims SET status=CASE WHEN status='do_not_contact' THEN status ELSE 'contacted' END, reserved_until=NULL,
       contacted_at=COALESCE(contacted_at,NOW()),last_outbound_message=$2,last_outbound_provider_id=$3,last_outbound_at=NOW(),updated_at=NOW() WHERE lead_key=$1`,[row.lead_key,row.message,providerId]);
     if(status==='failed'||status==='cancelled') await db.query(`UPDATE affiliate_prospecting_claims SET reserved_until=NOW()+INTERVAL '60 minutes',updated_at=NOW() WHERE lead_key=$1 AND status='reserved'`,[row.lead_key]);
     return {ok:true};
@@ -209,7 +210,7 @@ export async function recordOutboundReceipt(input) {
       if(!['sending','uncertain'].includes(row.status)) return {matched:false};
       const providerId=text(input.providerMessageId,240);
       await db.query(`UPDATE affiliate_prospecting_queue SET audio_provider_id=$2,provider_id=$2,status='sent',error='',lease_until=NULL,updated_at=NOW() WHERE id=$1`,[row.id,providerId]);
-      if(row.approach_mode==='audio_wait') await db.query(`UPDATE affiliate_prospecting_claims SET status=CASE WHEN status='do_not_contact' THEN status ELSE 'contacted' END,reserved_until=NULL,
+      if(row.approach_mode==='audio_only') await db.query(`UPDATE affiliate_prospecting_claims SET status=CASE WHEN status='do_not_contact' THEN status ELSE 'contacted' END,reserved_until=NULL,
         contacted_at=COALESCE(contacted_at,NOW()),last_outbound_message=$2,last_outbound_provider_id=$3,last_outbound_at=NOW(),updated_at=NOW() WHERE lead_key=$1`,[row.lead_key,row.message,providerId]);
       return {matched:true};
     }
