@@ -64,17 +64,17 @@ export function AffiliateProspectingAudio({mode,onChange}:{mode:ApproachMode;onC
   function cancelRecording(){recorder.discard();setScreen(false);setScroll(false);}
   return <section className={styles.card} aria-label="Áudio de apresentação">
     <button type="button" className={styles.heading} onClick={()=>setOpen(value=>!value)} aria-expanded={open}>
-      <span><strong>Áudio de apresentação</strong><small>{profile?.audioId?`Seu áudio de ${formatHelpVoiceTime(profile.durationSeconds)} está pronto`:'Grave sua voz uma vez para abordar de forma pessoal'}</small></span><span aria-hidden="true">{open?'−':'+'}</span>
+      <span><strong>Áudio de apresentação</strong><small>{profile?.audioId?`Áudio salvo · ${formatHelpVoiceTime(profile.durationSeconds)} · escolha abaixo como enviar`:'Grave sua voz uma vez para abordar de forma pessoal'}</small></span><span aria-hidden="true">{open?'−':'+'}</span>
     </button>
     {error&&<p className={styles.error} role="alert">{error}</p>}
+    <fieldset className={styles.modes}><legend>Forma de abordagem</legend>
+      {([['text','Mensagem normal'],['text_audio','Mensagem + áudio'],['audio_wait','Áudio e esperar resposta']] as const).map(([value,label])=><label key={value}><input type="radio" name="prospecting-approach" checked={mode===value} onChange={()=>{onChange({mode:value});if(value!=='text')setOpen(true);}}/>{label}</label>)}
+    </fieldset>
     {open&&<div className={styles.content}>
       <label className={styles.label}>Roteiro para gravar — este texto não é enviado automaticamente<textarea value={script} onChange={event=>setScript(event.target.value)} rows={5} maxLength={3000} placeholder="Fala, meu amigo! Também sou barbeiro e criei o Cortou Anotou..." /></label>
       <div className={styles.actions}><button type="button" onClick={()=>void saveScript()} disabled={busy}>Salvar roteiro</button><button type="button" onClick={startRecording} disabled={busy||recorder.requesting}>{recorder.requesting?'Pedindo microfone...':'Gravar meu áudio'}</button></div>
       {draft&&<div className={styles.draft}><strong>Ouça antes de salvar</strong><audio src={draftUrl} controls preload="metadata" /><div className={styles.actions}><button type="button" onClick={()=>void saveDraft()} disabled={busy}>{busy?'Salvando...':'Salvar este áudio'}</button><button type="button" onClick={startRecording} disabled={busy}>Gravar novamente</button><button type="button" onClick={()=>{setDraft(null);setDraftUrl('');}} disabled={busy}>Descartar</button></div></div>}
       {profile?.audioId&&!draft&&<div className={styles.draft}><strong>Áudio salvo · {formatHelpVoiceTime(profile.durationSeconds)}</strong><audio key={profile.audioId} src="/api/affiliate/prospecting/audio?play=1" controls preload="none" /><div className={styles.actions}><button type="button" onClick={startRecording} disabled={busy}>Gravar novamente</button><button type="button" onClick={()=>void removeAudio()} disabled={busy}>Excluir</button></div></div>}
-      <fieldset className={styles.modes}><legend>Forma de abordagem</legend>
-        {([['text','Mensagem normal'],['text_audio','Mensagem + áudio'],['audio_wait','Áudio e esperar resposta']] as const).map(([value,label])=><label key={value}><input type="radio" name="prospecting-approach" checked={mode===value} onChange={()=>onChange({mode:value})}/>{label}</label>)}
-      </fieldset>
       {mode!=='text'&&<><label className={styles.label}>Mensagem curta antes do áudio<textarea value={intro} onChange={event=>{setIntro(event.target.value);onChange({intro:event.target.value});}} maxLength={1000} rows={3}/></label><p className={styles.hint}>{mode==='audio_wait'?'O link só será compartilhado por você depois que a barbearia responder.':'Seu link correto entra automaticamente nessa mensagem.'}</p></>}
     </div>}
     {screen&&<div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Teleprompter para gravar áudio"><div className={styles.toolbar}><strong>{recorder.requesting?'Abrindo microfone...':recorder.paused?'Pausado':'Gravando'} · {formatHelpVoiceTime(recorder.seconds)}</strong><button type="button" onClick={cancelRecording}>Cancelar</button></div>
