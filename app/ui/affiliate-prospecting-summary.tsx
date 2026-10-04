@@ -37,10 +37,13 @@ export function AffiliateProspectingSummary() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const initial = window.setTimeout(() => void load(), 0);
     const onChange = () => void load(true);
     window.addEventListener("prospecting-history-changed", onChange);
-    return () => window.removeEventListener("prospecting-history-changed", onChange);
+    return () => {
+      window.clearTimeout(initial);
+      window.removeEventListener("prospecting-history-changed", onChange);
+    };
   }, [load]);
 
   return <section className={styles.shell} aria-label="Resumo da prospecção">
