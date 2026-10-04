@@ -120,7 +120,7 @@ test('envio de voz usa Ogg/Opus em base64 e apenas instância de Prospecção',a
  const outbound=calls.find(call=>call.url.includes('/message/sendWhatsAppAudio/'));
  assert.ok(outbound.url.endsWith('/ca-prospeccao-affiliate-42'));
  const payload=JSON.parse(outbound.body);
- assert.equal(payload.audio,bytes.toString('base64'));assert.equal(payload.encoding,false);
+ assert.equal(payload.audio,bytes.toString('base64'));assert.equal(payload.encoding,true);
  await assert.rejects(api.sendProspectingWhatsappAudio('5541999999999',bytes,'ca-org-42'));
 });
 test('retentativa do áudio não repete texto; falha da etapa é explícita',async()=>{
