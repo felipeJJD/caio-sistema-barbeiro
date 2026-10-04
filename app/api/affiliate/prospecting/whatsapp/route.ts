@@ -34,7 +34,7 @@ export async function POST(request:Request) {
     }
     if(body.action==='enqueue') {
       const mode=body.approachMode||'text';
-      if(!['text','text_audio','audio_wait'].includes(mode))return reply({error:'Abordagem inválida.'},400);
+      if(!['text','text_audio','audio_wait','audio_only'].includes(mode))return reply({error:'Abordagem inválida.'},400);
       if(mode!=='text') {
         const profile=await getVoiceProfile(identity.prospectorKey);
         if(!body.audioId||!validVoiceId(body.audioId)||profile.audioId!==body.audioId||!await getVoiceAudio(identity.prospectorKey,body.audioId,'ogg'))
