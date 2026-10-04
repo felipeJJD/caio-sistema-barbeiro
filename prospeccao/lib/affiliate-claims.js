@@ -299,14 +299,9 @@ export async function reserveClaimLeads(rawLeads, input = {}) {
   return { reserved, blocked, reservationMinutes: RESERVATION_MINUTES };
 }
 
-export async function markClaimContacted(keyValue, input = {}) {
+export async function markClaimContacted(leadKey, input = {}) {
+  const key = text(leadKey, 220);
   const prospectorKey = normalizeProspectorKey(input.prospectorKey);
-  const key = text(keyValue, 220);
-  if (!/^phone:55\d{11}$/.test(key)) {
-    const error = new Error("Barbearia inválida.");
-    error.status = 400;
-    throw error;
-  }
   await ensureClaimsSchema();
   const client = await getPool().connect();
   try {
@@ -442,7 +437,7 @@ export async function getClaimSummary(owner) {
   await ensureClaimsSchema();
   const [counts, recent] = await Promise.all([
     getPool().query(`SELECT COUNT(*) FILTER (WHERE status IN ('contacted','do_not_contact')) AS contacted,
-      COUNT(*) FILTER (WHERE responded_at IS NOT NULL) AS received
+      COALESCE(SUM(reply_count), 0) AS received
       FROM affiliate_prospecting_claims WHERE prospector_key = $1`, [prospectorKey]),
     getPool().query(`SELECT name, responded_at IS NOT NULL AS received
       FROM affiliate_prospecting_claims WHERE prospector_key = $1 AND status IN ('contacted','do_not_contact')
