@@ -12,6 +12,7 @@ test("resumo da prospecção filtra contagens e nomes pelo prospector atual", as
 
   assert.match(summarySource, /normalizeProspectorKey\(owner\)/);
   assert.equal((summarySource.match(/prospector_key = \$1/g) || []).length, 2);
+  assert.match(summarySource, /COALESCE\(SUM\(reply_count\), 0\) AS received/);
   assert.match(summarySource, /LIMIT 5/);
   assert.match(summarySource, /received: Number/);
 });
