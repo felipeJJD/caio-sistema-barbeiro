@@ -1,4 +1,4 @@
-import { enqueue,listQueue,leaseNext,authorizeDispatch,completeJob,recordOutboundReceipt,recordDelivery,resolveQueueJob } from "../../../lib/prospecting-queue.js";
+import { enqueue,listQueue,leaseNext,authorizeDispatch,completeJob,recordOutboundReceipt,recordDelivery,resolveQueueJob,audioInUse } from "../../../lib/prospecting-queue.js";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 const headers={"cache-control":"no-store"};
@@ -12,7 +12,8 @@ export async function POST(request) {
     // User requests always have an owner signed by the main application. Worker operations have none.
     let result;
     if(body.action==='enqueue' && owner) result=await enqueue(owner,body);
-    else if(owner && ['retry','confirm_sent'].includes(body.action)) result=await resolveQueueJob(owner,body);
+    else if(body.action==='audio_in_use' && owner) result=await audioInUse(owner);
+    else if(owner && ['retry','confirm_sent','cancel_failed'].includes(body.action)) result=await resolveQueueJob(owner,body);
     else if(!owner && body.action==='lease') result=await leaseNext();
     else if(!owner && body.action==='dispatch') result=await authorizeDispatch(body);
     else if(!owner && body.action==='complete') result=await completeJob(body);
