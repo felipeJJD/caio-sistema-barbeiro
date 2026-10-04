@@ -1,5 +1,6 @@
 import { markDoNotContact } from "../../../lib/prospecting-queue.js";
 import { listClaims, markClaimContacted, recordClaimInbound, reserveClaimLeads } from "../../../lib/affiliate-claims.js";
+import { getClaimSummary } from "../../../lib/affiliate-summary.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,8 +32,12 @@ async function bodyOf(request) {
 export async function GET(request) {
   try {
     const url = new URL(request.url);
+    const actor = identity(request);
+    if (url.searchParams.get("summary") === "1") {
+      return Response.json(await getClaimSummary(actor.prospectorKey), { headers: { "cache-control": "no-store" } });
+    }
     const result = await listClaims({
-      ...identity(request),
+      ...actor,
       view: url.searchParams.get("view") || "contacted",
       limit: url.searchParams.get("limit") || "50",
       offset: url.searchParams.get("offset") || "0",
@@ -75,4 +80,3 @@ export async function POST(request) {
     return jsonError(error);
   }
 }
-
