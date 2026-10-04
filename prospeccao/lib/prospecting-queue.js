@@ -156,9 +156,11 @@ export async function authorizeDispatch(input) {
 export async function completeJob(input) {
   return transaction(async db => {
     const row=(await db.query(`SELECT * FROM affiliate_prospecting_queue WHERE id=$1 FOR UPDATE`,[input.id])).rows[0];
-    if (!row || row.lease_token !== input.leaseToken) fail("Envio não pertence a este processamento.");
     // A webhook can advance the text stage before the HTTP send request returns.
-    if (row.stage !== (input.stage || 'text')) return {ok:true};
+    if (row && row.stage === 'audio' && input.stage === 'text' && input.providerMessageId && row.text_provider_id === input.providerMessageId) return {ok:true};
+    if (row && row.status === 'sent' && input.providerMessageId && row.provider_id === input.providerMessageId) return {ok:true};
+    if (!row || row.lease_token !== input.leaseToken) fail("Envio não pertence a este processamento.");
+    if (row.stage !== (input.stage || 'text')) fail("Etapa do envio mudou; atualize a fila.");
     if (['sent','failed','cancelled'].includes(row.status)) return {ok:true};
     const allowed=['sent','failed','uncertain','pending','cancelled'];
     const status=allowed.includes(input.status)?input.status:'uncertain';
