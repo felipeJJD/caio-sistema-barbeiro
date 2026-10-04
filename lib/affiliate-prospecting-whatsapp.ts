@@ -330,9 +330,9 @@ export async function sendProspectingWhatsappAudio(phoneValue: string, ogg: Buff
   if(!state.connected){const error=new Error('Conecte seu WhatsApp antes de enviar o áudio.');Object.assign(error,{status:409});throw error;}
   const release=await waitForSendSlot(instance);
   try {
-    // No public media URL: pass private Ogg/Opus bytes directly to the voice-message endpoint.
+    // Let Evolution normalize the private Ogg/Opus bytes to WhatsApp's voice-note format before sending.
     const body=await evolutionRequest<EvolutionPayload>(`/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`,{
-      method:'POST',body:JSON.stringify({number:phone,audio:ogg.toString('base64'),encoding:false,delay:1200}),
+      method:'POST',body:JSON.stringify({number:phone,audio:ogg.toString('base64'),encoding:true,delay:1200}),
     });
     const key=body.key&&typeof body.key==='object'?body.key as Record<string,unknown>:{};
     const data=body.data&&typeof body.data==='object'?body.data as Record<string,unknown>:{};
