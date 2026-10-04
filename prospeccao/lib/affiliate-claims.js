@@ -118,6 +118,13 @@ export async function ensureClaimsSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`);
     await db.query(`ALTER TABLE affiliate_prospecting_queue ADD COLUMN IF NOT EXISTS delivery_status TEXT NOT NULL DEFAULT '';`);
+    // Existing text-only jobs keep their original behavior. Audio jobs advance one
+    // durable step at a time and retain the first provider ID during audio retries.
+    await db.query(`ALTER TABLE affiliate_prospecting_queue ADD COLUMN IF NOT EXISTS approach_mode TEXT NOT NULL DEFAULT 'text';`);
+    await db.query(`ALTER TABLE affiliate_prospecting_queue ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'text';`);
+    await db.query(`ALTER TABLE affiliate_prospecting_queue ADD COLUMN IF NOT EXISTS audio_id UUID;`);
+    await db.query(`ALTER TABLE affiliate_prospecting_queue ADD COLUMN IF NOT EXISTS text_provider_id TEXT NOT NULL DEFAULT '';`);
+    await db.query(`ALTER TABLE affiliate_prospecting_queue ADD COLUMN IF NOT EXISTS audio_provider_id TEXT NOT NULL DEFAULT '';`);
     await db.query(`CREATE INDEX IF NOT EXISTS affiliate_prospecting_queue_owner_idx ON affiliate_prospecting_queue(prospector_key, created_at DESC);`);
     await db.query(`CREATE INDEX IF NOT EXISTS affiliate_prospecting_queue_pending_idx ON affiliate_prospecting_queue(status, available_at);`);
     await db.query(`CREATE TABLE IF NOT EXISTS affiliate_prospecting_send_slots (
@@ -429,4 +436,3 @@ export async function listClaims(input = {}) {
   );
   return { view, items: result.rows.slice(0, limit).map(rowToClaim), hasMore: result.rows.length > limit, nextOffset: offset + limit };
 }
-
