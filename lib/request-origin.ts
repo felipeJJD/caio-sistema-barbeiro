@@ -1,5 +1,5 @@
 /** Use the canonical app origin, not an obsolete configuration or Next's internal URL. */
-export function validNotificationOrigin(
+export function validAppOrigin(
   request: Request,
   // The notification UI runs on the canonical app domain. An older
   // PUBLIC_APP_URL can still point at the retired BarberFlow deployment;
@@ -17,3 +17,6 @@ export function validNotificationOrigin(
     return false;
   }
 }
+
+// Existing notification callers keep their original import name.
+export const validNotificationOrigin = validAppOrigin;
