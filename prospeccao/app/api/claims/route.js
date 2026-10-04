@@ -1,5 +1,6 @@
 import { markDoNotContact } from "../../../lib/prospecting-queue.js";
 import { listClaims, markClaimContacted, recordClaimInbound, reserveClaimLeads } from "../../../lib/affiliate-claims.js";
+import { enrichClaimQualifications, listInterestedClaims, markClaimInterested } from "../../../lib/affiliate-qualification.js";
 import { getClaimSummary } from "../../../lib/affiliate-summary.js";
 
 export const runtime = "nodejs";
@@ -36,12 +37,16 @@ export async function GET(request) {
     if (url.searchParams.get("summary") === "1") {
       return Response.json(await getClaimSummary(actor.prospectorKey), { headers: { "cache-control": "no-store" } });
     }
-    const result = await listClaims({
+    const view = url.searchParams.get("view") || "contacted";
+    const input = {
       ...actor,
-      view: url.searchParams.get("view") || "contacted",
+      view,
       limit: url.searchParams.get("limit") || "50",
       offset: url.searchParams.get("offset") || "0",
-    });
+    };
+    const result = view === "interested"
+      ? await listInterestedClaims(input)
+      : await enrichClaimQualifications(await listClaims(input));
     return Response.json(result, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return jsonError(error);
@@ -58,6 +63,10 @@ export async function POST(request) {
       return Response.json(result, { status: 201, headers: { "cache-control": "no-store" } });
     }
     if (action === "do_not_contact") return Response.json(await markDoNotContact(actor.prospectorKey,body.key),{headers:{"cache-control":"no-store"}});
+    if (action === "interested") {
+      const item = await markClaimInterested(body?.key, actor);
+      return Response.json({ item }, { headers: { "cache-control": "no-store" } });
+    }
     if (action === "contacted") {
       const item = await markClaimContacted(body?.key, {
         ...actor,
