@@ -93,7 +93,7 @@ function deliveryLabel(job: QueueJob) {
   return ({ pending: "Na fila", leased: "Preparando", sending: "Enviando", sent: "Enviada", failed: "Falhou", uncertain: "Conferir envio", cancelled: "Cancelada" } as Record<string, string>)[job.status] || job.status;
 }
 
-export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl, isAdmin: _isAdmin }: { name: string; initialWhatsapp: string; signupUrl: string; isAdmin: boolean }) {
+export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl }: { name: string; initialWhatsapp: string; signupUrl: string; isAdmin: boolean }) {
   const [tab, setTab] = useState<WorkspaceTab>("prospecting");
   const [uf, setUf] = useState("PR");
   const [city, setCity] = useState("Colombo");
@@ -126,17 +126,19 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   const jobActionRef = useRef(false);
 
   useEffect(() => {
-    const queryTab = new URLSearchParams(window.location.search).get("tab");
-    if (queryTab === "progress" || queryTab === "settings") setTab(queryTab);
-    const savedMode = window.localStorage.getItem(MODE_STORAGE);
-    if (savedMode && ["text", "text_audio", "audio_only"].includes(savedMode)) setApproachMode(savedMode as ApproachMode);
-    const savedMessage = window.localStorage.getItem(MESSAGE_STORAGE);
-    if (savedMessage?.trim()) setMessage(savedMessage);
+    const timer = window.setTimeout(() => {
+      const queryTab = new URLSearchParams(window.location.search).get("tab");
+      if (queryTab === "progress" || queryTab === "settings") setTab(queryTab);
+      const savedMode = window.localStorage.getItem(MODE_STORAGE);
+      if (savedMode && ["text", "text_audio", "audio_only"].includes(savedMode)) setApproachMode(savedMode as ApproachMode);
+      const savedMessage = window.localStorage.getItem(MESSAGE_STORAGE);
+      if (savedMessage?.trim()) setMessage(savedMessage);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     let active = true;
-    setCitiesLoading(true);
     fetch(`/api/affiliate/prospecting/cities?uf=${encodeURIComponent(uf)}`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json() as { cities?: City[]; error?: string };
@@ -414,7 +416,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
       <section className={styles.card}>
         <div className={styles.cardTitle}><div><b>Buscar barbearias</b><span>Escolha a região e encontre contatos disponíveis para você.</span></div></div>
         <form className={styles.searchForm} onSubmit={search}>
-          <label><span>Estado</span><select value={uf} onChange={(event) => { setUf(event.target.value); setCity(""); }}>{STATES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
+          <label><span>Estado</span><select value={uf} onChange={(event) => { setCitiesLoading(true); setUf(event.target.value); setCity(""); }}>{STATES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
           <label><span>Cidade</span><select value={city} onChange={(event) => setCity(event.target.value)} disabled={citiesLoading}><option value="">{citiesLoading ? "Carregando..." : "Selecione"}</option>{cities.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select></label>
           <label><span>Nome <small>(opcional)</small></span><input value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Ex.: Kaio Barbearia" maxLength={80} autoComplete="off" /></label>
           <button disabled={loading || citiesLoading || !city}>{loading ? "Buscando..." : businessName.trim() ? "Buscar pelo nome" : "Buscar barbearias"}</button>
