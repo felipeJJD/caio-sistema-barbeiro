@@ -1,0 +1,501 @@
+.shell {
+  min-height: 100dvh;
+  background: #f4f1e8;
+  color: #1b1e1a;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, #242923 0%, #181c18 100%);
+  box-shadow: 0 8px 24px rgba(22, 28, 22, 0.12);
+}
+
+.menuButton,
+.profileButton {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(216, 173, 80, 0.35);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5f1e8;
+}
+
+.menuButton {
+  position: relative;
+}
+
+.menuButton span {
+  position: absolute;
+  left: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: #d8ad50;
+}
+
+.menuButton span:nth-child(1) { top: 14px; width: 21px; }
+.menuButton span:nth-child(2) { top: 21px; width: 17px; }
+.menuButton span:nth-child(3) { top: 28px; width: 21px; }
+
+.profileButton span,
+.profileCard > span,
+.drawerFooter span {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #d8ad50;
+  color: #20251f;
+  font-weight: 900;
+}
+
+.profileButton span {
+  width: 32px;
+  height: 32px;
+}
+
+.brand {
+  min-width: 0;
+  justify-self: center;
+  text-decoration: none;
+}
+
+.brand :global(.brand-logo) {
+  min-width: 0;
+  gap: 9px;
+  padding: 0;
+}
+
+.brand :global(.brand-symbol) {
+  height: 42px;
+}
+
+.brand :global(.brand-letter-c) { font-size: 36px; }
+.brand :global(.brand-letter-a) { font-size: 32px; }
+.brand :global(.brand-divider) { height: 30px; }
+.brand :global(.brand-name) { font-size: 14px; letter-spacing: .07em; }
+.brand :global(.brand-tagline) { font-size: 6px; letter-spacing: .055em; }
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  border: 0;
+  background: rgba(10, 13, 10, 0.74);
+  backdrop-filter: blur(3px);
+}
+
+.drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 99;
+  width: min(86vw, 330px);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 15px max(18px, env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, #242923 0%, #171a17 100%);
+  color: #f4f1e8;
+  box-shadow: 18px 0 50px rgba(7, 10, 7, 0.5);
+  animation: drawerIn .22s cubic-bezier(.2, .82, .2, 1);
+}
+
+.drawerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.drawerHead :global(.brand-logo) {
+  min-width: 0;
+  gap: 8px;
+  padding: 0;
+}
+
+.drawerHead :global(.brand-symbol) { height: 40px; }
+.drawerHead :global(.brand-letter-c) { font-size: 34px; }
+.drawerHead :global(.brand-letter-a) { font-size: 30px; }
+.drawerHead :global(.brand-divider) { height: 29px; }
+.drawerHead :global(.brand-name) { font-size: 13px; }
+.drawerHead :global(.brand-tagline) { display: none; }
+
+.drawerHead > button {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  color: #d8c78f;
+  font: 300 26px/1 Arial, sans-serif;
+}
+
+.profileCard {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  align-items: center;
+  gap: 11px;
+  margin: 16px 0 18px;
+  padding: 13px;
+  border: 1px solid rgba(216, 173, 80, 0.2);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.profileCard > span {
+  width: 40px;
+  height: 40px;
+}
+
+.profileCard strong,
+.profileCard small {
+  display: block;
+}
+
+.profileCard strong {
+  overflow: hidden;
+  color: #fff;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileCard small {
+  margin-top: 4px;
+  color: #9da49b;
+  font-size: 10px;
+}
+
+.drawerNav {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 10px;
+}
+
+.drawerNav p {
+  margin: 14px 8px 7px;
+  color: #b78e3f;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .2em;
+}
+
+.drawerNav a {
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: 25px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: #b8beb5;
+  text-decoration: none;
+}
+
+.drawerNav a svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: #d1b56d;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.drawerNav a strong {
+  font-size: 12px;
+}
+
+.drawerNav a i {
+  color: #6e756d;
+  font: normal 18px/1 Arial, sans-serif;
+}
+
+.drawerNav a.selected {
+  border-color: rgba(216, 173, 80, 0.28);
+  background: linear-gradient(90deg, rgba(216, 173, 80, 0.13), rgba(255, 255, 255, 0.04));
+  color: #fff;
+}
+
+.drawerNav a.selected i,
+.drawerNav a.selected svg {
+  color: #e5bb61;
+  stroke: #e5bb61;
+}
+
+.drawerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.drawerFooter > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drawerFooter span {
+  width: 31px;
+  height: 31px;
+  font-size: 10px;
+}
+
+.drawerFooter small {
+  color: #aeb4ab;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.drawerFooter a {
+  padding: 8px 10px;
+  border: 1px solid rgba(216, 173, 80, 0.24);
+  border-radius: 8px;
+  color: #e0bd70;
+  text-decoration: none;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.sectionHeading {
+  width: min(1180px, calc(100% - 26px));
+  margin: 0 auto;
+  padding: 28px 4px 12px;
+}
+
+.sectionHeading > span {
+  color: #9c7428;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .16em;
+}
+
+.sectionHeading h1 {
+  margin: 7px 0 6px;
+  font: 700 clamp(31px, 6vw, 45px)/1 Georgia, "Times New Roman", serif;
+  letter-spacing: -1.2px;
+}
+
+.sectionHeading p {
+  max-width: 680px;
+  margin: 0;
+  color: #72786f;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.content {
+  min-height: calc(100dvh - 78px);
+  padding-bottom: 4px;
+}
+
+.content :global(.affiliate-portal-header),
+.content :global(.affiliate-tabs) {
+  display: none !important;
+}
+
+.portalSubsection :global(.affiliate-welcome) {
+  display: none !important;
+}
+
+.workspaceContent > main > header:first-child {
+  display: none !important;
+}
+
+.workspaceContent > main > nav[aria-label="Navegação da área do afiliado"],
+.workspaceContent > main > div[aria-hidden="true"] {
+  display: none !important;
+}
+
+.workspaceContent > main {
+  min-height: auto !important;
+  padding-top: 4px !important;
+  padding-bottom: 12px !important;
+}
+
+.bottomSpacer {
+  height: calc(94px + env(safe-area-inset-bottom));
+}
+
+.bottomNav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 88;
+  min-height: 82px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: end;
+  padding: 7px 6px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid #3b413a;
+  background: linear-gradient(180deg, #272c26 0%, #1b1f1b 100%);
+  box-shadow: 0 -10px 30px rgba(16, 19, 15, 0.16);
+}
+
+.bottomItem {
+  position: relative;
+  min-width: 0;
+  min-height: 62px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  color: #aeb5ac;
+  padding: 4px 2px;
+  text-decoration: none;
+  font: inherit;
+}
+
+.bottomItem strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bottomIcon {
+  width: 36px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+}
+
+.bottomIcon svg {
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bottomItem.active {
+  color: #e7bd63;
+}
+
+.primaryItem {
+  overflow: visible;
+  color: #d9bf82;
+}
+
+.primaryBubble {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin-top: -24px;
+  border: 3px solid #20251f;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #ebbd56, #d7a33b);
+  color: #20251f;
+  font: 500 32px/1 Arial, sans-serif;
+  box-shadow: 0 7px 18px rgba(0, 0, 0, 0.25);
+}
+
+.primaryItem.active .primaryBubble {
+  box-shadow: 0 0 0 3px rgba(235, 189, 86, 0.18), 0 7px 18px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes drawerIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@media (min-width: 760px) {
+  .topbar {
+    padding-left: max(22px, calc((100vw - 1180px) / 2));
+    padding-right: max(22px, calc((100vw - 1180px) / 2));
+  }
+
+  .bottomNav {
+    left: 50%;
+    right: auto;
+    width: min(760px, calc(100% - 28px));
+    bottom: 10px;
+    transform: translateX(-50%);
+    border: 1px solid rgba(246, 240, 223, 0.12);
+    border-radius: 19px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .bottomSpacer {
+    height: 106px;
+  }
+}
+
+@media (max-width: 430px) {
+  .topbar {
+    grid-template-columns: 43px minmax(0, 1fr) 43px;
+    min-height: 72px;
+    padding: 9px 10px;
+  }
+
+  .menuButton,
+  .profileButton {
+    width: 43px;
+    height: 43px;
+  }
+
+  .brand :global(.brand-name) { font-size: 12px; }
+  .brand :global(.brand-tagline) { display: none; }
+  .brand :global(.brand-symbol) { height: 38px; }
+  .brand :global(.brand-letter-c) { font-size: 33px; }
+  .brand :global(.brand-letter-a) { font-size: 29px; }
+  .brand :global(.brand-divider) { height: 28px; }
+
+  .sectionHeading {
+    width: min(100% - 22px, 1180px);
+    padding-top: 23px;
+  }
+
+  .sectionHeading h1 {
+    font-size: 32px;
+  }
+
+  .bottomItem strong {
+    font-size: 8.5px;
+  }
+}
+
+@supports selector(body:has(input:focus)) {
+  :global(body:has(input:focus, textarea:focus, select:focus, [contenteditable="true"]:focus)) .bottomNav {
+    opacity: 0;
+    transform: translateY(120%);
+    pointer-events: none;
+  }
+
+  @media (min-width: 760px) {
+    :global(body:has(input:focus, textarea:focus, select:focus, [contenteditable="true"]:focus)) .bottomNav {
+      transform: translate(-50%, 120%);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer { animation: none; }
+}
