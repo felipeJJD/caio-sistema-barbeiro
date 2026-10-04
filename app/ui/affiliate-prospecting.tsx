@@ -23,7 +23,6 @@ type City = { id: number | string; name: string };
 type ReservedClaim = { key: string; phoneE164: string; name?: string };
 type BlockedClaim = { name?: string; reason?: string };
 type QueueJob = { id:string; batchId:string; key:string; name:string; phoneE164:string; status:string; error?:string; delivery?:string; stage?:string; approachMode?:string; textProviderId?:string; audioProviderId?:string };
-
 type AutomaticWhatsappState = { state: string; connected: boolean; canConnect?: boolean };
 
 const STATES = [
@@ -56,6 +55,7 @@ function nationalPhone(value: string) {
   const digits = value.replace(/\D/g, "");
   return digits.startsWith("55") && (digits.length === 12 || digits.length === 13) ? digits.slice(2) : digits;
 }
+
 function readableError(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value.trim().replace(/\[object Object\]/g, "").trim() || fallback;
   if (Array.isArray(value)) {
@@ -141,6 +141,12 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     const interval = window.setInterval(() => void refreshAutomatic(false), 4000);
     return () => window.clearInterval(interval);
   }, [pairingCode]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(""), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
 
   async function refreshQueue() {
     try {
@@ -340,6 +346,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     window.open(`https://wa.me/${currentQueueLead.phoneE164}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
     setNotice("Depois de enviar no WhatsApp, volte e toque em Já enviei para registrar o contato.");
   }
+
   async function confirmManualSend() {
     if (!currentQueueLead || automaticSending) return;
     const current = currentQueueLead;
@@ -353,6 +360,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
       window.dispatchEvent(new Event("prospecting-history-changed"));
     }catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível registrar o envio.");}
   }
+
   async function sendAutomatically() {
     if (!automatic.connected) return setNotice("Conecte seu WhatsApp antes de enviar.");
     if (approachMode!=='text'&&!audioId)return setError('Grave e salve seu áudio antes de enviar esta abordagem.');
@@ -392,7 +400,7 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
         <div className={styles.automaticActions}><button type="button" className={styles.primary} onClick={connectAutomatic} disabled={automaticConnecting||automaticLoading}>{automaticConnecting?"Gerando código...":"Conectar meu WhatsApp"}</button><button type="button" className={styles.secondary} onClick={()=>void refreshAutomatic(true)} disabled={automaticLoading}>Conferir conexão</button></div>
       </>}
       {pairingCode && <div className={styles.pairingBox}><small>CÓDIGO DE CONEXÃO</small><strong>{pairingCode}</strong><button type="button" className={styles.secondary} onClick={()=>void navigator.clipboard.writeText(pairingCode).then(()=>setNotice("Código copiado.")).catch(()=>setNotice("Selecione o código para copiar."))}>Copiar código</button><p>No WhatsApp: Configurações ou menu → Aparelhos conectados → Conectar aparelho → Conectar com número de telefone. Digite o código acima.</p></div>}
-      {automatic.connected && <p className={styles.helper}>Suas mensagens e respostas usam esta conexão. No modo “Áudio e esperar resposta”, o link só é enviado por você após o retorno.</p>}
+      {automatic.connected && <p className={styles.helper}>Suas mensagens e respostas usam esta conexão.</p>}
     </section>
 
     <section className={styles.card}>
@@ -403,7 +411,6 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
         <label><span>Nome da barbearia <small>(opcional)</small></span><input value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Ex.: Kaio Barbearia" maxLength={80} autoComplete="off" /></label>
         <button disabled={automaticSending || loading || citiesLoading || !city}>{loading ? "Buscando..." : businessName.trim() ? "Buscar pelo nome" : "Buscar barbearias"}</button>
       </form>
-      <p className={styles.helper}>Quando você digita um nome, a busca procura na fonte da cidade inteira — não apenas nos resultados já carregados na tela.</p>
     </section>
 
     {(leads.length > 0 || (searchedCity && hasMore)) && <section className={styles.card}>
@@ -419,29 +426,23 @@ export function AffiliateProspecting({ name, initialWhatsapp, signupUrl, isAdmin
     </section>}
 
     <section className={styles.card}>
-      <div className={styles.cardTitle}><div><b>3. Abordagem</b><span>Escolha abaixo entre mensagem normal e áudio antes de preparar os contatos.</span></div></div>
-      {approachMode === 'text' ? <><p className={styles.helper}>Use {"{barbearia}"} e {"{link}"}. O sistema troca automaticamente.</p><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={6} maxLength={1200} /></> : <p className={styles.helper}>Sua mensagem curta e sua gravação são configuradas no cartão de áudio abaixo. O roteiro é só para você ler durante a gravação.</p>}
-    </section>
-
-    <AffiliateProspectingAudio mode={approachMode} onChange={value=>{
-      if(value.mode)setApproachMode(value.mode);
-      if(value.audioId!==undefined)setAudioId(value.audioId);
-      if(value.intro!==undefined)setVoiceIntro(value.intro);
-    }}/>
-
-    <section className={styles.card}>
-      <div className={styles.cardTitle}><div><b>4. Preparar contatos</b><span>Depois de escolher a abordagem, reserve as barbearias selecionadas.</span></div></div>
-      <button type="button" className={styles.primary} onClick={prepareQueue} disabled={preparing || automaticSending}>{preparing ? "Reservando barbearias..." : `Preparar ${selectedLeads.length || ""} contato${selectedLeads.length === 1 ? "" : "s"}`}</button>
-      <p className={styles.helper}>Preparar apenas reserva por 1 hora; não envia nada. Depois, toque em “Enviar automaticamente” para mandar a abordagem escolhida.</p>
+      <div className={styles.cardTitle}><div><b>3. Abordagem</b><span>Escolha mensagem ou áudio e deixe tudo pronto aqui.</span></div></div>
+      <AffiliateProspectingAudio embedded mode={approachMode} onChange={value=>{
+        if(value.mode)setApproachMode(value.mode);
+        if(value.audioId!==undefined)setAudioId(value.audioId);
+        if(value.intro!==undefined)setVoiceIntro(value.intro);
+      }}/>
+      {approachMode === 'text' && <label className={styles.approachField}><span>Mensagem</span><small>Use {"{barbearia}"} e {"{link}"}; o sistema troca automaticamente.</small><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={5} maxLength={1200} /></label>}
+      <div className={styles.prepareRow}><button type="button" className={styles.primary} onClick={prepareQueue} disabled={preparing || automaticSending}>{preparing ? "Preparando contatos..." : `Preparar ${selectedLeads.length || ""} contato${selectedLeads.length === 1 ? "" : "s"}`}</button><span>Preparar só reserva os contatos. O envio acontece na etapa seguinte.</span></div>
     </section>
 
     {queue.length > 0 && <section className={styles.card} ref={sendRef}>
-      <div className={styles.cardTitle}><div><b>5. Enviar</b><span>{approachMode !== 'text' ? 'O botão abaixo envia a mensagem curta e depois o áudio salvo.' : automatic.connected ? "Você pode disparar a fila automaticamente ou abrir uma conversa manualmente." : "Ao enviar manualmente, confirme o envio para registrar o contato."}</span></div><strong>{automaticSending ? `Preparando...` : `${queueIndex + 1}/${queue.length}`}</strong></div>
+      <div className={styles.cardTitle}><div><b>4. Enviar</b><span>{approachMode !== 'text' ? 'A fila envia a mensagem curta e depois o áudio salvo.' : automatic.connected ? "Envie automaticamente ou abra a conversa manualmente." : "Abra a conversa e confirme depois do envio."}</span></div><strong>{automaticSending ? `Preparando...` : `${queueIndex + 1}/${queue.length}`}</strong></div>
       {automatic.connected && <button type="button" className={styles.automaticButton} onClick={sendAutomatically} disabled={automaticSending}>{automaticSending ? `Preparando fila...` : `Enviar automaticamente ${queue.length} abordagem${queue.length === 1 ? "" : "ens"}`}</button>}
       {currentQueueLead && <div className={styles.sendPanel}>
         <div><small>BARBEARIA ATUAL</small><h2>{currentQueueLead.name}</h2><p>{currentQueueLead.phone} · {currentQueueLead.address}</p></div>
         <div className={styles.preview}>{approachMode==='text'?personalize(message,currentQueueLead,signupUrl):personalize(voiceIntro,currentQueueLead,approachMode==='audio_wait'?'':signupUrl)+(approachMode==='text_audio'&&!voiceIntro.includes('{link}')?`\n${signupUrl}`:'')}</div>
-        {approachMode==='text'?<><button type="button" className={styles.whatsappButton} onClick={openWhatsApp} disabled={automaticSending}>Abrir no WhatsApp</button><button type="button" className={styles.secondary} onClick={confirmManualSend} disabled={automaticSending}>Já enviei essa mensagem</button></>:<p className={styles.helper}>Para enviar sua voz como mensagem de áudio, use o envio automático acima.</p>}
+        {approachMode==='text'?<><button type="button" className={styles.whatsappButton} onClick={openWhatsApp} disabled={automaticSending}>Abrir no WhatsApp</button><button type="button" className={styles.secondary} onClick={confirmManualSend} disabled={automaticSending}>Já enviei essa mensagem</button></>:<p className={styles.helper}>Para enviar sua voz como áudio, use o envio automático acima.</p>}
         <div className={styles.queueNav}><button type="button" onClick={() => setQueueIndex((value) => Math.max(0, value - 1))} disabled={queueIndex === 0 || automaticSending}>Anterior</button><button type="button" onClick={() => setQueueIndex((value) => Math.min(queue.length - 1, value + 1))} disabled={queueIndex >= queue.length - 1 || automaticSending}>Próxima</button></div>
       </div>}
     </section>}

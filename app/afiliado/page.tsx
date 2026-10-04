@@ -4,6 +4,7 @@ import { getAffiliateDashboard } from "../../db/affiliate-portal";
 import { AffiliatePausedScreen, AffiliatePortal } from "../ui/affiliate-portal";
 import { AffiliateLoginScreen } from "../ui/affiliate-login";
 import { AffiliateProspectingEntry } from "../ui/affiliate-prospecting-entry";
+import { AffiliateProspectingSummary } from "../ui/affiliate-prospecting-summary";
 
 export const dynamic = "force-dynamic";
 
@@ -17,5 +18,5 @@ export default async function AffiliatePage() {
   if (!access) return <AffiliateLoginScreen />;
   if (!access.active) return <AffiliatePausedScreen />;
   const data = await getAffiliateDashboard(access);
-  return <><AffiliatePortal initialData={data} /><AffiliateProspectingEntry /></>;
+  return <><AffiliatePortal initialData={data} /><AffiliateProspectingSummary /><AffiliateProspectingEntry /></>;
 }
