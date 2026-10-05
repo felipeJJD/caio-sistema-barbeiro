@@ -179,6 +179,43 @@
   gap: 9px;
 }
 
+.resultsHint {
+  color: #68716d;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 14px;
+}
+
+.unavailable {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(23, 35, 31, 0.12);
+}
+
+.unavailableToggle {
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid rgba(23, 35, 31, 0.16);
+  border-radius: 12px;
+  background: #f4efe4;
+  color: #536159;
+  font: inherit;
+  font-weight: 700;
+}
+
+.unavailable .leadList {
+  margin: 12px 0;
+}
+
+.unavailableLead {
+  grid-template-columns: 1fr;
+  background: #f7f5ef;
+}
+
+.unavailableLead em {
+  color: #68716d;
+}
+
 .lead {
   width: 100%;
   display: grid;
