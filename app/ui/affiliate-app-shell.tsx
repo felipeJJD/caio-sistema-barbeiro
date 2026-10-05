@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { lockAffiliateScroll } from "../../lib/affiliate-scroll-lock";
 import { BrandLogo } from "./brand-logo";
 import styles from "./affiliate-app-shell.module.css";
 
@@ -55,47 +57,84 @@ function bottomActive(section: AffiliateShellSection) {
 }
 
 export function AffiliateAppShell({ name, section, children, workspace = false }: Props) {
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuClosing, setMenuClosing] = useState(false);
+  const closingRef = useRef(false);
+  const closingTimer = useRef<number | null>(null);
+  const pendingHref = useRef<string | undefined>(undefined);
+  const releaseMenuScroll = useRef<(() => void) | null>(null);
   const activeBottom = bottomActive(section);
   const firstName = name.split(/\s+/).filter(Boolean)[0] || name || "Afiliado";
   const initial = firstName.slice(0, 1).toUpperCase() || "A";
   const heading = sectionHeading[section];
 
+  const cancelClosingTimer = useCallback(() => {
+    if (closingTimer.current !== null) window.clearTimeout(closingTimer.current);
+    closingTimer.current = null;
+  }, []);
+  const finishMenuClose = useCallback(() => {
+    if (!closingRef.current) return;
+    cancelClosingTimer();
+    closingRef.current = false;
+    setMenuOpen(false);
+    setMenuClosing(false);
+    releaseMenuScroll.current?.();
+    const href = pendingHref.current;
+    pendingHref.current = undefined;
+    if (href) router.push(href);
+  }, [router, cancelClosingTimer]);
+  const closeMenu = useCallback((href?: string) => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    pendingHref.current = href;
+    setMenuClosing(true);
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    closingTimer.current = window.setTimeout(finishMenuClose, reducedMotion ? 0 : 420);
+  }, [finishMenuClose]);
+
+  function drawerLinkProps(next: AffiliateShellSection) {
+    const href = sectionHref(next);
+    return { href, onClick: (event: MouseEvent<HTMLAnchorElement>) => { event.preventDefault(); closeMenu(href); } };
+  }
+
+  useEffect(() => cancelClosingTimer, [cancelClosingTimer]);
+
   useEffect(() => {
     if (!menuOpen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
+    const release = lockAffiliateScroll();
+    releaseMenuScroll.current = release;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") closeMenu(); };
     window.addEventListener("keydown", close);
-    return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", close); };
-  }, [menuOpen]);
+    return () => { release(); window.removeEventListener("keydown", close); };
+  }, [menuOpen, closeMenu]);
 
   return <div className={styles.shell}>
     <header className={styles.topbar}>
-      <button type="button" className={styles.menuButton} onClick={() => setMenuOpen(true)} aria-label="Abrir menu do afiliado"><span/><span/><span/></button>
+      <button type="button" className={styles.menuButton} onClick={() => setMenuOpen(true)} aria-label="Abrir menu do afiliado" aria-expanded={menuOpen}><span/><span/><span/></button>
       <Link href="/afiliado" className={styles.brand} aria-label="Ir para o início do afiliado"><BrandLogo /></Link>
       <button type="button" className={styles.profileButton} onClick={() => setMenuOpen(true)} aria-label="Abrir perfil e mais opções"><span>{initial}</span></button>
     </header>
 
     {menuOpen && <>
-      <button type="button" className={styles.backdrop} aria-label="Fechar menu" onClick={() => setMenuOpen(false)} />
-      <aside className={styles.drawer} aria-label="Menu da área do afiliado">
-        <div className={styles.drawerHead}><BrandLogo /><button type="button" onClick={() => setMenuOpen(false)} aria-label="Fechar menu">×</button></div>
+      <button type="button" className={`${styles.backdrop} ${menuClosing ? styles.backdropClosing : ""}`} aria-label="Fechar menu" onClick={() => closeMenu()} />
+      <aside className={`${styles.drawer} ${menuClosing ? styles.drawerClosing : ""}`} aria-label="Menu da área do afiliado" aria-busy={menuClosing}>
+        <div className={styles.drawerHead}><BrandLogo /><button type="button" onClick={() => closeMenu()} aria-label="Fechar menu">×</button></div>
         <div className={styles.profileCard}><span>{initial}</span><div><strong>{name}</strong><small>Afiliado Cortou Anotou</small></div></div>
 
-        <nav className={styles.drawerNav} onClick={() => setMenuOpen(false)}>
+        <nav className={styles.drawerNav}>
           <p>RESULTADOS</p>
-          <Link className={section === "home" ? styles.selected : ""} href={sectionHref("home")}><Icon name="home"/><strong>Resumo</strong><i>›</i></Link>
-          <Link className={section === "indications" ? styles.selected : ""} href={sectionHref("indications")}><Icon name="users"/><strong>Indicações</strong><i>›</i></Link>
-          <Link className={section === "commissions" ? styles.selected : ""} href={sectionHref("commissions")}><Icon name="money"/><strong>Comissões</strong><i>›</i></Link>
+          <Link className={section === "home" ? styles.selected : ""} {...drawerLinkProps("home")}><Icon name="home"/><strong>Resumo</strong><i>›</i></Link>
+          <Link className={section === "indications" ? styles.selected : ""} {...drawerLinkProps("indications")}><Icon name="users"/><strong>Indicações</strong><i>›</i></Link>
+          <Link className={section === "commissions" ? styles.selected : ""} {...drawerLinkProps("commissions")}><Icon name="money"/><strong>Comissões</strong><i>›</i></Link>
 
           <p>DIVULGAÇÃO</p>
-          <Link className={section === "links" ? styles.selected : ""} href={sectionHref("links")}><Icon name="link"/><strong>Gerar links</strong><i>›</i></Link>
+          <Link className={section === "links" ? styles.selected : ""} {...drawerLinkProps("links")}><Icon name="link"/><strong>Gerar links</strong><i>›</i></Link>
 
           <p>PROSPECÇÃO</p>
-          <Link className={section === "prospecting" ? styles.selected : ""} href={sectionHref("prospecting")}><Icon name="search"/><strong>Buscar clientes</strong><i>›</i></Link>
-          <Link className={section === "progress" ? styles.selected : ""} href={sectionHref("progress")}><Icon name="progress"/><strong>Progresso</strong><i>›</i></Link>
-          <Link className={section === "settings" ? styles.selected : ""} href={sectionHref("settings")}><Icon name="whatsapp"/><strong>WhatsApp e abordagem</strong><i>›</i></Link>
+          <Link className={section === "prospecting" ? styles.selected : ""} {...drawerLinkProps("prospecting")}><Icon name="search"/><strong>Buscar clientes</strong><i>›</i></Link>
+          <Link className={section === "progress" ? styles.selected : ""} {...drawerLinkProps("progress")}><Icon name="progress"/><strong>Progresso</strong><i>›</i></Link>
+          <Link className={section === "settings" ? styles.selected : ""} {...drawerLinkProps("settings")}><Icon name="whatsapp"/><strong>WhatsApp e abordagem</strong><i>›</i></Link>
         </nav>
 
         <div className={styles.drawerFooter}><div><span>{initial}</span><small>{firstName}</small></div><a href="/api/affiliate/auth/logout">Sair</a></div>
