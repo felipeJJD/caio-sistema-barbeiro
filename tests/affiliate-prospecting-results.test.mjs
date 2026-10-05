@@ -9,7 +9,7 @@ import React, {act} from 'react';
 import {createRoot} from 'react-dom/client';
 import ts from 'typescript';
 
-test('lista prioriza celulares, guarda indisponíveis e preserva paginação da busca', async () => {
+test('rota atual de prospecção prioriza celulares, guarda indisponíveis e preserva paginação da busca', async () => {
   const dom = new JSDOM('<div id="root"></div>', {url: 'https://fixture.test/afiliado/prospeccao'});
   const {window} = dom;
   const document = window.document;
@@ -47,17 +47,36 @@ test('lista prioriza celulares, guarda indisponíveis e preserva paginação da 
     return Response.json(payload);
   };
   const require = createRequire(import.meta.url);
-  const file = path.resolve(new URL('../app/ui/affiliate-prospecting.tsx', import.meta.url).pathname);
-  const module = {exports: {}};
-  const source = ts.transpile(fs.readFileSync(file, 'utf8'), {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true});
-  const localRequire = name => {
-    if (name === 'next/link') return {default: ({children}) => React.createElement('a', null, children), __esModule: true};
-    if (name.endsWith('.css')) return {default: new Proxy({}, {get: (_, key) => String(key)}), __esModule: true};
-    if (name === './brand-logo') return {BrandLogo: () => null};
-    if (name === './affiliate-prospecting-audio') return {AffiliateProspectingAudio: () => null, DEFAULT_VOICE_INTRO: ''};
-    return require(name);
-  };
-  vm.runInNewContext(source, {module, exports: module.exports, require: localRequire, window, document, fetch, console, URL, URLSearchParams}, {filename: file});
+  const cache = new Map();
+  const router = {push: href => window.history.pushState({}, '', href)};
+  function load(file) {
+    file = path.resolve(file);
+    if (cache.has(file)) return cache.get(file).exports;
+    const module = {exports: {}};
+    cache.set(file, module);
+    const source = ts.transpile(fs.readFileSync(file, 'utf8'), {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true});
+    const localRequire = name => {
+      if (name === 'next/navigation') return {useRouter: () => router, useSearchParams: () => new URLSearchParams(window.location.search), redirect: href => {throw Error('Unexpected redirect: ' + href);}};
+      if (name.endsWith('.css')) return {default: new Proxy({}, {get: (_, key) => String(key)}), __esModule: true};
+      if (name.endsWith('/affiliate-auth')) return {getAffiliateSessionAccess: async () => ({active: true, isAdmin: true})};
+      if (name.endsWith('/affiliate-portal')) return {getAffiliateDashboard: async () => ({profile: {name: 'Teste', whatsapp: ''}, links: []})};
+      if (name.endsWith('/affiliate-app-shell')) return {AffiliateAppShell: ({children}) => children};
+      if (name === './brand-logo') return {BrandLogo: () => null};
+      if (name === './affiliate-prospecting-audio') return {AffiliateProspectingAudio: () => null};
+      if (name === './affiliate-prospecting-history') return {AffiliateProspectingHistory: () => null};
+      if (name.startsWith('.')) {
+        const base = path.resolve(path.dirname(file), name);
+        const target = ['', '.tsx', '.ts'].map(ext => base + ext).find(candidate => fs.existsSync(candidate));
+        assert.ok(target, 'local module exists: ' + name);
+        return load(target);
+      }
+      return require(name);
+    };
+    vm.runInNewContext(source, {module, exports: module.exports, require: localRequire, window, document, fetch, console, URL, URLSearchParams}, {filename: file});
+    return module.exports;
+  }
+  // Render the actual page entry point so a test cannot silently exercise a retired screen.
+  const page = load(new URL('../app/afiliado/prospeccao/page.tsx', import.meta.url).pathname).default;
   const root = createRoot(document.getElementById('root'));
   const settle = () => act(async () => {await new Promise(resolve => setTimeout(resolve, 10));});
   const button = text => [...document.querySelectorAll('button')].find(node => node.textContent.trim() === text);
@@ -73,7 +92,7 @@ test('lista prioriza celulares, guarda indisponíveis e preserva paginação da 
   const results = () => document.querySelector('[aria-label="Resultados da busca"]');
   const rows = () => [...results().querySelectorAll('button.lead')];
   try {
-    await act(async () => root.render(React.createElement(module.exports.AffiliateProspecting, {name: 'Teste', initialWhatsapp: '', signupUrl: 'https://example.test', isAdmin: false})));
+    await act(async () => root.render(await page({searchParams: Promise.resolve({})})));
     await settle();
     await search();
     assert.equal(rows().length, 10, 'invalid results do not consume the ten visible slots');
@@ -81,8 +100,8 @@ test('lista prioriza celulares, guarda indisponíveis e preserva paginação da 
     assert.match(results().querySelector('.cardTitle').textContent, /12 disponíveis/);
     assert.equal(results().querySelector('.unavailableLead'), null, 'invalid results start hidden');
     assert.equal(searchRequests.length, 1, 'filtering does not trigger extra searches');
-    await click(button('Selecionar celulares visíveis'));
-    assert.ok(button('Preparar 10 contatos'), 'only the ten visible mobiles are selected');
+    await click(button('Selecionar visíveis'));
+    assert.match(document.querySelector('.queueBar').textContent, /10 selecionadas/, 'only the ten visible mobiles are selected');
     await click(button('Ver indisponíveis (15)'));
     assert.equal(results().querySelectorAll('.unavailableLead').length, 10);
     assert.equal(rows().length, 10, 'opening invalid results does not change the main list');
@@ -105,7 +124,7 @@ test('lista prioriza celulares, guarda indisponíveis e preserva paginação da 
     assert.equal(rows().length, 0);
     assert.match(results().querySelector('.cardTitle').textContent, /0 disponíveis/);
     assert.equal(results().querySelector('.unavailableLead'), null, 'a new search collapses invalid results');
-    assert.equal(button('Selecionar celulares visíveis'), undefined);
+    assert.equal(button('Selecionar visíveis'), undefined);
     assert.match(results().textContent, /Toque em Ver mais barbearias para continuar/);
     await click(button('Ver mais barbearias'));
     assert.equal(rows().length, 1);
