@@ -139,8 +139,9 @@ export function GuidedOnboarding() {
 
   const access = useMemo<TourAccess>(() => ({
     owner: Boolean(data?.viewer.isOwner),
+    productCount: data?.products.length,
     teamSettings: Boolean(data?.viewer.isOwner && data.viewer.accountType !== "individual"),
-  }), [data?.viewer.accountType, data?.viewer.isOwner]);
+  }), [data?.viewer.accountType, data?.viewer.isOwner, data?.products.length]);
 
   const progressIdentity = data ? `ca:onboarding:v${TOUR_VERSION}:${data.viewer.teamMemberId}` : "";
   const autoEnabled = Boolean(data && (data.viewer.organizationStatus === "trial" || data.viewer.organizationStatus === "pending_email"));

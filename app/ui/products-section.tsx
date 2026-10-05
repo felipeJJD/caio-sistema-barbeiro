@@ -108,7 +108,7 @@ export function ProductsSection({ data, post, pending }: { data: DashboardData; 
 
     <section className="products-main-grid">
       <div className="panel product-inventory">
-        <div className="product-section-head"><div><h2>Produtos em estoque</h2><p>{data.products.length} {data.products.length === 1 ? "produto cadastrado" : "produtos cadastrados"}</p></div>{data.viewer.isOwner && <button type="button" onClick={() => openEditor(null)}>+ Novo produto</button>}</div>
+        <div className="product-section-head"><div><h2>Produtos em estoque</h2><p>{data.products.length} {data.products.length === 1 ? "produto cadastrado" : "produtos cadastrados"}</p></div>{data.viewer.isOwner && <button type="button" data-tour="product-create" onClick={() => openEditor(null)}>+ Novo produto</button>}</div>
         <div className="product-list">
           {data.products.map((product) => {
             const isLow = product.active && product.stockQuantity <= product.lowStockThreshold;
@@ -119,7 +119,7 @@ export function ProductsSection({ data, post, pending }: { data: DashboardData; 
               {data.viewer.isOwner && <div className="product-item-actions"><button className="product-edit" type="button" onClick={() => openEditor(product.id)} aria-label={`Editar ${product.name}`}>Editar</button><button className="product-delete" type="button" onClick={() => void removeProduct(product.id, product.name)} aria-label={`Excluir ${product.name}`}><AppIcon name="trash" /></button></div>}
             </article>;
           })}
-          {!data.products.length && <div className="product-empty"><span><AppIcon name="box" /></span><strong>Nenhum produto cadastrado</strong><p>{data.viewer.isOwner ? "Cadastre o primeiro produto no formulário abaixo." : "O proprietário ainda não cadastrou produtos para venda."}</p></div>}
+          {!data.products.length && <div className="product-empty"><span><AppIcon name="box" /></span><strong data-tour="product-empty">Nenhum produto cadastrado</strong><p>{data.viewer.isOwner ? "Cadastre o primeiro produto no formulário abaixo." : "O proprietário ainda não cadastrou produtos para venda."}</p></div>}
         </div>
       </div>
 
@@ -140,15 +140,15 @@ export function ProductsSection({ data, post, pending }: { data: DashboardData; 
     {data.viewer.isOwner && <section className={`panel product-editor editor-scroll-target${editing ? " is-editing" : ""}`} ref={editorRef} tabIndex={-1}>
       <div className="product-section-head"><div><h2>{editing ? "Editar produto" : "Cadastrar produto"}</h2><p>Você controla preço, custo e quantidade sem depender de suporte.</p></div>{editing && <button type="button" onClick={() => setEditingId(null)}>Cancelar edição</button>}</div>
       <form className="app-form product-editor-form" onSubmit={submitProduct} key={editing?.id ?? "new-product"} ref={editorFormRef}>
-        <label className="field"><span>Nome do produto</span><input name="name" placeholder="Ex.: Pomada modeladora" defaultValue={editing?.name ?? ""} required /></label>
+        <label className="field"><span>Nome do produto</span><input data-tour="product-name" name="name" placeholder="Ex.: Pomada modeladora" defaultValue={editing?.name ?? ""} required /></label>
         <label className="field"><span>Categoria</span><input name="category" placeholder="Ex.: Cabelo, roupa ou acessório" defaultValue={editing?.category ?? ""} /></label>
         <label className="field"><span>Custo (R$)</span><input name="cost" type="number" min="0" step="0.01" inputMode="decimal" defaultValue={(editing?.costCents ?? 0) / 100} required /></label>
-        <label className="field"><span>Preço de venda (R$)</span><input name="price" type="number" min="0.01" step="0.01" inputMode="decimal" defaultValue={(editing?.priceCents ?? 0) / 100} required /></label>
+        <label className="field"><span>Preço de venda (R$)</span><input data-tour="product-price" name="price" type="number" min="0.01" step="0.01" inputMode="decimal" defaultValue={(editing?.priceCents ?? 0) / 100} required /></label>
         <label className="field"><span>Comissão do barbeiro (%)</span><input name="commission" type="number" min="0" max="100" step="0.01" inputMode="decimal" defaultValue={(editing?.commissionRateBps ?? 0) / 100} required /></label>
-        <label className="field"><span>Estoque atual</span><input name="stockQuantity" type="number" min="0" step="1" inputMode="numeric" defaultValue={editing?.stockQuantity ?? 0} required /></label>
+        <label className="field"><span>Estoque atual</span><input data-tour="product-stock" name="stockQuantity" type="number" min="0" step="1" inputMode="numeric" defaultValue={editing?.stockQuantity ?? 0} required /></label>
         <label className="field"><span>Avisar estoque baixo em</span><input name="lowStockThreshold" type="number" min="0" step="1" inputMode="numeric" defaultValue={editing?.lowStockThreshold ?? 2} required /></label>
         <label className="check"><input name="active" type="checkbox" defaultChecked={editing?.active ?? true} /> Produto ativo para venda</label>
-        <button className="primary-button" disabled={pending}>{pending ? "Salvando..." : editing ? "Salvar alterações" : "Cadastrar produto"}</button>
+        <button className="primary-button" data-tour="product-save" disabled={pending}>{pending ? "Salvando..." : editing ? "Salvar alterações" : "Cadastrar produto"}</button>
       </form>
     </section>}
 

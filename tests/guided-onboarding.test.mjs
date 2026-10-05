@@ -79,3 +79,22 @@ test('formulários longos aprovados deixam espaço real para explicação e cont
   assert.equal(overlaps(focus, rect(copy.left,copy.top,copy.width,160)),false);
   assert.ok(copy.top+160 <= 754);
 });
+
+
+test('sem produtos, proprietário aprende cadastro por campo sem criar ou vender automaticamente', () => {
+  const steps = sectionTour('Produtos', { ...owner, productCount: 0 });
+  assert.deepEqual(steps.map(s => s.selector), ['product-create', 'product-name', 'product-price', 'product-stock', 'product-save'].map(name => `[data-tour='${name}']`));
+  for (const step of steps) {
+    assert.equal(step.clickSelector, undefined);
+    assert.equal(step.clickButton, undefined);
+    assert.doesNotMatch(step.selector, /product-sale|product-list/);
+  }
+});
+test('sem produtos, funcionário recebe orientação sem campos exclusivos do proprietário', () => {
+  const steps = sectionTour('Produtos', { owner: false, teamSettings: false, productCount: 0 });
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].selector, "[data-tour='product-empty']");
+});
+test('com produtos, mantém exatamente o tour aprovado de estoque e venda', () => {
+  for (const productCount of [1, 5]) assert.deepEqual(sectionTour('Produtos', { ...owner, productCount }), sectionTour('Produtos', owner));
+});
