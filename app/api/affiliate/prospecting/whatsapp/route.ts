@@ -1,7 +1,7 @@
 import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
 import { getAffiliateDashboard } from "../../../../../db/affiliate-portal";
 import { affiliateProspectingFetch, affiliateProspectorIdentity } from "../../../../../lib/affiliate-prospecting-bridge";
-import { beginProspectingWhatsappPairing, getProspectingWhatsappState, normalizeProspectingWhatsappPhone, canonicalProspectingPhone, prospectingInstanceFor } from "../../../../../lib/affiliate-prospecting-whatsapp";
+import { beginProspectingWhatsappPairing, recoverProspectingWhatsappConnection, getProspectingWhatsappState, normalizeProspectingWhatsappPhone, canonicalProspectingPhone, prospectingInstanceFor } from "../../../../../lib/affiliate-prospecting-whatsapp";
 import { getVoiceAudio, getVoiceProfile, validVoiceId } from '../../../../../lib/affiliate-prospecting-audio';
 const reply=(payload:unknown,status=200)=>Response.json(payload,{status,headers:{"cache-control":"no-store"}});
 export async function GET() {
@@ -9,11 +9,14 @@ export async function GET() {
     const access=await getAffiliateSessionAccess();
     if(!access?.active)return reply({error:"Entre como afiliado para usar a prospecção."},401);
     const state=await getProspectingWhatsappState(prospectingInstanceFor(access));
+    let syncWarning='';
     if(state.connected) {
-      const result=await affiliateProspectingFetch('/api/connections',{method:'POST',...affiliateProspectorIdentity(access),body:{action:'connected'}});
-      if(!result.response.ok)return reply(result.payload,result.response.status);
+      try {
+        const result=await affiliateProspectingFetch('/api/connections',{method:'POST',...affiliateProspectorIdentity(access),body:{action:'connected'}});
+        if(!result.response.ok)syncWarning='WhatsApp conectado. A atualização da prospecção está temporariamente indisponível.';
+      } catch { syncWarning='WhatsApp conectado. A atualização da prospecção está temporariamente indisponível.'; }
     }
-    return reply({...state,canConnect:true});
+    return reply({...state,canConnect:true,syncWarning});
   }catch(error){return reply({error:error instanceof Error?error.message:"Não foi possível consultar seu WhatsApp."},Number((error as {status?:number})?.status)||503);}
 }
 export async function POST(request:Request) {
@@ -22,15 +25,14 @@ export async function POST(request:Request) {
     if(!access?.active)return reply({error:"Entre como afiliado para usar a prospecção."},401);
     const body=await request.json() as {action?:string;phone?:string;keys?:string[];template?:string;approachMode?:string;audioId?:string};
     const identity=affiliateProspectorIdentity(access);const instance=prospectingInstanceFor(access);
+    if(body.action==='recover')return reply(await recoverProspectingWhatsappConnection(instance));
     if(body.action==='connect') {
       const phone=normalizeProspectingWhatsappPhone(String(body.phone||''));
       if(!phone)return reply({error:"Informe o DDD e o número do seu WhatsApp."},400);
-      // Never replace a connected instance or change its registered phone on a repeated click.
-      const state=await getProspectingWhatsappState(instance);
-      if(state.connected)return reply({...state,pairingCode:''});
-      const registration=await affiliateProspectingFetch('/api/connections',{method:'POST',...identity,body:{phone:canonicalProspectingPhone(phone)}});
-      if(!registration.response.ok)return reply(registration.payload,registration.response.status);
-      return reply(await beginProspectingWhatsappPairing(phone,instance));
+      return reply(await beginProspectingWhatsappPairing(phone,instance,async()=>{
+        const registration=await affiliateProspectingFetch('/api/connections',{method:'POST',...identity,body:{phone:canonicalProspectingPhone(phone)}});
+        if(!registration.response.ok)throw Object.assign(new Error(String(registration.payload.error||'Não foi possível registrar este WhatsApp.')),{status:registration.response.status});
+      }));
     }
     if(body.action==='enqueue') {
       const mode=body.approachMode||'text';
@@ -46,6 +48,7 @@ export async function POST(request:Request) {
       if(!signupUrl)return reply({error:"Ative seu link de indicação antes de enviar."},409);
       const state=await getProspectingWhatsappState(instance);
       if(!state.connected)return reply({error:"Conecte seu WhatsApp antes de enviar."},409);
+      if(state.webhookReady===false)return reply({error:'O recebimento das respostas está temporariamente indisponível. Aguarde antes de iniciar novos envios.'},503);
       const result=await affiliateProspectingFetch('/api/queue',{method:'POST',...identity,body:{action:'enqueue',keys:body.keys,template:String(body.template||''),signupUrl,approachMode:mode,audioId:mode==='text'?undefined:body.audioId}});
       return reply(result.payload,result.response.status);
     }

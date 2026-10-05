@@ -216,7 +216,7 @@
 }
 
 .drawerNav a strong {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .drawerNav a i {
@@ -370,7 +370,7 @@
 .bottomItem strong {
   max-width: 100%;
   overflow: hidden;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -478,7 +478,7 @@
   }
 
   .bottomItem strong {
-    font-size: 8.5px;
+    font-size: 10px;
   }
 }
 

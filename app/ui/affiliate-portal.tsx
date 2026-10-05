@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { affiliatePortalHref, affiliatePortalTab } from "../../lib/affiliate-navigation";
 import { FormEvent, useMemo, useState } from "react";
 import { BrandLogo } from "./brand-logo";
 import { PasswordInput } from "./password-input";
@@ -124,7 +126,10 @@ export function AffiliatePausedScreen() {
 
 export function AffiliatePortal({ initialData }: { initialData: AffiliateDashboardData }) {
   const [data, setData] = useState(initialData);
-  const [tab, setTab] = useState<PortalTab>("Resumo");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tab = affiliatePortalTab(searchParams.get("view"));
+  const setTab = (next: PortalTab) => router.push(affiliatePortalHref(next));
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [monthPending, setMonthPending] = useState(false);

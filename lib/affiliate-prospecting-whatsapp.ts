@@ -7,6 +7,9 @@ const WEBHOOK_EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE
 const gates = new Map<string, { gate: Promise<void>; lastSendAt: number }>();
 const webhookTimes = new Map<string, number>();
 const webhookSetups = new Map<string, Promise<void>>();
+type PairingResult = { state: string; connected: boolean; instance: string; pairingCode: string; phone?: string };
+const pairingRequests = new Map<string, { phone: string; promise: Promise<PairingResult> }>();
+const recentPairings = new Map<string, { phone: string; createdAt: number; result: PairingResult }>();
 
 export function prospectingInstanceFor(access: { affiliateId: number; isAdmin?: boolean }) {
   if (!Number.isSafeInteger(access.affiliateId) || access.affiliateId < 1) throw new Error("Afiliado inválido.");
@@ -178,6 +181,29 @@ async function fetchInstance(instance = INSTANCE_NAME) {
   return Array.isArray(data) ? data[0] as Record<string, unknown> | undefined : undefined;
 }
 
+export function prospectingConnectionDiagnostic(record: Record<string, unknown> = {}) {
+  const nested = record.instance && typeof record.instance === "object" ? record.instance as Record<string, unknown> : record;
+  const reasonCode = Number(nested.disconnectionReasonCode ?? record.disconnectionReasonCode) || null;
+  let raw: unknown = nested.disconnectionObject ?? record.disconnectionObject;
+  if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = null; } }
+  const object = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const error = object.error && typeof object.error === "object" ? object.error as Record<string, unknown> : object;
+  const data = error.data && typeof error.data === "object" ? error.data as Record<string, unknown> : {};
+  const attrs = data.attrs && typeof data.attrs === "object" ? data.attrs as Record<string, unknown> : {};
+  const removed = reasonCode === 401 || attrs.type === "device_removed";
+  const reason = removed ? "device_removed" : reasonCode === 440 ? "replaced" : reasonCode && [408, 428, 515, 503].includes(reasonCode) ? "interrupted" : "unknown";
+  const phone = normalizeProspectingWhatsappPhone(String(nested.ownerJid ?? nested.number ?? record.ownerJid ?? "").split("@")[0]);
+  const rawDate = String(nested.disconnectionAt ?? record.disconnectionAt ?? "");
+  const disconnectedAt = rawDate && !Number.isNaN(Date.parse(rawDate)) ? new Date(rawDate).toISOString() : "";
+  return { reasonCode, reason, phone, disconnectedAt, requiresPairing: removed,
+    canRecover: reason === "interrupted" && Boolean(phone),
+    connectionMessage: removed
+      ? "O WhatsApp removeu o aparelho vinculado. Será necessário conectar novamente. Confira também os avisos em Aparelhos conectados no seu WhatsApp."
+      : reason === "replaced" ? "Esta conexão foi substituída por outra sessão. Confira os aparelhos conectados antes de tentar novamente."
+      : reason === "interrupted" ? "A conexão foi interrompida. Tente restabelecer a sessão existente antes de gerar outro código."
+      : "Seu WhatsApp ainda não está conectado à prospecção." };
+}
+
 export async function getProspectingWhatsappState(instance = INSTANCE_NAME) {
   validInstance(instance);
   try {
@@ -185,15 +211,38 @@ export async function getProspectingWhatsappState(instance = INSTANCE_NAME) {
     const nested = body.instance && typeof body.instance === "object" ? body.instance as Record<string, unknown> : {};
     const state = String(nested.state ?? body.state ?? "disconnected").toLowerCase();
     const connected = state === "open" || state === "connected";
-    if (connected) await ensureProspectingWebhook(instance);
-    return { state, connected, instance };
+    const record = await fetchInstance(instance).catch(() => undefined);
+    const diagnostic = prospectingConnectionDiagnostic(record);
+    let webhookReady = true;
+    if (connected) {
+      recentPairings.delete(instance);
+      try { await ensureProspectingWebhook(instance); }
+      catch { webhookReady = false; console.warn("[prospecting-connection]", { event: "webhook_unavailable", instance }); }
+    }
+    return { ...diagnostic, state, connected, instance, webhookReady,
+      requiresPairing: !connected && state !== "connecting" && diagnostic.requiresPairing,
+      canRecover: !connected && state !== "connecting" && diagnostic.canRecover,
+      connectionMessage: connected ? webhookReady ? "Seu WhatsApp está conectado." : "WhatsApp conectado. O recebimento das respostas está temporariamente indisponível." : state === "connecting" ? "Aguardando a conclusão da conexão no WhatsApp." : diagnostic.connectionMessage };
   } catch (error) {
-    if (error instanceof EvolutionHttpError && error.status === 404) return { state: "disconnected", connected: false, instance };
+    if (error instanceof EvolutionHttpError && error.status === 404) return { ...prospectingConnectionDiagnostic(), state: "disconnected", connected: false, instance, webhookReady: false };
     throw error;
   }
 }
 
-export async function beginProspectingWhatsappPairing(phoneValue: string, instance = INSTANCE_NAME) {
+export async function beginProspectingWhatsappPairing(phoneValue: string, instance = INSTANCE_NAME, registerPhone?: () => Promise<void>) {
+  validInstance(instance);
+  const phone = normalizeProspectingWhatsappPhone(phoneValue);
+  const pending = pairingRequests.get(instance);
+  if (pending) {
+    if (pending.phone !== phone) throw Object.assign(new Error("A conexão deste número já está sendo preparada. Aguarde antes de trocar o número."), { status: 409 });
+    return pending.promise;
+  }
+  const promise = startProspectingPairing(phoneValue, instance, registerPhone).finally(() => pairingRequests.delete(instance));
+  pairingRequests.set(instance, { phone, promise });
+  return promise;
+}
+
+async function startProspectingPairing(phoneValue: string, instance = INSTANCE_NAME, registerPhone?: () => Promise<void>): Promise<PairingResult> {
   validInstance(instance);
   const phone = normalizeProspectingWhatsappPhone(phoneValue);
   if (!/^55\d{10,11}$/.test(phone)) {
@@ -204,6 +253,11 @@ export async function beginProspectingWhatsappPairing(phoneValue: string, instan
 
   const state = await getProspectingWhatsappState(instance);
   if (state.connected) return { ...state, pairingCode: "" };
+  const recent = recentPairings.get(instance);
+  if (recent?.phone === phone && Date.now() - recent.createdAt < 25_000) return recent.result;
+  if (state.canRecover) throw Object.assign(new Error("A sessão foi interrompida. Use Restabelecer conexão antes de gerar um novo código."), { status: 409 });
+  // Keep registration inside the same lock so a second phone cannot replace its owner mid-pairing.
+  await registerPhone?.();
 
   const instances = await evolutionRequest<EvolutionPayload>("/instance/fetchInstances");
   const all = Array.isArray(instances) ? instances : Array.isArray(instances.data) ? instances.data : [];
@@ -265,7 +319,18 @@ export async function beginProspectingWhatsappPairing(phoneValue: string, instan
     Object.assign(error, { status: 503 });
     throw error;
   }
-  return { state: "connecting", connected: false, instance, pairingCode, phone };
+  const pairing = { state: "connecting", connected: false, instance, pairingCode, phone };
+  recentPairings.set(instance, { phone, createdAt: Date.now(), result: pairing });
+  return pairing;
+}
+
+export async function recoverProspectingWhatsappConnection(instance: string) {
+  const state = await getProspectingWhatsappState(validInstance(instance));
+  if (state.connected || state.state === "connecting") return state;
+  if (!state.canRecover) throw Object.assign(new Error("Esta sessão precisa ser vinculada novamente pelo WhatsApp."), { status: 409 });
+  // Reuse the existing credentials. Never logout, delete, or request a new pairing code here.
+  await evolutionRequest<EvolutionPayload>(`/instance/connect/${encodeURIComponent(instance)}`);
+  return getProspectingWhatsappState(instance);
 }
 
 async function waitForSendSlot(instance: string) {
@@ -300,6 +365,7 @@ export async function sendProspectingWhatsappText(phoneValue: string, textValue:
     Object.assign(error, { status: 409 });
     throw error;
   }
+  await ensureProspectingWebhook(instance);
 
   const release = await waitForSendSlot(instance);
   try {
@@ -328,6 +394,7 @@ export async function sendProspectingWhatsappAudio(phoneValue: string, ogg: Buff
   }
   const state=await getProspectingWhatsappState(instance);
   if(!state.connected){const error=new Error('Conecte seu WhatsApp antes de enviar o áudio.');Object.assign(error,{status:409});throw error;}
+  await ensureProspectingWebhook(instance);
   const release=await waitForSendSlot(instance);
   try {
     // Let Evolution normalize the private Ogg/Opus bytes to WhatsApp's voice-note format before sending.

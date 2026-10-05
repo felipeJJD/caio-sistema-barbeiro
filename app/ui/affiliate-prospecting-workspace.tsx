@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { affiliateWorkspaceHref, affiliateWorkspaceTab, type AffiliateWorkspaceTab } from "../../lib/affiliate-navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "./brand-logo";
-import { AffiliateBottomNav, type AffiliateNavTab } from "./affiliate-bottom-nav";
 import { AffiliateProspectingAudio, type ApproachMode } from "./affiliate-prospecting-audio";
-import { AffiliateProspectingHistory } from "./affiliate-prospecting-history";
+import { AffiliateProspectingHistory, type ProspectingQueueJob } from "./affiliate-prospecting-history";
 import styles from "./affiliate-prospecting-workspace.module.css";
 
 type Lead = {
@@ -22,22 +22,9 @@ type Lead = {
 type City = { id: number | string; name: string };
 type ReservedClaim = { key: string; phoneE164: string; name?: string };
 type BlockedClaim = { name?: string; reason?: string };
-type QueueJob = {
-  id: string;
-  batchId: string;
-  key: string;
-  name: string;
-  phoneE164: string;
-  status: string;
-  error?: string;
-  delivery?: string;
-  stage?: string;
-  approachMode?: string;
-  textProviderId?: string;
-  audioProviderId?: string;
-};
-type AutomaticWhatsappState = { state: string; connected: boolean; canConnect?: boolean };
-type WorkspaceTab = Exclude<AffiliateNavTab, "home">;
+type QueueJob = ProspectingQueueJob;
+type AutomaticWhatsappState = { state: string; connected: boolean; canConnect?: boolean; canRecover?: boolean; phone?: string; connectionMessage?: string; syncWarning?: string; webhookReady?: boolean };
+type WorkspaceTab = AffiliateWorkspaceTab;
 
 const STATES = [
   ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"], ["BA", "Bahia"],
@@ -87,14 +74,10 @@ function modeLabel(mode: ApproachMode) {
   return "Mensagem";
 }
 
-function deliveryLabel(job: QueueJob) {
-  if (job.delivery === "read") return "Lida";
-  if (job.delivery === "delivered") return "Entregue";
-  return ({ pending: "Na fila", leased: "Preparando", sending: "Enviando", sent: "Enviada", failed: "Falhou", uncertain: "Conferir envio", cancelled: "Cancelada" } as Record<string, string>)[job.status] || job.status;
-}
-
 export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl }: { name: string; initialWhatsapp: string; signupUrl: string; isAdmin: boolean }) {
-  const [tab, setTab] = useState<WorkspaceTab>("prospecting");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tab = affiliateWorkspaceTab(searchParams.get("tab"));
   const [uf, setUf] = useState("PR");
   const [city, setCity] = useState("Colombo");
   const [businessName, setBusinessName] = useState("");
@@ -119,16 +102,15 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   const [automatic, setAutomatic] = useState<AutomaticWhatsappState>({ state: "loading", connected: false });
   const [automaticLoading, setAutomaticLoading] = useState(true);
   const [automaticConnecting, setAutomaticConnecting] = useState(false);
+  const [connectionUnavailable, setConnectionUnavailable] = useState("");
+  const automaticRequest = useRef(false);
   const [pairingCode, setPairingCode] = useState("");
   const [jobs, setJobs] = useState<QueueJob[]>([]);
   const [jobActionId, setJobActionId] = useState("");
-  const [visibleJobs, setVisibleJobs] = useState(30);
   const jobActionRef = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const queryTab = new URLSearchParams(window.location.search).get("tab");
-      if (queryTab === "progress" || queryTab === "settings") setTab(queryTab);
       const savedMode = window.localStorage.getItem(MODE_STORAGE);
       if (savedMode && ["text", "text_audio", "audio_only"].includes(savedMode)) setApproachMode(savedMode as ApproachMode);
       const savedMessage = window.localStorage.getItem(MESSAGE_STORAGE);
@@ -157,8 +139,12 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
 
   useEffect(() => {
     const initial = window.setTimeout(() => { void refreshAutomatic(false); void refreshQueue(); }, 0);
-    const interval = window.setInterval(() => void refreshQueue(), 5000);
-    return () => { window.clearTimeout(initial); window.clearInterval(interval); };
+    const refresh = () => { if (document.visibilityState !== "hidden") { void refreshAutomatic(false); void refreshQueue(); } };
+    const interval = window.setInterval(() => { if (document.visibilityState !== "hidden") void refreshQueue(); }, 5000);
+    const connectionInterval = window.setInterval(refresh, 20_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearTimeout(initial); window.clearInterval(interval); window.clearInterval(connectionInterval); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, []);
 
   useEffect(() => {
@@ -175,14 +161,9 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
 
   const visibleLeads = useMemo(() => leads.slice(0, visibleCount), [leads, visibleCount]);
   const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id) && lead.whatsappCandidate && lead.phoneE164), [leads, selected]);
-  const queuedCount = jobs.filter((job) => ["pending", "leased", "sending"].includes(job.status)).length;
-  const sentCount = jobs.filter((job) => job.status === "sent").length;
-  const failedCount = jobs.filter((job) => ["failed", "uncertain"].includes(job.status)).length;
-
   function chooseTab(next: WorkspaceTab) {
-    setTab(next);
     setError("");
-    window.history.replaceState(null, "", next === "prospecting" ? "/afiliado/prospeccao" : `/afiliado/prospeccao?tab=${next}`);
+    router.push(affiliateWorkspaceHref(next), { scroll: false });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -205,12 +186,16 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   }
 
   async function refreshAutomatic(showNotice = true) {
+    if (automaticRequest.current) return;
+    automaticRequest.current = true;
     if (showNotice) setAutomaticLoading(true);
     try {
       const response = await fetch("/api/affiliate/prospecting/whatsapp", { cache: "no-store" });
       const payload = await response.json() as AutomaticWhatsappState & { error?: string };
       if (!response.ok) throw new Error(payload.error || "Não foi possível consultar seu WhatsApp.");
-      setAutomatic({ state: payload.state || "disconnected", connected: Boolean(payload.connected), canConnect: payload.canConnect });
+      setAutomatic({ ...payload, state: payload.state || "disconnected", connected: Boolean(payload.connected) });
+      setConnectionUnavailable("");
+      if (payload.connected && payload.phone) setWhatsapp(nationalPhone(payload.phone));
       if (payload.connected) {
         setPairingCode("");
         if (showNotice) setNotice("WhatsApp conectado e pronto para a prospecção.");
@@ -218,14 +203,16 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
         setNotice("O número ainda não terminou a conexão.");
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível consultar seu WhatsApp.");
+      setConnectionUnavailable(cause instanceof Error ? cause.message : "Não foi possível consultar seu WhatsApp.");
     } finally {
+      automaticRequest.current = false;
       setAutomaticLoading(false);
     }
   }
 
-  async function connectAutomatic() {
-    if (!whatsapp.trim()) return setNotice("Informe o DDD e o número antes de conectar.");
+  async function connectAutomatic(recover = false) {
+    if (automaticConnecting) return;
+    if (!recover && !whatsapp.trim()) return setNotice("Informe o DDD e o número antes de conectar.");
     setAutomaticConnecting(true);
     setError("");
     setNotice("");
@@ -233,13 +220,15 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
       const response = await fetch("/api/affiliate/prospecting/whatsapp", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "connect", phone: whatsapp }),
+        body: JSON.stringify({ action: recover ? "recover" : "connect", phone: recover ? undefined : whatsapp }),
       });
       const payload = await response.json() as AutomaticWhatsappState & { pairingCode?: string; error?: string };
       if (!response.ok) throw new Error(payload.error || "Não foi possível iniciar a conexão.");
-      setAutomatic({ state: payload.state || "connecting", connected: Boolean(payload.connected), canConnect: true });
+      setAutomatic({ ...payload, state: payload.state || "connecting", connected: Boolean(payload.connected), canConnect: true });
+      setConnectionUnavailable("");
       setPairingCode(payload.pairingCode || "");
-      setNotice(payload.connected ? "WhatsApp já está conectado." : "Código gerado. Abra Aparelhos conectados no seu WhatsApp.");
+      setNotice(payload.connected ? "WhatsApp já está conectado." : recover ? "Reconexão solicitada. Vamos conferir a sessão novamente." : "Código gerado. Abra Aparelhos conectados no seu WhatsApp.");
+      if (recover) void refreshAutomatic(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível iniciar a conexão.");
     } finally {
@@ -364,9 +353,9 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
       const accepted = new Set((queuePayload.jobs || []).map((job) => job.key));
       setLeads((current) => current.filter((lead) => !accepted.has(`phone:${lead.phoneE164}`)));
       setSelected(new Set());
-      setVisibleJobs(30);
       await refreshQueue();
       window.dispatchEvent(new Event("prospecting-history-changed"));
+      window.dispatchEvent(new Event("prospecting-show-queue"));
       chooseTab("progress");
       setNotice(`${accepted.size} contato${accepted.size === 1 ? "" : "s"} colocado${accepted.size === 1 ? "" : "s"} na fila.${queuePayload.blocked?.length ? ` ${queuePayload.blocked.length} ficou de fora por já estar indisponível.` : ""}`);
     } catch (cause) {
@@ -409,7 +398,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
 
     <section className={styles.topline}>
       <div><span>{tab === "prospecting" ? "PROSPECÇÃO" : tab === "progress" ? "PROGRESSO" : "CONFIGURAÇÕES"}</span><h1>{tab === "prospecting" ? "Encontre novos clientes" : tab === "progress" ? "Acompanhe seus envios" : "Prepare sua prospecção"}</h1></div>
-      <div className={styles.quickStatus}><span className={automatic.connected ? styles.online : styles.offline}>{automaticLoading ? "Conferindo WhatsApp" : automatic.connected ? "WhatsApp conectado" : "WhatsApp desconectado"}</span><small>{modeLabel(approachMode)}</small></div>
+      <div className={styles.quickStatus}><button type="button" className={automatic.connected && !connectionUnavailable ? styles.online : styles.offline} onClick={() => chooseTab("settings")}>{automaticLoading ? "Conferindo WhatsApp" : connectionUnavailable ? "Conexão não verificada" : automatic.connected ? "WhatsApp conectado" : automatic.state === "connecting" ? "WhatsApp conectando" : "WhatsApp desconectado"} ›</button><small>{modeLabel(approachMode)}</small></div>
     </section>
 
     <div className={styles.panel} hidden={tab !== "prospecting"}>
@@ -445,33 +434,18 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
     </div>
 
     <div className={styles.panel} hidden={tab !== "progress"}>
-      <section className={styles.metrics} aria-label="Resumo dos envios">
-        <article><small>Na fila</small><strong>{queuedCount}</strong></article>
-        <article><small>Enviados</small><strong>{sentCount}</strong></article>
-        <article><small>Falhas</small><strong>{failedCount}</strong></article>
-      </section>
-
-      <section className={styles.card}>
-        <div className={styles.cardTitle}><div><b>Progresso dos envios</b><span>A fila continua trabalhando mesmo se você sair desta tela.</span></div><button type="button" className={styles.secondary} onClick={() => void refreshQueue()}>Atualizar</button></div>
-        {jobs.length === 0 ? <div className={styles.empty}>Nenhum envio na fila ainda.</div> : <div className={styles.jobList}>{jobs.slice(0, visibleJobs).map((job) => <article key={job.id}>
-          <div className={styles.jobTop}><div><strong>{job.name}</strong><small>{modeLabel((job.approachMode || "text") as ApproachMode)}</small></div><span>{deliveryLabel(job)}</span></div>
-          {job.approachMode === "audio_only" || job.approachMode === "audio_wait" ? <p>{job.audioProviderId ? "Áudio enviado" : job.status === "failed" ? "O áudio falhou" : job.status === "uncertain" ? "Confira o áudio no WhatsApp" : "Áudio aguardando envio"}</p> : job.approachMode === "text_audio" ? <p>{job.textProviderId ? "Mensagem enviada" : "Mensagem aguardando"} · {job.audioProviderId ? "Áudio enviado" : "Áudio aguardando"}</p> : null}
-          {job.error && <p className={styles.jobError}>{job.error}</p>}
-          {job.status === "uncertain" && <div className={styles.jobActions}><Link href={`https://wa.me/${job.phoneE164}`} target="_blank">Conferir no WhatsApp</Link><button type="button" onClick={() => void updateJob(job, "confirm_sent")} disabled={Boolean(jobActionId)}>{jobActionId === job.id ? "Registrando..." : "Conferi: foi enviado"}</button></div>}
-          {job.status === "failed" && <div className={styles.jobActions}><button type="button" onClick={() => void updateJob(job, "retry")} disabled={Boolean(jobActionId)}>{jobActionId === job.id ? "Preparando..." : "Tentar novamente"}</button><button type="button" onClick={() => void updateJob(job, "cancel_failed")} disabled={Boolean(jobActionId)}>Descartar falha</button></div>}
-        </article>)}</div>}
-        {jobs.length > visibleJobs && <button type="button" className={styles.more} onClick={() => setVisibleJobs((value) => value + 30)}>Ver mais envios</button>}
-      </section>
-
-      <AffiliateProspectingHistory signupUrl={signupUrl} />
+      <AffiliateProspectingHistory signupUrl={signupUrl} jobs={jobs} onRefreshQueue={refreshQueue} onJobAction={updateJob} jobActionId={jobActionId} jobActionError={error} />
     </div>
 
     <div className={styles.panel} hidden={tab !== "settings"}>
       <section className={styles.card}>
-        <div className={styles.cardTitle}><div><b>WhatsApp da prospecção</b><span>Este é o número usado para enviar e receber as respostas.</span></div><strong className={automatic.connected ? styles.statusOn : styles.statusOff}>{automaticLoading ? "CONFERINDO" : automatic.connected ? "CONECTADO" : "DESCONECTADO"}</strong></div>
-        {!automatic.connected && <>
+        <div className={styles.cardTitle}><div><b>Meu WhatsApp</b><span>Gerencie o número usado para enviar e receber as respostas.</span></div><strong className={automatic.connected && !connectionUnavailable ? styles.statusOn : styles.statusOff}>{automaticLoading ? "CONFERINDO" : connectionUnavailable ? "SEM CONSULTA" : automatic.connected ? "CONECTADO" : automatic.state === "connecting" ? "CONECTANDO" : "DESCONECTADO"}</strong></div>
+        <p className={styles.connectionInfo} role="status">{connectionUnavailable ? `Não foi possível conferir a conexão agora. ${connectionUnavailable}` : automatic.connectionMessage || (automatic.connected ? "Seu WhatsApp está conectado." : "Conecte seu WhatsApp para iniciar os envios.")}</p>
+        {automatic.phone && <p className={styles.connectionInfo}>Número: +{automatic.phone}</p>}
+        {automatic.syncWarning && <p className={styles.connectionInfo}>{automatic.syncWarning}</p>}
+        {!automatic.connected && !automaticLoading && !connectionUnavailable && <>
           <div className={styles.phoneFields}><label>País<select aria-label="País"><option>Brasil (+55)</option></select></label><label>DDD e número<input value={whatsapp} onChange={(event) => setWhatsapp(event.target.value)} type="tel" autoComplete="tel-national" inputMode="tel" placeholder="(41) 99999-9999" maxLength={20} /></label></div>
-          <button type="button" className={styles.primary} onClick={() => void connectAutomatic()} disabled={automaticConnecting || automaticLoading}>{automaticConnecting ? "Gerando código..." : "Conectar meu WhatsApp"}</button>
+          <button type="button" className={styles.primary} onClick={() => void connectAutomatic(Boolean(automatic.canRecover))} disabled={automaticConnecting || automaticLoading}>{automaticConnecting ? automatic.canRecover ? "Restabelecendo..." : "Gerando código..." : automatic.canRecover ? "Restabelecer conexão" : pairingCode ? "Gerar outro código" : "Conectar meu WhatsApp"}</button>
         </>}
         {pairingCode && <div className={styles.pairingBox}><small>CÓDIGO DE CONEXÃO</small><strong>{pairingCode}</strong><button type="button" className={styles.secondary} onClick={() => void navigator.clipboard.writeText(pairingCode).then(() => setNotice("Código copiado.")).catch(() => setNotice("Selecione o código para copiar."))}>Copiar código</button><p>No WhatsApp: Aparelhos conectados → Conectar aparelho → Conectar com número de telefone.</p></div>}
         <button type="button" className={styles.secondaryWide} onClick={() => void refreshAutomatic(true)} disabled={automaticLoading}>{automaticLoading ? "Conferindo..." : "Conferir conexão"}</button>
@@ -493,6 +467,5 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
     </div>
 
     {(error || notice) && <div className={`${styles.notice} ${error ? styles.error : ""}`} role="status">{error || notice}</div>}
-    <AffiliateBottomNav active={tab} onSelect={chooseTab} />
   </main>;
 }
