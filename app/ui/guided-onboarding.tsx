@@ -4,7 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DashboardData } from "../../db/dashboard";
 
-type TourStep = { selector: string; title: string; copy: string; configTab?: string };
+type TourStep = {
+  selector: string;
+  title: string;
+  copy: string;
+  configTab?: string;
+  clickSelector?: string;
+  clickButton?: { selector: string; label: string };
+};
 type TourState = { id: string; steps: TourStep[]; index: number; restoreConfigTab?: string };
 type OnboardingProgress = { version: 2; enabled: boolean; seen: string[]; reviewed: string[]; checklistDismissed: boolean };
 type ChecklistItem = { key: string; title: string; copy: string; done: boolean; tab: string };
@@ -42,8 +49,9 @@ function clickMainSection(label: string) {
 
 function clickConfigTab(label: string) {
   const button = findButton(".config-tabs button", label);
-  button?.click();
-  return Boolean(button);
+  if (!button) return false;
+  if (!button.classList.contains("active")) button.click();
+  return true;
 }
 
 function activeConfigTab() {
@@ -101,14 +109,21 @@ function sectionTour(section: string, access: TourAccess): TourStep[] {
   ];
 
   if (section === "Produtos") return [
-    { selector: ".section-stage .product-stat-grid", title: "Resumo de produtos", copy: "Acompanhe vendas, lucro ou comissão, unidades vendidas e avisos de estoque." },
-    { selector: ".section-stage .product-inventory", title: "Estoque", copy: "Cadastre produtos e acompanhe quantidade, custo, preço e comissão de venda." },
-    { selector: ".section-stage .product-sale-card", title: "Venda rápida", copy: "Registre uma venda em poucos campos. O estoque baixa automaticamente e a venda aparece no Histórico." },
+    { selector: ".section-stage .product-stat-grid > article:first-child", title: "Vendas de produtos", copy: "Aqui você vê quanto vendeu no período." },
+    { selector: ".section-stage .product-inventory .product-list > article:first-child", title: "Um produto por vez", copy: "Cada item mostra preço, estoque e comissão sem precisar abrir a lista inteira." },
+    { selector: ".section-stage .product-sale-card select[name='productId']", title: "Escolha o produto", copy: "Selecione o item que está sendo vendido." },
+    { selector: ".section-stage .product-sale-card input[name='quantity']", title: "Quantidade", copy: "Informe quantas unidades o cliente levou." },
+    { selector: ".section-stage .product-sale-card select[name='paymentMethodId']", title: "Forma de pagamento", copy: "Escolha como essa venda foi paga." },
+    { selector: ".section-stage .product-sale-card .primary-button", title: "Confirmar venda", copy: "Ao confirmar, o estoque baixa e a venda entra no Histórico." },
   ];
 
   if (section === "Financeiro") return [
-    { selector: ".section-stage .finance-stats", title: "Leitura financeira", copy: "O C|A separa receita, mensalidades, produtos, taxas, comissões, despesas e o lucro que realmente sobrou." },
-    { selector: ".section-stage .finance-goals-panel", title: "Metas", copy: "Abra esta área quando quiser definir e acompanhar metas de faturamento, lucro e atendimentos." },
+    { selector: ".section-stage [class*='chartWrap']", title: "Dias que mais faturaram", copy: "Os picos do gráfico mostram em quais dias entrou mais dinheiro." , clickButton: { selector: ".section-stage [role='group'][aria-label='Tipo de gráfico'] button", label: "Faturamento" } },
+    { selector: ".section-stage [role='group'][aria-label='Tipo de gráfico'] button:nth-child(2)", title: "Dias movimentados", copy: "Toque aqui para ver quais dias concentram mais atendimentos." },
+    { selector: ".section-stage [class*='weekdayBars']", title: "Movimento por dia", copy: "Compare quantos atendimentos cada dia da semana recebeu.", clickButton: { selector: ".section-stage [role='group'][aria-label='Tipo de gráfico'] button", label: "Dias movimentados" } },
+    { selector: ".section-stage [class*='weekdayCallouts']", title: "Maior e menor movimento", copy: "O C|A destaca rapidamente os dias mais fortes e mais fracos." },
+    { selector: ".section-stage .finance-stats", title: "O que realmente sobrou", copy: "Receitas, taxas, comissões, despesas e lucro ficam separados aqui.", clickButton: { selector: ".section-stage [role='group'][aria-label='Tipo de gráfico'] button", label: "Faturamento" } },
+    { selector: ".section-stage .finance-goals-panel", title: "Metas", copy: "Use quando quiser acompanhar uma meta de faturamento, lucro ou atendimentos." },
   ];
 
   if (section === "Mensalistas") return [
@@ -128,12 +143,19 @@ function sectionTour(section: string, access: TourAccess): TourStep[] {
   ];
 
   if (section === "Configurações") return [
-    { selector: ".config-tabs", title: "Configurações sem bagunça", copy: "As configurações são separadas por assunto. Você não precisa ajustar tudo de uma vez." },
-    { selector: ".settings-layout", configTab: "Serviços", title: "Serviços, preços e duração", copy: "Revise preço e duração. A duração é usada pela agenda inteligente para evitar sobreposição." },
-    { selector: ".agenda-settings-layout", configTab: "Agenda", title: "Expediente da barbearia", copy: "Defina dias e horários de funcionamento. O link público acompanha estes horários automaticamente." },
-    { selector: ".public-link-layout", configTab: "Agendamento público", title: "Seu link de agendamento", copy: "Este é o endereço que você manda ao cliente. Aqui também decide se cada pedido precisa de aprovação." },
-    { selector: ".settings-layout", configTab: "Pagamentos", title: "Taxas da maquininha", copy: "Cadastre as formas de pagamento e a taxa de cada uma. O Financeiro usa esses percentuais nos cálculos." },
-    ...(access.teamSettings ? [{ selector: ".settings-layout", configTab: "Equipe", title: "Profissionais e permissões", copy: "Revise acessos, comissões e horários da equipe para cada profissional trabalhar somente com o que precisa." }] : []),
+    { selector: ".config-tabs", title: "Configurações", copy: "Cada assunto fica separado em uma aba para você ajustar só o que precisa." },
+    { selector: ".settings-layout .edit-list .edit-row:first-child", configTab: "Serviços", title: "Um serviço como exemplo", copy: "Vamos usar um serviço da sua lista para mostrar preço e duração." },
+    { selector: ".settings-layout input[name='price']", title: "Preço do serviço", copy: "Defina aqui quanto você cobra.", clickSelector: ".settings-layout .edit-list .edit-row:first-child .edit-row-actions button:first-child" },
+    { selector: ".settings-layout input[name='durationMinutes']", title: "Duração do serviço", copy: "Esse tempo ajuda a Agenda a montar horários sem sobreposição." },
+    { selector: ".agenda-settings-layout .weekly-hours-row:first-child", configTab: "Agenda", title: "Expediente por dia", copy: "Cada linha controla um dia da semana." },
+    { selector: ".agenda-settings-layout .weekly-hours-row:first-child input[name$='-opening']", title: "Horário de abertura", copy: "A Agenda começa a oferecer horários a partir daqui." },
+    { selector: ".agenda-settings-layout .weekly-hours-row:first-child input[name$='-closing']", title: "Horário de fechamento", copy: "A Agenda respeita este limite ao encaixar os serviços." },
+    { selector: ".public-link-box", configTab: "Agendamento público", title: "Seu link de agendamento", copy: "É esse endereço que você envia aos clientes." },
+    { selector: ".public-link-box button", title: "Copiar o link", copy: "Toque aqui para mandar pelo WhatsApp ou colocar no Instagram." },
+    { selector: ".public-booking-config label.agenda-toggle:nth-of-type(2)", title: "Aprovar antes de aceitar", copy: "Ative quando quiser confirmar cada pedido antes de entrar na Agenda." },
+    { selector: ".settings-layout .edit-list .edit-row:first-child", configTab: "Pagamentos", title: "Taxas da maquininha", copy: "Cada forma de pagamento pode ter a própria taxa." },
+    { selector: ".settings-layout input[name='fee']", title: "Informe a taxa", copy: "Coloque aqui o percentual cobrado pela sua máquina.", clickSelector: ".settings-layout .edit-list .edit-row:first-child .edit-row-actions button:first-child" },
+    ...(access.teamSettings ? [{ selector: ".settings-layout .edit-list .edit-row:first-child", configTab: "Equipe", title: "Equipe e acessos", copy: "Aqui você confere profissional, acesso, comissão e horários." }] : []),
   ];
 
   return [];
@@ -141,9 +163,9 @@ function sectionTour(section: string, access: TourAccess): TourStep[] {
 
 function moreTour(): TourStep[] {
   return [
-    { selector: ".mobile-drawer .mobile-menu-group:first-of-type", title: "Operação", copy: "Estas são as áreas usadas no atendimento do dia a dia." },
+    { selector: ".mobile-drawer .mobile-drawer-assistant", title: "Central de ajuda", copy: "Ficou com alguma dúvida? Toque aqui para pedir ajuda sem sair do C|A." },
+    { selector: ".mobile-drawer .mobile-menu-group:first-of-type", title: "Operação", copy: "Aqui ficam as áreas usadas no atendimento do dia a dia." },
     { selector: ".mobile-drawer .mobile-menu-group.management", title: "Gestão", copy: "Aqui ficam as áreas administrativas disponíveis para o seu acesso." },
-    { selector: ".mobile-drawer .mobile-drawer-assistant", title: "Ajuda quando precisar", copy: "A Central de ajuda fica disponível sem tirar você do aplicativo." },
   ];
 }
 
@@ -256,20 +278,37 @@ export function GuidedOnboarding() {
       const step = state.steps[candidate];
       if (step.configTab) {
         clickConfigTab(step.configTab);
-        await new Promise((resolve) => window.setTimeout(resolve, 120));
+        await new Promise((resolve) => window.setTimeout(resolve, 140));
         if (step.configTab === "Serviços") markReviewed("services");
         if (step.configTab === "Agenda") markReviewed("agenda");
         if (step.configTab === "Agendamento público") markReviewed("public-booking");
         if (step.configTab === "Pagamentos") markReviewed("payments");
         if (step.configTab === "Equipe") markReviewed("team");
       }
+      let activated = false;
+      if (step.clickSelector) {
+        const button = document.querySelector<HTMLElement>(step.clickSelector);
+        if (button) {
+          button.click();
+          activated = true;
+        }
+      }
+      if (step.clickButton) {
+        const button = findButton(step.clickButton.selector, step.clickButton.label);
+        if (button) {
+          button.click();
+          activated = true;
+        }
+      }
+      if (activated) await new Promise((resolve) => window.setTimeout(resolve, 160));
+
       const target = document.querySelector<HTMLElement>(step.selector);
       if (target && visible(target)) {
         targetRef.current = target;
         const initial = target.getBoundingClientRect();
-        if (initial.top < 16 || initial.bottom > window.innerHeight - 16) {
+        if (initial.top < 22 || initial.bottom > window.innerHeight - 104) {
           target.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center", inline: "nearest" });
-          await new Promise((resolve) => window.setTimeout(resolve, 300));
+          await new Promise((resolve) => window.setTimeout(resolve, 320));
         }
         setTargetRect(target.getBoundingClientRect());
         if (candidate !== state.index) setTour({ ...state, index: candidate });
@@ -365,12 +404,22 @@ export function GuidedOnboarding() {
   if (!appReady || !data || !progressReady) return null;
 
   const currentStep = tour?.steps[tour.index] ?? null;
-  const cardStyle = (() => {
-    if (!targetRect) return undefined;
-    const width = Math.min(360, window.innerWidth - 32);
-    const left = Math.min(Math.max(16, targetRect.left), Math.max(16, window.innerWidth - width - 16));
-    const roomBelow = window.innerHeight - targetRect.bottom;
-    const top = roomBelow >= 245 ? targetRect.bottom + 14 : Math.max(16, targetRect.top - 224);
+  const focus = (() => {
+    if (!targetRect) return null;
+    const padding = 7;
+    const left = Math.max(7, targetRect.left - padding);
+    const top = Math.max(7, targetRect.top - padding);
+    const right = Math.min(window.innerWidth - 7, targetRect.right + padding);
+    const bottom = Math.min(window.innerHeight - 7, targetRect.bottom + padding);
+    return { left, top, right, bottom, width: Math.max(24, right - left), height: Math.max(24, bottom - top) };
+  })();
+  const copyStyle = (() => {
+    if (!focus) return undefined;
+    const width = Math.min(360, window.innerWidth - 36);
+    const left = Math.min(Math.max(18, focus.left + focus.width / 2 - width / 2), Math.max(18, window.innerWidth - width - 18));
+    const below = focus.bottom + 18;
+    const roomBelow = window.innerHeight - below - 118;
+    const top = roomBelow >= 92 ? below : Math.max(24, focus.top - 112);
     return { left, top, width };
   })();
 
@@ -396,12 +445,20 @@ export function GuidedOnboarding() {
       <div className="ca-checklist-items">{checklistItems.map((item) => <button type="button" key={item.key} className={item.done ? "done" : ""} onClick={() => openChecklistItem(item)}><span>{item.done ? "✓" : "○"}</span><div><strong>{item.title}</strong><small>{item.copy}</small></div><b>{item.done ? "Revisar" : "Abrir"}</b></button>)}</div>
     </section>, checklistHost)}
 
-    {tour && currentStep && targetRect && createPortal(<div className="ca-guided-tour" role="dialog" aria-modal="true" aria-label={`Tour guiado: ${currentStep.title}`}>
-      <div className="ca-tour-spotlight" style={{ left: Math.max(8, targetRect.left - 7), top: Math.max(8, targetRect.top - 7), width: Math.max(24, targetRect.width + 14), height: Math.max(24, targetRect.height + 14) }} />
-      <div className="ca-tour-card" style={cardStyle}>
-        <div className="ca-tour-card-top"><span>{tour.index + 1}/{tour.steps.length}</span><button type="button" onClick={() => finishTour(true)} aria-label="Fechar tour">×</button></div>
-        <h3>{currentStep.title}</h3><p>{currentStep.copy}</p>
-        <div className="ca-tour-actions"><button type="button" className="secondary" onClick={() => finishTour(true)}>Fechar</button><button type="button" className="primary" onClick={nextStep}>{tour.index + 1 >= tour.steps.length ? "Entendi" : "Próximo"}</button></div>
+    {tour && currentStep && targetRect && focus && createPortal(<div className="ca-guided-tour" role="dialog" aria-modal="true" aria-label={`Tour guiado: ${currentStep.title}`}>
+      <div className="ca-tour-blur" style={{ left: 0, top: 0, right: 0, height: focus.top }} />
+      <div className="ca-tour-blur" style={{ left: 0, top: focus.top, width: focus.left, height: focus.height }} />
+      <div className="ca-tour-blur" style={{ left: focus.right, top: focus.top, right: 0, height: focus.height }} />
+      <div className="ca-tour-blur" style={{ left: 0, top: focus.bottom, right: 0, bottom: 0 }} />
+      <div className="ca-tour-spotlight" style={{ left: focus.left, top: focus.top, width: focus.width, height: focus.height }} />
+      <div className="ca-tour-copy" style={copyStyle}>
+        <small>{tour.index + 1} de {tour.steps.length}</small>
+        <h3>{currentStep.title}</h3>
+        <p>{currentStep.copy}</p>
+      </div>
+      <div className="ca-tour-controls">
+        <button type="button" className="secondary" onClick={() => finishTour(true)}>Fechar</button>
+        <button type="button" className="primary" onClick={nextStep}>{tour.index + 1 >= tour.steps.length ? "Entendi" : "Seguir"}</button>
       </div>
     </div>, document.body)}
   </>;
