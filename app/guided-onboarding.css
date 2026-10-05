@@ -2,6 +2,15 @@
   position: fixed;
   inset: 0;
   z-index: 12000;
+  pointer-events: none;
+}
+
+.ca-tour-blur {
+  position: fixed;
+  z-index: 12000;
+  background: rgba(15, 20, 17, 0.34);
+  -webkit-backdrop-filter: blur(5px) saturate(0.72);
+  backdrop-filter: blur(5px) saturate(0.72);
   pointer-events: auto;
 }
 
@@ -9,94 +18,77 @@
   position: fixed;
   z-index: 12001;
   border: 2px solid #c89a37;
-  border-radius: 18px;
-  box-shadow: 0 0 0 9999px rgba(15, 20, 17, 0.72), 0 0 0 5px rgba(200, 154, 55, 0.18), 0 14px 34px rgba(0, 0, 0, 0.2);
-  pointer-events: none;
+  border-radius: 16px;
+  background: transparent;
+  box-shadow: 0 0 0 4px rgba(200, 154, 55, 0.16), 0 12px 28px rgba(0, 0, 0, 0.16);
+  pointer-events: auto;
   transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease;
 }
 
-.ca-tour-card {
+.ca-tour-copy {
   position: fixed;
   z-index: 12002;
-  max-height: min(360px, calc(100dvh - 32px));
-  overflow: auto;
-  padding: 18px;
-  border: 1px solid rgba(200, 154, 55, 0.32);
-  border-radius: 20px;
-  background: #fffdf8;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
-  color: #20251f;
-  pointer-events: auto;
+  color: #fff;
+  text-align: center;
+  pointer-events: none;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.72);
 }
 
-.ca-tour-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
+.ca-tour-copy small {
+  display: block;
+  margin-bottom: 5px;
+  color: #e0b55a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.ca-tour-card-top > span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 48px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: #f3ead4;
-  color: #8b6721;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.ca-tour-card-top > button {
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 50%;
-  background: #f0eee8;
-  color: #252a24;
-  font-size: 25px;
-  line-height: 1;
-}
-
-.ca-tour-card h3 {
+.ca-tour-copy h3 {
   margin: 0;
-  font-size: 20px;
+  font-size: 21px;
   line-height: 1.15;
   letter-spacing: -0.025em;
 }
 
-.ca-tour-card p {
-  margin: 9px 0 0;
-  color: #697068;
+.ca-tour-copy p {
+  margin: 7px auto 0;
+  max-width: 330px;
+  color: rgba(255, 255, 255, 0.92);
   font-size: 14px;
-  line-height: 1.5;
+  font-weight: 600;
+  line-height: 1.38;
 }
 
-.ca-tour-actions {
+.ca-tour-controls {
+  position: fixed;
+  z-index: 12003;
+  left: 16px;
+  right: 16px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   gap: 10px;
-  margin-top: 18px;
+  pointer-events: auto;
 }
 
-.ca-tour-actions button {
-  min-height: 46px;
-  border-radius: 13px;
+.ca-tour-controls button {
+  min-height: 50px;
+  border-radius: 15px;
   font: inherit;
-  font-weight: 800;
+  font-weight: 900;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
-.ca-tour-actions .secondary {
-  border: 1px solid #dcd8ce;
-  background: #fff;
-  color: #575d56;
+.ca-tour-controls .secondary {
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(28, 34, 29, 0.78);
+  color: #fff;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
-.ca-tour-actions .primary {
+.ca-tour-controls .primary {
   border: 1px solid #263027;
   background: #263027;
   color: #fff;
@@ -302,29 +294,41 @@
   font-style: normal;
 }
 
+@media (min-width: 681px) {
+  .ca-tour-controls {
+    left: 50%;
+    right: auto;
+    width: min(420px, calc(100vw - 40px));
+    transform: translateX(-50%);
+  }
+}
+
 @media (max-width: 680px) {
   .ca-tour-spotlight {
-    border-radius: 15px;
+    border-radius: 14px;
   }
 
-  .ca-tour-card {
-    left: 12px !important;
-    width: calc(100vw - 24px) !important;
-    max-height: min(330px, calc(100dvh - 24px));
-    padding: 16px;
-    border-radius: 18px;
+  .ca-tour-copy {
+    text-align: left;
   }
 
-  .ca-tour-card h3 {
-    font-size: 18px;
+  .ca-tour-copy h3 {
+    font-size: 19px;
   }
 
-  .ca-tour-card p {
+  .ca-tour-copy p {
+    margin-left: 0;
     font-size: 13px;
   }
 
-  .ca-tour-actions button {
-    min-height: 44px;
+  .ca-tour-controls {
+    left: 12px;
+    right: 12px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .ca-tour-controls button {
+    min-height: 48px;
   }
 
   .ca-onboarding-checklist {
