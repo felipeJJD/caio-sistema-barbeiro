@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lockAffiliateScroll } from "../../lib/affiliate-scroll-lock";
 import styles from "./affiliate-prospecting-history.module.css";
 
 export type ProspectingQueueJob = {
@@ -51,6 +52,7 @@ export function AffiliateProspectingHistory({ signupUrl, jobs = [], onRefreshQue
   const [visibleCount, setVisibleCount] = useState(10);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<{ key: string; jobId?: string; contact?: ProspectingContact } | null>(null);
+  const detailsOpen = selected !== null;
   const [summary, setSummary] = useState<{ contacted: number; received: number } | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const requestVersion = useRef(0);
@@ -110,12 +112,10 @@ export function AffiliateProspectingHistory({ signupUrl, jobs = [], onRefreshQue
   }, [view, load, refreshSummary, invalidateRequests]);
 
   useEffect(() => {
-    if (selected && !dialogRef.current?.open) dialogRef.current?.showModal();
-    if (!selected) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = previous; };
-  }, [selected]);
+    if (!detailsOpen) return;
+    if (!dialogRef.current?.open) dialogRef.current?.showModal();
+    return lockAffiliateScroll();
+  }, [detailsOpen]);
 
   const queuedJobs = jobs.filter(job => ["pending", "leased", "sending"].includes(job.status));
   const failedJobs = jobs.filter(job => ["failed", "uncertain"].includes(job.status));
