@@ -8,7 +8,7 @@ export type TourStep = {
   openMenu?: boolean;
   interactive?: boolean;
 };
-export type TourAccess = { owner: boolean; teamSettings: boolean };
+export type TourAccess = { owner: boolean; teamSettings: boolean; productCount?: number };
 const target = (name: string) => `[data-tour='${name}']`;
 
 export function configTour(tab: string, access: TourAccess): TourStep[] {
@@ -66,6 +66,15 @@ export function sectionTour(section: string, access: TourAccess): TourStep[] {
   ];
 
 
+  if (section === "Produtos" && access.productCount === 0) return access.owner ? [
+    { selector: target("product-create"), title: "Seu primeiro produto", copy: "Comece aqui para cadastrar um produto que você vende." },
+    { selector: target("product-name"), title: "Nome do produto", copy: "Informe o nome, como pomada, gel ou shampoo." },
+    { selector: target("product-price"), title: "Preço de venda", copy: "Informe o valor que você cobra por unidade." },
+    { selector: target("product-stock"), title: "Estoque inicial", copy: "Informe quantas unidades você tem disponíveis." },
+    { selector: target("product-save"), title: "Cadastrar produto", copy: "Depois de preencher e conferir os dados, toque aqui para cadastrar." },
+  ] : [
+    { selector: target("product-empty"), title: "Ainda sem produtos", copy: "O proprietário precisa cadastrar o primeiro produto para liberar as vendas." },
+  ];
   if (section === "Produtos") return [
     { selector: ".section-stage .product-stat-grid > article:first-child", title: "Vendas de produtos", copy: "Este cartão mostra quanto você vendeu no período." },
     { selector: ".section-stage .product-inventory .product-list > article:first-child", title: "Seu estoque", copy: "Este produto mostra preço, estoque e comissão." },
