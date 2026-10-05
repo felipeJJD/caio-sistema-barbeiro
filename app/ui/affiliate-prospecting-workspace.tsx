@@ -45,6 +45,10 @@ function nationalPhone(value: string) {
   return digits.startsWith("55") && (digits.length === 12 || digits.length === 13) ? digits.slice(2) : digits;
 }
 
+function canSelectLead(lead: Lead) {
+  return Boolean(lead.whatsappCandidate && lead.phoneE164);
+}
+
 function readableError(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value.trim().replace(/\[object Object\]/g, "").trim() || fallback;
   if (Array.isArray(value)) return value.map((item) => readableError(item, "")).filter(Boolean).join(" · ") || fallback;
@@ -89,6 +93,8 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   const [hasMore, setHasMore] = useState(false);
   const [nextOffset, setNextOffset] = useState(0);
   const [visibleCount, setVisibleCount] = useState(DISPLAY_STEP);
+  const [unavailableVisibleCount, setUnavailableVisibleCount] = useState(DISPLAY_STEP);
+  const [showUnavailable, setShowUnavailable] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [approachMode, setApproachMode] = useState<ApproachMode>("text");
@@ -159,7 +165,9 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  const visibleLeads = useMemo(() => leads.slice(0, visibleCount), [leads, visibleCount]);
+  const availableLeads = useMemo(() => leads.filter(canSelectLead), [leads]);
+  const unavailableLeads = useMemo(() => leads.filter((lead) => !canSelectLead(lead)), [leads]);
+  const visibleLeads = useMemo(() => availableLeads.slice(0, visibleCount), [availableLeads, visibleCount]);
   const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id) && lead.whatsappCandidate && lead.phoneE164), [leads, selected]);
   function chooseTab(next: WorkspaceTab) {
     setError("");
@@ -247,6 +255,8 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
     setNotice("");
     setSelected(new Set());
     setVisibleCount(DISPLAY_STEP);
+    setUnavailableVisibleCount(DISPLAY_STEP);
+    setShowUnavailable(false);
     try {
       const params = new URLSearchParams({ city: query, offset: "0" });
       if (nameQuery) params.set("name", nameQuery);
@@ -260,6 +270,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
       setHasMore(Boolean(payload.hasMore));
       setNextOffset(Number(payload.nextOffset) || found.length);
       if (!found.length) setNotice(payload.hasMore ? "Os primeiros resultados já foram contatados ou reservados. Toque em Ver mais barbearias." : "Não encontrei novas barbearias disponíveis nessa busca.");
+      else if (!found.some(canSelectLead)) setNotice(payload.hasMore ? "Este lote não trouxe barbearias com celular válido. Toque em Ver mais barbearias para continuar." : "Os resultados encontrados não têm celular válido para seleção. Você pode consultar em Ver indisponíveis.");
     } catch (cause) {
       setLeads([]);
       setError(cause instanceof Error ? cause.message : "Não foi possível pesquisar agora.");
@@ -269,7 +280,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   }
 
   async function loadMore() {
-    if (visibleLeads.length < leads.length) {
+    if (visibleLeads.length < availableLeads.length) {
       setVisibleCount((value) => value + DISPLAY_STEP);
       return;
     }
@@ -287,6 +298,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
       setHasMore(Boolean(payload.hasMore));
       setNextOffset(Number(payload.nextOffset) || nextOffset + incoming.length);
       setVisibleCount((value) => value + DISPLAY_STEP);
+      if (incoming.length && !incoming.some(canSelectLead)) setNotice(payload.hasMore ? "Este lote não trouxe barbearias com celular válido. Toque em Ver mais barbearias para continuar." : "Este último lote não trouxe barbearias com celular válido.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível carregar mais barbearias.");
     } finally {
@@ -412,8 +424,9 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
         </form>
       </section>
 
-      {(leads.length > 0 || (searchedCity && hasMore)) && <section className={styles.card}>
-        <div className={styles.cardTitle}><div><b>Selecionar contatos</b><span>{searchedCity}{searchedName ? ` · “${searchedName}”` : ""} · {leads.length}{hasMore ? "+" : ""} disponíveis</span></div>{visibleLeads.length > 0 && <button type="button" className={styles.secondary} onClick={selectVisible}>Selecionar visíveis</button>}</div>
+      {(leads.length > 0 || (searchedCity && hasMore)) && <section className={styles.card} aria-label="Resultados da busca">
+        <div className={styles.cardTitle}><div><b>Selecionar contatos</b><span>{searchedCity}{searchedName ? ` · “${searchedName}”` : ""} · {availableLeads.length} disponíveis</span></div>{visibleLeads.length > 0 && <button type="button" className={styles.secondary} onClick={selectVisible}>Selecionar visíveis</button>}</div>
+        <p className={styles.resultsHint}>Barbearias com celular válido para seleção. As demais ficam em Ver indisponíveis.</p>
         {visibleLeads.length > 0 && <div className={styles.leadList}>{visibleLeads.map((lead) => {
           const checked = selected.has(lead.id);
           const enabled = Boolean(lead.whatsappCandidate && lead.phoneE164);
@@ -421,7 +434,18 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
             <span className={styles.check}>{checked ? "✓" : ""}</span><div><strong>{lead.name}</strong><small>{lead.address || "Endereço não informado"}</small><em>{enabled ? lead.phone : lead.phoneKind === "landline" ? `Fixo: ${lead.phone}` : "Sem celular válido"}</em></div>
           </button>;
         })}</div>}
-        {(visibleLeads.length < leads.length || hasMore) && <button type="button" className={styles.more} onClick={loadMore} disabled={moreLoading}>{moreLoading ? "Buscando mais..." : "Ver mais barbearias"}</button>}
+        {availableLeads.length === 0 && <p className={styles.resultsHint}>{hasMore ? "Ainda não há barbearias com celular válido neste lote. Toque em Ver mais barbearias para continuar." : "Nenhuma barbearia com celular válido nos resultados encontrados."}</p>}
+        {(visibleLeads.length < availableLeads.length || hasMore) && <button type="button" className={styles.more} onClick={loadMore} disabled={moreLoading}>{moreLoading ? "Buscando mais..." : "Ver mais barbearias"}</button>}
+        {unavailableLeads.length > 0 && <div className={styles.unavailable}>
+          <button type="button" className={styles.unavailableToggle} aria-expanded={showUnavailable} onClick={() => setShowUnavailable((value) => !value)}>{showUnavailable ? "Ocultar indisponíveis" : "Ver indisponíveis"} ({unavailableLeads.length})</button>
+          {showUnavailable && <div>
+            <p className={styles.resultsHint}>Estes resultados não têm celular válido para seleção.</p>
+            <div className={styles.leadList} aria-label="Barbearias indisponíveis">{unavailableLeads.slice(0, unavailableVisibleCount).map((lead) => <article className={`${styles.lead} ${styles.unavailableLead}`} key={lead.id}>
+              <div><strong>{lead.name}</strong><small>{lead.address || "Endereço não informado"}</small><em>{lead.phoneKind === "landline" ? `Fixo: ${lead.phone}` : "Sem celular válido"}</em></div>
+            </article>)}</div>
+            {unavailableVisibleCount < unavailableLeads.length && <button type="button" className={styles.secondary} onClick={() => setUnavailableVisibleCount((value) => value + DISPLAY_STEP)}>Ver mais indisponíveis</button>}
+          </div>}
+        </div>}
       </section>}
 
       <section className={styles.card}>
