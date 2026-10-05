@@ -83,7 +83,7 @@ function RevenueChart({ primary, compare }: { primary: FinanceMonthInsight; comp
   const points = (month: FinanceMonthInsight) => month.dailyRevenue.map((item) => `${x(item.day)},${y(item.valueCents)}`).join(" ");
   const xLabels = [1, 5, 10, 15, 20, 25, 30];
 
-  return <div className={styles.chartWrap}>
+  return <div className={styles.chartWrap} data-tour="finance-chart">
     <svg className={styles.lineChart} viewBox="0 0 640 230" role="img" aria-label="Gráfico de faturamento por dia do mês">
       {[48, 119, 190].map((gridY) => <line className={styles.gridLine} key={gridY} x1="56" x2="604" y1={gridY} y2={gridY} />)}
       <text className={styles.axisLabel} x="4" y="53">{shortMoney(maxValue)}</text>
@@ -136,14 +136,14 @@ export function FinanceInsights() {
     <header className={styles.financeHeader}>
       <div><span className={styles.eyebrow}>VISÃO DO NEGÓCIO</span><h2>Acompanhe a evolução</h2><p>Compare meses ou descubra quais dias concentram mais atendimentos.</p></div>
       <div className={styles.modeSwitch} role="group" aria-label="Tipo de gráfico">
-        <button type="button" className={mode === "revenue" ? styles.active : ""} onClick={() => setMode("revenue")}>Faturamento</button>
-        <button type="button" className={mode === "weekdays" ? styles.active : ""} onClick={() => setMode("weekdays")}>Dias movimentados</button>
+        <button data-tour="finance-revenue" aria-pressed={mode === "revenue"} type="button" className={mode === "revenue" ? styles.active : ""} onClick={() => setMode("revenue")}>Faturamento</button>
+        <button data-tour="finance-weekdays" aria-pressed={mode === "weekdays"} type="button" className={mode === "weekdays" ? styles.active : ""} onClick={() => setMode("weekdays")}>Dias movimentados</button>
       </div>
     </header>
 
     <div className={styles.financeControls}>
-      <label>Mês<select value={primary.month} onChange={(event) => { setPrimaryMonth(event.target.value); if (event.target.value === compareMonth) setCompareMonth(""); }}>{data.financeMonths.map((item) => <option value={item.month} key={item.month}>{capitalize(item.label)}</option>)}</select></label>
-      {mode === "revenue" && <label>Comparar com<select value={compare?.month ?? ""} onChange={(event) => setCompareMonth(event.target.value)}><option value="">Não comparar</option>{data.financeMonths.filter((item) => item.month !== primary.month).map((item) => <option value={item.month} key={item.month}>{capitalize(item.label)}</option>)}</select></label>}
+      <label data-tour="finance-month">Mês<select value={primary.month} onChange={(event) => { setPrimaryMonth(event.target.value); if (event.target.value === compareMonth) setCompareMonth(""); }}>{data.financeMonths.map((item) => <option value={item.month} key={item.month}>{capitalize(item.label)}</option>)}</select></label>
+      {mode === "revenue" && <label data-tour="finance-compare">Comparar com<select value={compare?.month ?? ""} onChange={(event) => setCompareMonth(event.target.value)}><option value="">Não comparar</option>{data.financeMonths.filter((item) => item.month !== primary.month).map((item) => <option value={item.month} key={item.month}>{capitalize(item.label)}</option>)}</select></label>}
     </div>
 
     {mode === "revenue" ? <>
@@ -157,11 +157,11 @@ export function FinanceInsights() {
       <p className={styles.financeNote}>Faturamento considera serviços, gorjetas, mensalidades e produtos registrados no Cortou Anotou.</p>
     </> : <>
       <div className={styles.weekdayBars}>
-        {primary.weekdays.map((item) => <div className={styles.weekdayRow} key={item.weekday}><span>{item.label}</span><div className={styles.barTrack}><i style={{ width: `${Math.max(item.count ? 8 : 0, Math.round(item.count / weekdayMax * 100))}%` }} /></div><strong>{item.count} atend.</strong></div>)}
+        {primary.weekdays.map((item) => <div className={styles.weekdayRow} data-tour={item.weekday === primary.weekdays[0]?.weekday ? "finance-weekday-example" : undefined} key={item.weekday}><span>{item.label}</span><div className={styles.barTrack}><i style={{ width: `${Math.max(item.count ? 8 : 0, Math.round(item.count / weekdayMax * 100))}%` }} /></div><strong>{item.count} atend.</strong></div>)}
       </div>
       <div className={styles.weekdayCallouts}>
-        <article><small>MAIOR MOVIMENTO</small><strong>{busiest ? `${busiest.label} · ${busiest.count} atendimentos` : "Sem dados"}</strong><p>Ajuda a enxergar quando a agenda naturalmente fica mais cheia.</p></article>
-        <article><small>MENOR MOVIMENTO</small><strong>{quietest ? `${quietest.label} · ${quietest.count} atendimentos` : "Sem dados"}</strong><p>{quietest ? "Pode ser um bom dia para testar uma promoção ou ação de retorno." : "Registre atendimentos para começar a comparar."}</p></article>
+        <article data-tour="finance-busiest"><small>MAIOR MOVIMENTO</small><strong>{busiest ? `${busiest.label} · ${busiest.count} atendimentos` : "Sem dados"}</strong><p>Ajuda a enxergar quando a agenda naturalmente fica mais cheia.</p></article>
+        <article data-tour="finance-quietest"><small>MENOR MOVIMENTO</small><strong>{quietest ? `${quietest.label} · ${quietest.count} atendimentos` : "Sem dados"}</strong><p>{quietest ? "Pode ser um bom dia para testar uma promoção ou ação de retorno." : "Registre atendimentos para começar a comparar."}</p></article>
       </div>
       <p className={styles.financeNote}>A análise de movimento usa atendimentos realizados. Dias sem nenhum registro não são apontados automaticamente como “fracos”, porque podem ser dias em que a barbearia não abre.</p>
     </>}
