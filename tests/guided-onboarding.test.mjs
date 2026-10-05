@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import ts from 'typescript';
 import { readFileSync } from 'node:fs';
 import { tourFocus, tourCopyPosition, tourPresentation, compactTourTarget, tourStartAllowed } from '../lib/guided-tour-layout.ts';
 import { sectionTour, configTour, moreTour } from '../lib/guided-tour-steps.ts';
@@ -97,4 +98,30 @@ test('sem produtos, funcionário recebe orientação sem campos exclusivos do pr
 });
 test('com produtos, mantém exatamente o tour aprovado de estoque e venda', () => {
   for (const productCount of [1, 5]) assert.deepEqual(sectionTour('Produtos', { ...owner, productCount }), sectionTour('Produtos', owner));
+});
+
+
+test('Mensalistas e Equipe apontam para elementos reais da tela inicial, inclusive sem cadastros', () => {
+  const source = readFileSync(new URL('../app/ui/dashboard-app.tsx', import.meta.url), 'utf8');
+  const ast = ts.createSourceFile('dashboard.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const targets = new Map();
+  const visit = node => {
+    if (ts.isJsxElement(node)) {
+      const opening = node.openingElement;
+      const attr = opening.attributes.properties.find(a => ts.isJsxAttribute(a) && a.name.getText(ast) === 'data-tour' && a.initializer && ts.isStringLiteral(a.initializer));
+      if (attr) targets.set(attr.initializer.text, { tag: opening.tagName.getText(ast), node });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  for (const [section, name, tag] of [['Mensalistas', 'membership-revenue', 'article'], ['Equipe', 'team-users-tab', 'button']]) {
+    const steps = sectionTour(section, owner);
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].selector, `[data-tour='${name}']`);
+    assert.equal(targets.get(name)?.tag, tag);
+    assert.equal(steps[0].clickSelector, undefined);
+    assert.equal(steps[0].clickButton, undefined);
+  }
+  assert.match(targets.get('membership-revenue').node.getText(ast), /monthTotals.revenueCents/);
+  assert.match(targets.get('team-users-tab').node.getText(ast), />Usuários e convites<\/button>/);
 });
