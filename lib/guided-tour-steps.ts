@@ -103,8 +103,8 @@ export function sectionTour(section: string, access: TourAccess): TourStep[] {
     { selector: target("setup-payments"), interactive: true, title: "Taxas da maquininha", copy: "Aqui você aprende a ajustar as taxas de débito e crédito." },
   ];
   if (section === "WhatsApp") return [{ selector: ".section-stage .panel", title: "WhatsApp do C|A", copy: "Esta área reúne conexão e automações de atendimento. Faça mudanças aqui somente quando souber qual número deve ficar conectado." }];
-  if (section === "Equipe") return [{ selector: ".user-access-row:first-child, .team-card:first-child", title: "Equipe e acessos", copy: "Cada profissional entra no próprio espaço." }];
-  if (section === "Mensalistas") return [{ selector: ".section-stage .stat-grid > article:first-child", title: "Mensalistas", copy: "Acompanhe aqui seus planos e os pagamentos do período." }];
+  if (section === "Equipe") return [{ selector: target("team-users-tab"), title: "Equipe e acessos", copy: "Toque aqui para gerenciar usuários e convites da equipe." }];
+  if (section === "Mensalistas") return [{ selector: target("membership-revenue"), title: "Receita dos mensalistas", copy: "Este cartão mostra as mensalidades recebidas no mês escolhido." }];
   if (section === "Minha Grana") return [{ selector: ".section-stage .stat-grid > article:first-child", title: "Minha Grana", copy: "Este cartão mostra seus valores no período." }];
   return [];
 }
