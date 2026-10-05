@@ -14,10 +14,12 @@ import "./mobile-readability.css";
 import "./navigation-order.css";
 import "./public-landing-polish.css";
 import "./public-product-slider.css";
+import "./guided-onboarding.css";
 import { AppGestureGuard } from "./ui/app-gesture-guard";
 import { AppToastHost } from "./ui/app-toast";
 import { AppointmentCompletionAutoScroll } from "./ui/appointment-completion-auto-scroll";
 import { HelpLauncherDragGuard } from "./ui/help-launcher-drag-guard";
+import { GuidedOnboarding } from "./ui/guided-onboarding";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -61,7 +63,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         />
         <link rel="apple-touch-startup-image" href="/splash-cortou-anotou.png" />
       </head>
-      <body><AppGestureGuard /><AppToastHost /><AppointmentCompletionAutoScroll /><HelpLauncherDragGuard />{children}</body>
+      <body><AppGestureGuard /><AppToastHost /><AppointmentCompletionAutoScroll /><HelpLauncherDragGuard /><GuidedOnboarding />{children}</body>
     </html>
   );
 }

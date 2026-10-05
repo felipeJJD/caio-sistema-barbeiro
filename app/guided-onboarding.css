@@ -1,0 +1,359 @@
+.ca-guided-tour {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  pointer-events: auto;
+}
+
+.ca-tour-spotlight {
+  position: fixed;
+  z-index: 12001;
+  border: 2px solid #c89a37;
+  border-radius: 18px;
+  box-shadow: 0 0 0 9999px rgba(15, 20, 17, 0.72), 0 0 0 5px rgba(200, 154, 55, 0.18), 0 14px 34px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease;
+}
+
+.ca-tour-card {
+  position: fixed;
+  z-index: 12002;
+  max-height: min(360px, calc(100dvh - 32px));
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(200, 154, 55, 0.32);
+  border-radius: 20px;
+  background: #fffdf8;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  color: #20251f;
+  pointer-events: auto;
+}
+
+.ca-tour-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ca-tour-card-top > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #f3ead4;
+  color: #8b6721;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ca-tour-card-top > button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #f0eee8;
+  color: #252a24;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.ca-tour-card h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.ca-tour-card p {
+  margin: 9px 0 0;
+  color: #697068;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ca-tour-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.ca-tour-actions button {
+  min-height: 46px;
+  border-radius: 13px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.ca-tour-actions .secondary {
+  border: 1px solid #dcd8ce;
+  background: #fff;
+  color: #575d56;
+}
+
+.ca-tour-actions .primary {
+  border: 1px solid #263027;
+  background: #263027;
+  color: #fff;
+}
+
+.ca-onboarding-checklist {
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(179, 132, 42, 0.24);
+  background: linear-gradient(145deg, #fffdf8 0%, #faf7ed 100%);
+}
+
+.ca-checklist-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ca-checklist-heading span {
+  color: #9a742c;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.ca-checklist-heading h2 {
+  margin: 4px 0 3px;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.ca-checklist-heading p {
+  margin: 0;
+  color: #747970;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ca-checklist-heading > button {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: #777b75;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ca-checklist-progress {
+  margin: 18px 0 12px;
+}
+
+.ca-checklist-progress > span {
+  display: block;
+  margin-bottom: 7px;
+  color: #5d625b;
+  font-size: 12px;
+}
+
+.ca-checklist-progress > span b {
+  color: #242b24;
+}
+
+.ca-checklist-progress > i {
+  display: block;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #e6e2d7;
+}
+
+.ca-checklist-progress > i > b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #b68b38;
+  transition: width 220ms ease;
+}
+
+.ca-checklist-items {
+  display: grid;
+  gap: 8px;
+}
+
+.ca-checklist-items > button {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e4e0d6;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #282d28;
+  text-align: left;
+}
+
+.ca-checklist-items > button:hover {
+  border-color: rgba(182, 139, 56, 0.5);
+}
+
+.ca-checklist-items > button > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #eeeae0;
+  color: #8f722f;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.ca-checklist-items > button.done > span {
+  background: #e6efe5;
+  color: #37613d;
+}
+
+.ca-checklist-items > button > div {
+  min-width: 0;
+}
+
+.ca-checklist-items > button > div strong,
+.ca-checklist-items > button > div small {
+  display: block;
+}
+
+.ca-checklist-items > button > div strong {
+  font-size: 13px;
+}
+
+.ca-checklist-items > button > div small {
+  margin-top: 2px;
+  color: #7b8079;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ca-checklist-items > button > b {
+  color: #8a6829;
+  font-size: 11px;
+}
+
+.ca-onboarding-restart {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(200, 154, 55, 0.24);
+  border-radius: 14px;
+  background: rgba(200, 154, 55, 0.07);
+  color: inherit;
+  text-align: left;
+}
+
+.ca-onboarding-restart > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 1px solid rgba(200, 154, 55, 0.38);
+  border-radius: 50%;
+  color: #c79a3a;
+  font-weight: 900;
+}
+
+.ca-onboarding-restart > div {
+  min-width: 0;
+}
+
+.ca-onboarding-restart strong,
+.ca-onboarding-restart small {
+  display: block;
+}
+
+.ca-onboarding-restart strong {
+  font-size: 12px;
+}
+
+.ca-onboarding-restart small {
+  margin-top: 2px;
+  color: #92978f;
+  font-size: 10px;
+}
+
+.ca-onboarding-restart.mobile {
+  margin: 10px 0 4px;
+  padding: 12px 14px;
+  border-color: rgba(200, 154, 55, 0.22);
+  background: rgba(200, 154, 55, 0.08);
+}
+
+.ca-onboarding-restart.mobile > i {
+  margin-left: auto;
+  color: #a58a53;
+  font-style: normal;
+}
+
+@media (max-width: 680px) {
+  .ca-tour-spotlight {
+    border-radius: 15px;
+  }
+
+  .ca-tour-card {
+    left: 12px !important;
+    width: calc(100vw - 24px) !important;
+    max-height: min(330px, calc(100dvh - 24px));
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .ca-tour-card h3 {
+    font-size: 18px;
+  }
+
+  .ca-tour-card p {
+    font-size: 13px;
+  }
+
+  .ca-tour-actions button {
+    min-height: 44px;
+  }
+
+  .ca-onboarding-checklist {
+    margin-top: 14px;
+    margin-bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+
+  .ca-checklist-heading {
+    gap: 10px;
+  }
+
+  .ca-checklist-heading h2 {
+    font-size: 19px;
+  }
+
+  .ca-checklist-items > button {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    padding: 11px 9px;
+  }
+
+  .ca-checklist-items > button > span {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ca-tour-spotlight,
+  .ca-checklist-progress > i > b {
+    transition: none;
+  }
+}
