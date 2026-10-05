@@ -193,3 +193,76 @@ test('prévia de áudio autenticada suporta Range do Safari e ignora dono inform
  assert.equal(response.headers.get('content-range'),'bytes 2-5/10');
  assert.equal(response.headers.get('cache-control'),'private, no-store');
 });
+
+test('status conectado continua verdadeiro quando o webhook está indisponível',async()=>{
+ const calls=[];
+ const api=runtime('lib/affiliate-prospecting-whatsapp.ts',{}, {process:{env:credentials},console:{warn(){}},fetch:(url)=>{
+  calls.push(url);
+  if(url.includes('connectionState'))return ok({instance:{state:'open'}});
+  if(url.includes('fetchInstances'))return ok([{ownerJid:'5541999999999@s.whatsapp.net',disconnectionReasonCode:401}]);
+  if(url.includes('/webhook/set/'))return Promise.resolve(Response.json({error:'offline'},{status:503}));
+  throw Error('unexpected '+url);
+ }});
+ const state=await api.getProspectingWhatsappState('ca-prospeccao-affiliate-42');
+ assert.equal(state.connected,true);assert.equal(state.webhookReady,false);
+ assert.equal(state.requiresPairing,false);assert.equal(state.canRecover,false);
+ assert.ok(calls.some(url=>url.includes('/webhook/set/')));
+});
+test('401 exige novo vínculo e reconexão nunca apaga ou reinicia outra instância',async()=>{
+ const calls=[];
+ const api=runtime('lib/affiliate-prospecting-whatsapp.ts',{}, {process:{env:credentials},fetch:(url)=>{
+  calls.push(url);
+  if(url.includes('connectionState'))return ok({instance:{state:'close'}});
+  if(url.includes('fetchInstances'))return ok([{ownerJid:'5541999999999@s.whatsapp.net',disconnectionReasonCode:401}]);
+  throw Error('unexpected '+url);
+ }});
+ const state=await api.getProspectingWhatsappState('ca-prospeccao-affiliate-42');
+ assert.equal(state.requiresPairing,true);assert.equal(state.reason,'device_removed');assert.equal(state.canRecover,false);
+ await assert.rejects(api.recoverProspectingWhatsappConnection('ca-prospeccao-affiliate-42'),error=>error.status===409);
+ assert.ok(!calls.some(url=>/\/connect\/|\/logout\/|\/delete\/|\/restart\//.test(url)));
+});
+test('interrupção temporária reutiliza sessão sem gerar código nem substituir credenciais',async()=>{
+ const calls=[];let reopened=false;
+ const api=runtime('lib/affiliate-prospecting-whatsapp.ts',{}, {process:{env:credentials},fetch:(url)=>{
+  calls.push(url);
+  if(url.includes('connectionState'))return ok({instance:{state:reopened?'open':'close'}});
+  if(url.includes('fetchInstances'))return ok([{ownerJid:'5541999999999@s.whatsapp.net',disconnectionReasonCode:428}]);
+  if(url.endsWith('/instance/connect/ca-prospeccao-affiliate-42')){reopened=true;return ok({});}
+  if(url.includes('/webhook/set/'))return ok({});
+  throw Error('unexpected '+url);
+ }});
+ await assert.rejects(api.beginProspectingWhatsappPairing('41999999999','ca-prospeccao-affiliate-42'),error=>error.status===409);
+ const result=await api.recoverProspectingWhatsappConnection('ca-prospeccao-affiliate-42');assert.equal(result.connected,true);
+ assert.equal(calls.filter(url=>url.includes('/instance/connect/')).length,1);
+ assert.ok(!calls.some(url=>url.includes('?number=')||/\/logout\/|\/delete\/|\/restart\/|\/create/.test(url)));
+});
+test('cliques simultâneos e repetidos compartilham o mesmo pareamento e registro',async()=>{
+ let creates=0,registrations=0,release;
+ const gate=new Promise(resolve=>{release=resolve;});
+ const api=runtime('lib/affiliate-prospecting-whatsapp.ts',{}, {process:{env:credentials},fetch:async(url)=>{
+  if(url.includes('connectionState')){await gate;return Response.json({instance:{state:'close'}});}
+  if(url.includes('fetchInstances'))return Response.json([]);
+  if(url.includes('/instance/create')){creates++;return Response.json({pairingCode:'TEST1234'});}
+  throw Error('unexpected '+url);
+ }});
+ const register=async()=>{registrations++;};
+ const first=api.beginProspectingWhatsappPairing('41999999999','ca-prospeccao-affiliate-42',register);
+ const second=api.beginProspectingWhatsappPairing('41999999999','ca-prospeccao-affiliate-42',register);
+ await assert.rejects(api.beginProspectingWhatsappPairing('41888888888','ca-prospeccao-affiliate-42',register),error=>error.status===409);
+ release();assert.equal((await first).pairingCode,(await second).pairingCode);
+ assert.equal((await api.beginProspectingWhatsappPairing('41999999999','ca-prospeccao-affiliate-42')).pairingCode,'TEST1234');
+ assert.equal(creates,1);assert.equal(registrations,1);
+});
+test('ponte de prospecção indisponível não falsifica desconexão e recuperação usa o dono autenticado',async()=>{
+ const prefix='../'.repeat(5);let recovered;
+ const api=runtime('app/api/affiliate/prospecting/whatsapp/route.ts',{
+  [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active:true,affiliateId:42})},
+  [prefix+'db/affiliate-portal']:{},
+  [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'}),affiliateProspectingFetch:async()=>{throw Error('bridge unavailable');}},
+  [prefix+'lib/affiliate-prospecting-audio']:{},
+  [prefix+'lib/affiliate-prospecting-whatsapp']:{prospectingInstanceFor:access=>`ca-prospeccao-affiliate-${access.affiliateId}`,getProspectingWhatsappState:async()=>({state:'open',connected:true}),recoverProspectingWhatsappConnection:async instance=>{recovered=instance;return {connected:true};}}
+ });
+ const response=await api.GET();assert.equal(response.status,200);const body=await response.json();assert.equal(body.connected,true);assert.ok(body.syncWarning);
+ assert.equal((await api.POST(new Request('https://app.test/api/affiliate/prospecting/whatsapp',{method:'POST',body:JSON.stringify({action:'recover',instance:'ca-prospeccao-outbound'})}))).status,200);
+ assert.equal(recovered,'ca-prospeccao-affiliate-42');
+});

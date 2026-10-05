@@ -113,7 +113,7 @@
   padding-bottom: 2px;
 }
 
-.quickStatus > span,
+.quickStatus > button,
 .quickStatus small {
   min-height: 30px;
   display: inline-flex;
@@ -124,6 +124,8 @@
   font-weight: 800;
   white-space: nowrap;
 }
+.quickStatus > button { border: 0; font-family: inherit; cursor: pointer; }
+.connectionInfo { font-size: 14px; line-height: 1.5; color: #68716d; overflow-wrap: anywhere; }
 
 .quickStatus small {
   background: #ebe7dc;
@@ -637,7 +639,7 @@
     width: 100%;
   }
 
-  .quickStatus > span,
+  .quickStatus > button,
   .quickStatus small {
     min-height: 28px;
     padding: 5px 9px;

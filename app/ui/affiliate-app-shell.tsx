@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { BrandLogo } from "./brand-logo";
 import styles from "./affiliate-app-shell.module.css";
 
@@ -30,13 +30,6 @@ function Icon({ name }: { name: IconName }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
 
-const portalLabels: Partial<Record<AffiliateShellSection, string>> = {
-  home: "Resumo",
-  indications: "Indicações",
-  links: "Gerar links",
-  commissions: "Comissões",
-};
-
 const sectionHeading: Partial<Record<AffiliateShellSection, { eyebrow: string; title: string; subtitle: string }>> = {
   indications: { eyebrow: "RESULTADOS", title: "Suas indicações", subtitle: "Veja quais barbearias entraram pelo seu link e em que etapa cada uma está." },
   links: { eyebrow: "DIVULGAÇÃO", title: "Seus links", subtitle: "Crie e organize os links que você usa para divulgar o Cortou Anotou." },
@@ -63,22 +56,19 @@ function bottomActive(section: AffiliateShellSection) {
 
 export function AffiliateAppShell({ name, section, children, workspace = false }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
   const activeBottom = bottomActive(section);
   const firstName = name.split(/\s+/).filter(Boolean)[0] || name || "Afiliado";
   const initial = firstName.slice(0, 1).toUpperCase() || "A";
   const heading = sectionHeading[section];
 
   useEffect(() => {
-    const label = portalLabels[section];
-    if (!label || !contentRef.current) return;
-    const frame = window.requestAnimationFrame(() => {
-      const buttons = [...contentRef.current!.querySelectorAll<HTMLButtonElement>(".affiliate-tabs button")];
-      const target = buttons.find((button) => button.textContent?.replace(/\s+/g, " ").trim().startsWith(label));
-      target?.click();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [section]);
+    if (!menuOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
+    window.addEventListener("keydown", close);
+    return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", close); };
+  }, [menuOpen]);
 
   return <div className={styles.shell}>
     <header className={styles.topbar}>
@@ -93,7 +83,7 @@ export function AffiliateAppShell({ name, section, children, workspace = false }
         <div className={styles.drawerHead}><BrandLogo /><button type="button" onClick={() => setMenuOpen(false)} aria-label="Fechar menu">×</button></div>
         <div className={styles.profileCard}><span>{initial}</span><div><strong>{name}</strong><small>Afiliado Cortou Anotou</small></div></div>
 
-        <nav className={styles.drawerNav}>
+        <nav className={styles.drawerNav} onClick={() => setMenuOpen(false)}>
           <p>RESULTADOS</p>
           <Link className={section === "home" ? styles.selected : ""} href={sectionHref("home")}><Icon name="home"/><strong>Resumo</strong><i>›</i></Link>
           <Link className={section === "indications" ? styles.selected : ""} href={sectionHref("indications")}><Icon name="users"/><strong>Indicações</strong><i>›</i></Link>
@@ -114,7 +104,7 @@ export function AffiliateAppShell({ name, section, children, workspace = false }
 
     {heading && <section className={styles.sectionHeading}><span>{heading.eyebrow}</span><h1>{heading.title}</h1><p>{heading.subtitle}</p></section>}
 
-    <div ref={contentRef} className={`${styles.content} ${workspace ? styles.workspaceContent : ""} ${heading ? styles.portalSubsection : ""}`}>
+    <div className={`${styles.content} ${workspace ? styles.workspaceContent : ""} ${heading ? styles.portalSubsection : ""}`}>
       {children}
     </div>
 

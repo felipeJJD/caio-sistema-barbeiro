@@ -255,3 +255,43 @@
     width: 100%;
   }
 }
+
+/* A single compact list replaces the long queue + repeated history below it. */
+.shell { margin-top: 0; padding: 0; background: transparent; }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-bottom: 14px; }
+.metrics button { min-width: 0; display: grid; gap: 5px; text-align: left; padding: 15px 12px; border: 1px solid #dddcd2; border-radius: 16px; background: #fffdf8; color: #17231f; font: inherit; }
+.metrics small { font-size: 13px; font-weight: 800; }
+.metrics strong { font-size: 29px; }
+.metrics span { font-size: 11px; color: #68716d; }
+.metrics .metricActive { border-color: #ad8a43; background: #fbf4df; box-shadow: inset 0 0 0 1px #ad8a432b; }
+.tabs { display: flex; flex-wrap: wrap; gap: 7px; }
+.tabs button { min-height: 44px; font-size: 13px; padding: 10px 12px; }
+.search { display: grid; gap: 6px; margin: 16px 0; font-size: 13px; font-weight: 800; }
+.search input { width: 100%; min-width: 0; min-height: 46px; border: 1px solid #d8dfd8; border-radius: 12px; padding: 12px; background: #fff; color: #17231f; font: inherit; font-size: 16px; }
+.contactRow { width: 100%; display: grid; grid-template-columns: 39px minmax(0, 1fr) 14px; align-items: center; gap: 11px; text-align: left; border: 1px solid #e2e3db; border-radius: 14px; background: #fff; color: #17231f; padding: 13px 12px; font: inherit; }
+.contactRow:hover { border-color: #ad8a43; background: #fffdf6; }
+.contactRow:focus-visible { outline: 2px solid #ad8a43; outline-offset: 2px; }
+.avatar { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 12px; background: #e9eee7; color: #345c47; font-weight: 900; }
+.rowText { display: grid; min-width: 0; gap: 4px; }
+.rowText strong { font-size: 16px; overflow-wrap: anywhere; }
+.rowText small { color: #68716d; font-size: 12px; }
+.rowText em { color: #426a54; font-size: 12px; line-height: 1.4; font-style: normal; }
+.contactRow > b { font-size: 24px; color: #967635; }
+.detail { position: fixed; inset: 0; width: min(560px, calc(100% - 24px)); max-height: min(85dvh, 760px); padding: 0; overflow: hidden; border: 1px solid #d9d8cc; border-radius: 22px; background: #fffdf8; color: #17231f; box-shadow: 0 20px 80px #0005; }
+.detail::backdrop { background: #101b16b3; backdrop-filter: blur(3px); }
+.detailHeader { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 19px; border-bottom: 1px solid #e5e4d9; }
+.detailHeader > div { min-width: 0; }
+.detailHeader span { font-size: 10px; color: #967635; font-weight: 900; letter-spacing: .1em; }
+.detailHeader h2 { margin: 5px 0 0; font-size: 21px; overflow-wrap: anywhere; }
+.detailHeader button { flex: 0 0 42px; width: 42px; height: 42px; border: 1px solid #d8dfd8; border-radius: 50%; background: #fff; color: #17231f; font-size: 25px; }
+.detailBody { padding: 0 19px 23px; max-height: calc(min(85dvh, 760px) - 110px); overflow-y: auto; overscroll-behavior: contain; }
+.interestStatus { margin: 12px 0; padding: 10px 12px; border-radius: 11px; background: #f3f0e5; font-size: 14px; font-weight: 800; }
+.detail .contactActions { display: grid; grid-template-columns: 1fr; }
+.detail .contactActions a, .detail .contactActions button { width: 100%; font-size: 14px; }
+@media (max-width: 760px) { .shell { margin-top: 0; padding: 0; } .metrics button { padding: 12px 9px; } }
+@media (max-width: 520px) {
+  .detail { inset: auto 0 0; width: 100%; max-height: 88dvh; margin: auto 0 0; border-radius: 22px 22px 0 0; }
+  .detailBody { max-height: calc(88dvh - 110px); padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .tabs button { flex: 1 0 auto; width: auto; }
+  .metrics strong { font-size: 25px; }
+}

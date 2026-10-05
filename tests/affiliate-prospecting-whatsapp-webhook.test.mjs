@@ -12,7 +12,6 @@ test("instância dedicada configura webhook autenticado de respostas", () => {
   assert.match(source, /authorization:\s*`Bearer \$\{secret\}`/);
 });
 
-test("criação da instância já nasce com webhook e consulta de estado garante configuração", () => {
+test("criação da instância já nasce com webhook", () => {
   assert.match(source, /webhook:\s*prospectingWebhook\(secret\)/);
-  assert.match(source, /if \(connected\) await ensureProspectingWebhook\(instance\)/);
 });
