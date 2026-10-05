@@ -2,27 +2,27 @@
   position: fixed;
   inset: 0;
   z-index: 12000;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .ca-tour-blur {
   position: fixed;
   z-index: 12000;
-  background: rgba(15, 20, 17, 0.34);
-  -webkit-backdrop-filter: blur(5px) saturate(0.72);
-  backdrop-filter: blur(5px) saturate(0.72);
+  background: rgba(15, 20, 17, 0.64);
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
   pointer-events: auto;
 }
 
 .ca-tour-spotlight {
   position: fixed;
   z-index: 12001;
-  border: 2px solid #c89a37;
-  border-radius: 16px;
+  border: 1.5px solid #d5aa4d;
+  border-radius: 12px;
   background: transparent;
-  box-shadow: 0 0 0 4px rgba(200, 154, 55, 0.16), 0 12px 28px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 0 0 2px rgba(200, 154, 55, 0.10);
   pointer-events: auto;
-  transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease;
+
 }
 
 .ca-tour-copy {
@@ -31,7 +31,7 @@
   color: #fff;
   text-align: center;
   pointer-events: none;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.72);
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.95);
 }
 
 .ca-tour-copy small {
@@ -46,7 +46,8 @@
 
 .ca-tour-copy h3 {
   margin: 0;
-  font-size: 21px;
+  font-size: 23px;
+  font-weight: 800;
   line-height: 1.15;
   letter-spacing: -0.025em;
 }
@@ -54,9 +55,9 @@
 .ca-tour-copy p {
   margin: 7px auto 0;
   max-width: 330px;
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 14px;
-  font-weight: 600;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
   line-height: 1.38;
 }
 
@@ -95,7 +96,8 @@
 }
 
 .ca-onboarding-checklist {
-  margin-top: 18px;
+  margin: 0;
+  padding: 20px;
   overflow: hidden;
   border: 1px solid rgba(179, 132, 42, 0.24);
   background: linear-gradient(145deg, #fffdf8 0%, #faf7ed 100%);
@@ -313,12 +315,12 @@
   }
 
   .ca-tour-copy h3 {
-    font-size: 19px;
+    font-size: 22px;
   }
 
   .ca-tour-copy p {
     margin-left: 0;
-    font-size: 13px;
+    font-size: 16px;
   }
 
   .ca-tour-controls {
@@ -332,8 +334,8 @@
   }
 
   .ca-onboarding-checklist {
-    margin-top: 14px;
-    margin-bottom: calc(84px + env(safe-area-inset-bottom));
+    margin: 0;
+    padding: 16px;
   }
 
   .ca-checklist-heading {
@@ -361,3 +363,23 @@
     transition: none;
   }
 }
+
+.ca-tour-copy { animation: ca-tour-reveal 160ms ease-out; }
+.ca-tour-copy.waiting { visibility: hidden; }
+.ca-tour-controls button:disabled { opacity: 0.7; cursor: wait; }
+.ca-tour-controls button:focus-visible { outline: 3px solid #f3ca67; outline-offset: 3px; }
+.ca-checklist-host:has(.ca-onboarding-checklist) > .ca-checklist-loading { display: none; }
+.ca-checklist-loading { padding: 20px; }
+.ca-checklist-items > button { min-height: 68px; transition: border-color 160ms ease, background-color 160ms ease; }
+.ca-checklist-items > button:focus-visible { outline: 2px solid #b68b38; outline-offset: 2px; }
+@keyframes ca-tour-reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (min-width: 900px) { .ca-checklist-items { grid-template-columns: 1fr 1fr; } }
+@media (prefers-reduced-motion: reduce) {
+  .ca-tour-copy { animation: none; }
+  .ca-checklist-items > button { transition: none; }
+}
+
+.ca-tour-spotlight.interactive { cursor: pointer; padding: 0; }
+.ca-tour-spotlight.interactive:focus-visible { outline: 3px solid #f3ca67; outline-offset: 3px; }
+body:has(.ca-guided-tour) .mobile-drawer-backdrop { backdrop-filter: blur(1px); -webkit-backdrop-filter: blur(1px); }
+body:has(.ca-guided-tour[data-tour-selector="[data-tour='finance-chart']"]) [data-tour='finance-chart'] { max-width: 760px; margin-left: auto; margin-right: auto; }
