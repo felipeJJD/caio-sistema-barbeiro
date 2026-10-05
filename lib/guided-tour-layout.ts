@@ -1,6 +1,14 @@
 export type TourRect = { left: number; top: number; right: number; bottom: number; width: number; height: number };
 export type TourViewport = { width: number; height: number; top: number; bottom: number };
 
+/** Recheck live navigation when a delayed start fires, not only when scheduled. */
+export function tourStartAllowed(id: string, section: string, configTab: string, drawer: "open" | "closing" | null) {
+  if (id === "Mais") return drawer === "open";
+  if (drawer) return false;
+  if (id.startsWith("Configurações:")) return section === "Configurações" && id === `Configurações:${configTab}`;
+  return id === section;
+}
+
 /** Never enlarge a missing/offscreen target into a surrounding panel. */
 export function tourFocus(rect: TourRect, viewport: TourViewport): TourRect | null {
   const left = Math.max(6, rect.left - 4);

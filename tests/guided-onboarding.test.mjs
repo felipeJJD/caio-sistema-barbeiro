@@ -1,11 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { tourFocus, tourCopyPosition, tourPresentation, compactTourTarget } from '../lib/guided-tour-layout.ts';
+import { tourFocus, tourCopyPosition, tourPresentation, compactTourTarget, tourStartAllowed } from '../lib/guided-tour-layout.ts';
 import { sectionTour, configTour, moreTour } from '../lib/guided-tour-steps.ts';
 const owner = { owner: true, teamSettings: true };
 const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
 const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+test('início atrasado respeita menu aberto/fechando e a tela atual', () => {
+  assert.equal(tourStartAllowed('Mais', 'Painel', '', 'open'), true);
+  assert.equal(tourStartAllowed('Mais', 'Painel', '', 'closing'), false);
+  assert.equal(tourStartAllowed('Mais', 'Painel', '', null), false);
+  for (const drawer of ['open', 'closing']) assert.equal(tourStartAllowed('Painel', 'Painel', '', drawer), false);
+  assert.equal(tourStartAllowed('Painel', 'Painel', '', null), true);
+  assert.equal(tourStartAllowed('Painel', 'Produtos', '', null), false);
+  assert.equal(tourStartAllowed('Configurações:Serviços', 'Configurações', 'Pagamentos', null), false);
+  assert.equal(tourStartAllowed('Configurações:Serviços', 'Configurações', 'Serviços', null), true);
+  assert.equal(tourStartAllowed('Configurações:Serviços', 'Painel', 'Serviços', null), false);
+});
 
 test('mobile: destaque acompanha apenas o elemento e texto nunca cobre foco ou rodapé', () => {
   for (const width of [320, 375, 390, 430]) for (const height of [568, 667, 844, 932]) for (const top of [100, 190, 300, 420]) {
