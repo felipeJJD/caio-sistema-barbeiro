@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import type { DashboardData } from "../../db/dashboard";
 
 import { sectionTour, configTour, moreTour, type TourStep, type TourAccess } from "../../lib/guided-tour-steps";
-import { tourPresentation, compactTourTarget, type TourViewport } from "../../lib/guided-tour-layout";
+import { tourPresentation, compactTourTarget, tourStartAllowed, type TourViewport } from "../../lib/guided-tour-layout";
 
 type TourState = { id: string; steps: TourStep[]; index: number; restoreConfigTab?: string; restoreChartMode?: string; closeDrawer: boolean };
 type OnboardingProgress = { version: 2; enabled: boolean; seen: string[]; reviewed: string[]; checklistDismissed: boolean };
@@ -279,6 +279,7 @@ export function GuidedOnboarding() {
       }
       const rect = await settledRect(target, cancelled);
       if (cancelled()) return;
+      if (!target.isConnected || !visible(target)) continue;
       targetRef.current = target;
       setTargetRect(rect);
       setPreparing(false);
@@ -295,6 +296,8 @@ export function GuidedOnboarding() {
 
   const startTour = useCallback((id: string, steps: TourStep[]) => {
     if (!steps.length || tour || startingRef.current) return;
+    const drawer = document.querySelector(".mobile-drawer");
+    if (!tourStartAllowed(id, currentSection(), activeConfigTab(), drawer ? drawer.classList.contains("closing") ? "closing" : "open" : null)) return;
     startingRef.current = true;
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const state: TourState = {
@@ -333,6 +336,7 @@ export function GuidedOnboarding() {
     if (!tour) return;
     const update = () => {
       const target = targetRef.current;
+      if (target && !target.isConnected) { finishTour(true); return; }
       if (target && visible(target)) setTargetRect(target.getBoundingClientRect());
       else setTargetRect(null);
       const view = viewport();
@@ -394,14 +398,27 @@ export function GuidedOnboarding() {
     markReviewed(item.key);
     markSeen("Configurações");
     clickConfigTab(item.tab);
-    startTour(`Configurações:${item.tab}`, configTour(item.tab, access));
+    window.requestAnimationFrame(() => startTour(`Configurações:${item.tab}`, configTour(item.tab, access)));
   }, [access, markReviewed, markSeen, startTour]);
 
   const restart = useCallback(() => {
-    persistProgress({ version: 2, enabled: true, seen: [], reviewed: progress.reviewed, checklistDismissed: false });
     finishTour(false);
+    // Pause both auto-start effects until the drawer has finished closing.
+    const next: OnboardingProgress = { version: 2, enabled: false, seen: [], reviewed: progress.reviewed, checklistDismissed: false };
+    persistProgress(next);
+    startingRef.current = true;
+    const request = ++transitionRef.current;
     clickMainSection("Painel");
-    window.setTimeout(() => setSection("Painel"), 100);
+    void (async () => {
+      for (let attempt = 0; attempt < 30 && document.querySelector(".mobile-drawer"); attempt++) {
+        await pause(60);
+        if (request !== transitionRef.current) return;
+      }
+      if (request !== transitionRef.current) return;
+      startingRef.current = false;
+      setSection(currentSection());
+      persistProgress({ ...next, enabled: true });
+    })();
   }, [finishTour, persistProgress, progress.reviewed]);
 
   if (!appReady || !data || !progressReady) return null;
