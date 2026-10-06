@@ -6,7 +6,7 @@ export async function GET(request:Request){
  try{
   const access=await getAffiliateSessionAccess();if(!access?.active)return reply({error:'Entre como afiliado.'},401);
   const url=new URL(request.url);const params=new URLSearchParams({instagram:'1',query:(url.searchParams.get('query')||'').slice(0,120),offset:String(Math.max(0,Math.min(100000,Number(url.searchParams.get('offset'))||0)))});
-  if(url.searchParams.get('discover')==='1'){params.set('discover','1');params.set('city',(url.searchParams.get('city')||'').slice(0,90));params.set('name',(url.searchParams.get('name')||'').slice(0,80));}
+  if(url.searchParams.get('discover')==='1'){params.set('discover','1');params.set('city',(url.searchParams.get('city')||'').slice(0,90));params.set('uf',(url.searchParams.get('uf')||'').slice(0,2).toUpperCase());params.set('name',(url.searchParams.get('name')||'').slice(0,80));}
   params.set('view',['queue','history'].includes(url.searchParams.get('view')||'')?url.searchParams.get('view')!:'all');
   const {response,payload}=await affiliateProspectingFetch(`/api/claims?${params}`,affiliateProspectorIdentity(access));return reply(payload,response.status);
  }catch{return reply({error:'Não foi possível carregar seus contatos do Instagram.'},503);}
