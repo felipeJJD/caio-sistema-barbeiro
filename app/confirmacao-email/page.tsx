@@ -12,8 +12,10 @@ export default async function EmailConfirmationPage({ searchParams }: { searchPa
         <p className="access-kicker">CONFIRMAÇÃO DE E-MAIL</p>
         <h1>{expired ? "Este link não está mais disponível." : "Não foi possível confirmar."}</h1>
         <p>{expired ? "O link expirou ou já foi utilizado. Se você já confirmou, entre normalmente com seu e-mail e sua senha." : "O endereço de confirmação está incompleto ou não pertence a um cadastro válido."}</p>
-        {expired && <Link className="access-button" href="/reenviar-confirmacao">Receber um novo link</Link>}
-        <Link className="security-back-link" href="/">Ir para o login</Link>
+        <p>Se você já confirmou seu e-mail, entre pela área do seu cadastro.</p>
+        <Link className="access-button" href="/afiliado">Entrar como afiliado</Link>
+        <Link className="security-back-link" href="/">Entrar na barbearia</Link>
+        <Link className="security-back-link" href="/reenviar-confirmacao">Receber um novo link</Link>
         <SupportContactLinks />
       </section>
     </main>

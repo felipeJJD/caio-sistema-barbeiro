@@ -4,6 +4,7 @@ import type { AccessContext } from "./access";
 import { requirePlatformAdmin } from "./access";
 import { getDb } from "./index";
 import { affiliateAccounts, affiliateInvites, affiliateLinks, affiliateSessions, affiliates } from "./schema";
+import { hasPendingRegistrationEmail } from "./verified-registration";
 
 const PUBLIC_APP_URL = "https://cortouanotou.com.br";
 const AFFILIATE_SESSION_COOKIE = "cortou_anotou_affiliate_session";
@@ -252,7 +253,13 @@ export async function loginAffiliate(identifierValue: string, password: string) 
   const email = normalizeEmail(identifier);
   const db = await getDb();
   const account = (await db.select().from(affiliateAccounts).where(eq(affiliateAccounts.email, email)).limit(1))[0];
-  if (!account) throw new Error("E-mail ou senha incorretos.");
+  if (!account) {
+    // Pending attempts must not shadow an access already created by confirmation.
+    if (await hasPendingRegistrationEmail(email, "affiliate")) {
+      throw new Error("Confirme seu e-mail antes de entrar. Abra o link enviado para você.");
+    }
+    throw new Error("E-mail ou senha incorretos.");
+  }
   const candidate = await passwordHash(password, account.passwordSalt, account.passwordIterations);
   if (!secureEqual(candidate, account.passwordHash)) throw new Error("E-mail ou senha incorretos.");
   const affiliate = (await db.select({ active: affiliates.active }).from(affiliates).where(eq(affiliates.id, account.affiliateId)).limit(1))[0];

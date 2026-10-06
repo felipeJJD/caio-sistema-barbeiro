@@ -1,6 +1,5 @@
 import { affiliateSessionCookie, loginAffiliate } from "../../../../../db/affiliate-auth";
 import { enforceRateLimit, RateLimitError } from "../../../../../db/rate-limit";
-import { hasPendingRegistrationEmail } from "../../../../../db/verified-registration";
 
 export async function POST(request: Request) {
   try {
@@ -9,13 +8,6 @@ export async function POST(request: Request) {
     const ip = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
     await enforceRateLimit({scope:"affiliate-login",identifier:identifier.toLowerCase(),limit:12,windowMs:15*60*1000,message:"Muitas tentativas. Aguarde 15 minutos e tente novamente."});
     await enforceRateLimit({scope:"affiliate-login-ip",identifier:ip,limit:60,windowMs:15*60*1000,message:"Muitas tentativas. Aguarde 15 minutos e tente novamente."});
-    const isAdminLogin = identifier.toUpperCase() === "ADM";
-    if (!isAdminLogin) {
-      const email = identifier.toLowerCase();
-      if (await hasPendingRegistrationEmail(email, "affiliate")) {
-        throw new Error("Confirme seu e-mail antes de entrar. Abra o link enviado para você.");
-      }
-    }
     const token = await loginAffiliate(identifier, String(body.password ?? ""));
     return Response.json({ ok: true }, { headers: { "set-cookie": affiliateSessionCookie(token), "cache-control": "no-store" } });
   } catch (error) {
