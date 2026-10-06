@@ -1,4 +1,5 @@
-import {listInstagramContacts,updateInstagramContact} from "../../../lib/instagram-contacts.js";
+import {discoverInstagramContacts} from '../../../lib/instagram-discovery.js';
+import {listInstagramContacts,updateInstagramContact,enqueueInstagramContacts} from "../../../lib/instagram-contacts.js";
 import { getContact, listContacts, saveContact } from "../../../lib/affiliate-contacts.js";
 import { markDoNotContact } from "../../../lib/prospecting-queue.js";
 import { listClaims, markClaimContacted, recordClaimInbound, reserveClaimLeads } from "../../../lib/affiliate-claims.js";
@@ -36,9 +37,10 @@ export async function GET(request) {
   try {
     const url = new URL(request.url);
     const actor = identity(request);
-    if (url.searchParams.get("instagram") === "1") return Response.json(await listInstagramContacts({...actor,query:url.searchParams.get("query"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});
+    if (url.searchParams.get("instagram") === "1" && url.searchParams.get("discover") === "1") return Response.json(await discoverInstagramContacts({...actor,city:url.searchParams.get("city"),name:url.searchParams.get("name"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});
+    if (url.searchParams.get("instagram") === "1") return Response.json(await listInstagramContacts({...actor,view:url.searchParams.get("view"),query:url.searchParams.get("query"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});
     if (url.searchParams.get("detail")) return Response.json(await getContact({...actor,key:url.searchParams.get("detail")}), {headers:{"cache-control":"no-store"}});
-    if (url.searchParams.get("crm") === "1") return Response.json(await listContacts({...actor,view:url.searchParams.get("view"),query:url.searchParams.get("query"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});
+    if (url.searchParams.get("crm") === "1") return Response.json(await listContacts({...actor,view:url.searchParams.get("view"),view:url.searchParams.get("view"),query:url.searchParams.get("query"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});
     if (url.searchParams.get("summary") === "1") {
       return Response.json(await getClaimSummary(actor.prospectorKey), { headers: { "cache-control": "no-store" } });
     }
@@ -63,7 +65,8 @@ export async function POST(request) {
     const body = await bodyOf(request);
     const action = String(body?.action || "reserve");
     const actor = identity(request);
-    if (["save_instagram","instagram_contacted","instagram_block"].includes(action)) return Response.json(await updateInstagramContact({...body,...actor}), {headers:{"cache-control":"no-store"}});
+    if (action === "instagram_enqueue") return Response.json(await enqueueInstagramContacts({...body,...actor}), {headers:{"cache-control":"no-store"}});
+    if (["save_instagram","instagram_contacted","instagram_block","instagram_unqueue"].includes(action)) return Response.json(await updateInstagramContact({...body,...actor}), {headers:{"cache-control":"no-store"}});
     if (action === "save_contact") return Response.json(await saveContact({...body,...actor}), {headers:{"cache-control":"no-store"}});
     if (action === "reserve") {
       const result = await reserveClaimLeads(body?.leads, { ...actor, city: body?.city || "" });
