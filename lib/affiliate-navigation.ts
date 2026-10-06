@@ -1,8 +1,8 @@
-export type AffiliateWorkspaceTab = "prospecting" | "progress" | "settings";
+export type AffiliateWorkspaceTab = "prospecting" | "progress" | "settings" | "instagram";
 export type AffiliatePortalTab = "Resumo" | "Indicações" | "Gerar links" | "Comissões";
 
 export function affiliateWorkspaceTab(value: string | null): AffiliateWorkspaceTab {
-  return value === "progress" || value === "settings" ? value : "prospecting";
+  return value === "progress" || value === "settings" || value === "instagram" ? value : "prospecting";
 }
 
 export function affiliatePortalTab(value: string | null): AffiliatePortalTab {

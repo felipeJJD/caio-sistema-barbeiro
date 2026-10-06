@@ -1,0 +1,18 @@
+.shell { display:grid; gap:16px; color:#17231f; }
+.card { padding:20px; border:1px solid #dddcd2; border-radius:20px; background:#fffdf8; }
+.card h2 { margin:0 0 10px; font-size:22px; }
+.card p { line-height:1.5; }
+.card form,.card label { display:grid; gap:8px; }
+.card form { gap:16px; }
+.card label { margin:14px 0; font-size:14px; font-weight:800; }
+.card input,.card textarea,.card select { box-sizing:border-box; width:100%; min-width:0; padding:12px; border:1px solid #d8dfd8; border-radius:12px; background:white; color:#17231f; font:inherit; font-size:16px; }
+.card textarea { line-height:1.5; resize:vertical; }
+.card button,.actions a { min-height:46px; padding:12px; border:1px solid #1f6b48; border-radius:12px; background:#1f6b48; color:white; font:inherit; font-weight:800; text-decoration:none; text-align:center; }
+.card button:disabled { opacity:.5; }
+.card .secondary { color:#345c47; background:white; border-color:#d8dfd8; }
+.actions,.list { display:grid; gap:10px; margin-top:16px; }
+.card .row { display:grid; gap:5px; text-align:left; background:white; color:#17231f; border-color:#dddcd2; overflow-wrap:anywhere; }
+.row span,.row small,.helper { color:#68716d; font-size:13px; line-height:1.5; }
+.error,.notice { padding:14px; border-radius:12px; background:#e0f1e8; }
+.error { background:#f5dfdc; color:#7d2929; }
+@media(max-width:520px){.card{padding:16px;}}
