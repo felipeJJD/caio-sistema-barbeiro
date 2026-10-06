@@ -278,3 +278,20 @@ test('ponte de prospecção indisponível não falsifica desconexão e recupera�
  await api.POST(new Request('https://fixture.test/api/claims',{method:'POST',body:JSON.stringify({action:'save_contact',key:'phone:5541999990001',prospectorKey:'affiliate:99',notes:'a'.repeat(6000),stage:'not_now',followupAt:null})}));
  assert.equal(calls[1].prospectorKey,'affiliate:42');assert.equal(calls[1].body.notes.length,5000);assert.equal(calls[1].body.prospectorKey,undefined);
  });
+
+test('Instagram usa sessão ativa, protege origem e não expõe ação de envio automático',async()=>{
+ const calls=[];const prefix='../'.repeat(5);let active=true;
+ const api=runtime('app/api/affiliate/prospecting/instagram/route.ts',{
+ [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active,affiliateId:42})},
+ [prefix+'lib/request-origin']:{validAppOrigin},
+ [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'}),affiliateProspectingFetch:async(path,options)=>{calls.push({path,...options});return {response:{status:200},payload:{items:[]}};}}
+ });
+ const request=(body,origin='https://cortouanotou.com.br')=>new Request('https://fixture.test/api/instagram',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
+ await api.GET(new Request('https://fixture.test/api/instagram?query=Kaio&prospectorKey=affiliate:99'));
+ assert.equal(calls[0].prospectorKey,'affiliate:42');assert.match(calls[0].path,/instagram=1/);
+ assert.equal((await api.POST(request({action:'save_instagram',username:'@kaio',name:'Teste',prospectorKey:'affiliate:99'}))).status,200);
+ assert.equal(calls[1].prospectorKey,'affiliate:42');assert.equal(calls[1].body.prospectorKey,undefined);
+ assert.equal((await api.POST(request({action:'send_instagram'}))).status,400);
+ assert.equal((await api.POST(request({action:'save_instagram'},'https://evil.test'))).status,403);
+ active=false;assert.equal((await api.GET(new Request('https://fixture.test/api/instagram'))).status,401);assert.equal(calls.length,2);
+});

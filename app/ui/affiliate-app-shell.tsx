@@ -7,7 +7,7 @@ import { lockAffiliateScroll } from "../../lib/affiliate-scroll-lock";
 import { BrandLogo } from "./brand-logo";
 import styles from "./affiliate-app-shell.module.css";
 
-export type AffiliateShellSection = "home" | "indications" | "links" | "commissions" | "prospecting" | "progress" | "settings";
+export type AffiliateShellSection = "home" | "indications" | "links" | "commissions" | "prospecting" | "progress" | "settings" | "instagram";
 
 type Props = {
   name: string;
@@ -44,6 +44,7 @@ function sectionHref(section: AffiliateShellSection) {
   if (section === "links") return "/afiliado?view=links";
   if (section === "commissions") return "/afiliado?view=comissoes";
   if (section === "progress") return "/afiliado/prospeccao?tab=progress";
+  if (section === "instagram") return "/afiliado/prospeccao?tab=instagram";
   if (section === "settings") return "/afiliado/prospeccao?tab=settings";
   return "/afiliado/prospeccao";
 }
@@ -134,6 +135,7 @@ export function AffiliateAppShell({ name, section, children, workspace = false }
           <p>PROSPECÇÃO</p>
           <Link className={section === "prospecting" ? styles.selected : ""} {...drawerLinkProps("prospecting")}><Icon name="search"/><strong>Buscar clientes</strong><i>›</i></Link>
           <Link className={section === "progress" ? styles.selected : ""} {...drawerLinkProps("progress")}><Icon name="progress"/><strong>Progresso</strong><i>›</i></Link>
+          <Link className={section === "instagram" ? styles.selected : ""} {...drawerLinkProps("instagram")}><Icon name="link"/><strong>Instagram</strong><i>›</i></Link>
           <Link className={section === "settings" ? styles.selected : ""} {...drawerLinkProps("settings")}><Icon name="whatsapp"/><strong>WhatsApp e abordagem</strong><i>›</i></Link>
         </nav>
 

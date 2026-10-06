@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 function prospectingSection(value: string | string[] | undefined): AffiliateShellSection {
   const tab = Array.isArray(value) ? value[0] : value;
   if (tab === "progress") return "progress";
+  if (tab === "instagram") return "instagram";
   if (tab === "settings") return "settings";
   return "prospecting";
 }

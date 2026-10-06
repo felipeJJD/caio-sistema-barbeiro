@@ -1,4 +1,5 @@
 "use client";
+import { AffiliateInstagramManual } from "./affiliate-instagram-manual";
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { affiliateWorkspaceHref, affiliateWorkspaceTab, type AffiliateWorkspaceTab } from "../../lib/affiliate-navigation";
@@ -414,10 +415,11 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
     </header>
 
     <section className={styles.topline}>
-      <div><span>{tab === "prospecting" ? "PROSPECÇÃO" : tab === "progress" ? "PROGRESSO" : "CONFIGURAÇÕES"}</span><h1>{tab === "prospecting" ? "Encontre novos clientes" : tab === "progress" ? "Acompanhe seus envios" : "Prepare sua prospecção"}</h1></div>
-      <div className={styles.quickStatus}><button type="button" className={automatic.connected && !connectionUnavailable ? styles.online : styles.offline} onClick={() => chooseTab("settings")}>{automaticLoading ? "Conferindo WhatsApp" : connectionUnavailable ? "Conexão não verificada" : automatic.connected ? "WhatsApp conectado" : automatic.state === "connecting" ? "WhatsApp conectando" : "WhatsApp desconectado"} ›</button><small>{modeLabel(approachMode)}</small></div>
+      <div><span>{tab === "instagram" ? "INSTAGRAM" : tab === "prospecting" ? "PROSPECÇÃO" : tab === "progress" ? "PROGRESSO" : "CONFIGURAÇÕES"}</span><h1>{tab === "instagram" ? "Prospecção pelo Instagram" : tab === "prospecting" ? "Encontre novos clientes" : tab === "progress" ? "Acompanhe seus envios" : "Prepare sua prospecção"}</h1></div>
+      {tab !== "instagram" && <div className={styles.quickStatus}><button type="button" className={automatic.connected && !connectionUnavailable ? styles.online : styles.offline} onClick={() => chooseTab("settings")}>{automaticLoading ? "Conferindo WhatsApp" : connectionUnavailable ? "Conexão não verificada" : automatic.connected ? "WhatsApp conectado" : automatic.state === "connecting" ? "WhatsApp conectando" : "WhatsApp desconectado"} ›</button><small>{modeLabel(approachMode)}</small></div>}
     </section>
 
+    {tab === "instagram" && <AffiliateInstagramManual name={name} signupUrl={signupUrl} links={links} campaignId={campaignId} onChooseCampaign={setCampaignId} />}
     <div className={styles.panel} hidden={tab !== "prospecting"}>
       <section className={styles.card}>
         <div className={styles.cardTitle}><div><b>Buscar barbearias</b><span>Escolha a região e encontre contatos disponíveis para você.</span></div></div>
