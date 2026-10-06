@@ -11,7 +11,7 @@
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "test:live": "node scripts/live-source-check.mjs",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p ${PORT:-3000}"
+    "start": "node scripts/start.mjs"
   },
   "dependencies": {
     "next": "16.3.4",

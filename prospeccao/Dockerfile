@@ -6,7 +6,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir duckdb==1.4.1
+RUN pip install --no-cache-dir duckdb==1.4.1 instagrapi==3.0.20
 COPY package.json ./
 RUN npm install --no-audit --no-fund
 COPY . .
