@@ -15,5 +15,5 @@ export async function POST(request){
   if(body.action==='start')return reply(await startInstagramBatch(input));
   if(['pause','resume','stop'].includes(body.action))return reply(await controlInstagramBatch(input));
   return reply({error:'Ação inválida.'},400);
- }catch(error){return reply({error:Number(error?.status)?error.message:'Não foi possível concluir a operação do Instagram.'},Number(error?.status)||503);}
+ }catch(error){return reply({error:Number(error?.status)?error.message:'Não foi possível concluir a operação do Instagram.',...(error?.code?{code:error.code}:{}),...(error?.reference?{reference:error.reference}:{}),...(error?.retryAt?{retryAt:error.retryAt}:{})},Number(error?.status)||503);}
 }
