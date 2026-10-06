@@ -21,7 +21,11 @@ test('Instagram PostgreSQL: contas isoladas, envio confirmado, pausa, bloqueio e
  const login=async data=>{assert.equal(data.action,'connect');assert.equal(data.password,'fixture-password');return {ok:true,username:'fixture.sender',accountId:'fixture-945',session:{authorization_data:{sessionid:'fixture-session'}}};};
  try{
   await db.query('INSERT INTO affiliate_instagram_worker(id,heartbeat_at) VALUES(1,NOW()) ON CONFLICT(id) DO UPDATE SET heartbeat_at=NOW()');
-  let status=await connectInstagram({prospectorKey:owner,username:'https://www.instagram.com/fixture.sender/',password:'fixture-password'},login);
+  const connect={prospectorKey:owner,username:'https://www.instagram.com/fixture.sender/',password:'fixture-password'};
+  await assert.rejects(connectInstagram(connect,async()=>({ok:false,code:'access_denied',errorType:'ClientForbiddenError',httpStatus:403,error:'Tentativa recusada.',session:{uuid:'same-device'}})),error=>error.code==='access_denied'&&/^IG-/.test(error.reference)&&error.status===422);
+  let status=await instagramSendingStatus({prospectorKey:owner});assert.equal(status.connection.status,'disconnected');assert.match(status.connection.error,/Referência: IG-/);assert.equal(status.batch,null);
+  await db.query("UPDATE affiliate_instagram_connections SET attempted_at=NOW()-INTERVAL '30 seconds' WHERE prospector_key=$1",[owner]);
+  status=await connectInstagram(connect,async input=>{assert.deepEqual(input.session,{uuid:'same-device'});return login(input);});
   assert.equal(status.connection.status,'connected');assert.ok(!JSON.stringify(status).includes('fixture-session'));
   assert.equal((await instagramSendingStatus({prospectorKey:other})).connection.status,'disconnected');
   await assert.rejects(connectInstagram({prospectorKey:other,username:'fixture.sender',password:'fixture-password'},login),/outro afiliado/);
@@ -57,6 +61,10 @@ test('Instagram PostgreSQL: contas isoladas, envio confirmado, pausa, bloqueio e
   assert.equal((await instagramSendingStatus({prospectorKey:owner})).batch.items[2].status,'uncertain');
   await disconnectInstagram({prospectorKey:owner});
   assert.equal((await db.query('SELECT session_encrypted,account_id FROM affiliate_instagram_connections WHERE prospector_key=$1',[owner])).rows[0].session_encrypted,null);
+  await db.query("UPDATE affiliate_instagram_connections SET attempted_at=NOW()-INTERVAL '30 seconds' WHERE prospector_key=$1",[owner]);
+  await assert.rejects(connectInstagram(connect,async()=>({ok:false,code:'rate_limited',errorType:'ClientThrottledError',httpStatus:429,error:'Aguarde.',retryAfterSeconds:300,session:{uuid:'same-device'}})),error=>error.code==='rate_limited'&&Boolean(error.retryAt));
+  await assert.rejects(connectInstagram(connect,async()=>{throw Error('provider must not be retried during cooldown');}),error=>error.status===429&&error.code==='rate_limited');
+  assert.ok(new Date((await instagramSendingStatus({prospectorKey:owner})).connection.retryAt).getTime()>Date.now());
  }finally{
   await db.query('DELETE FROM affiliate_instagram_deliveries WHERE prospector_key=ANY($1::text[])',[[owner,other]]);
   await db.query('DELETE FROM affiliate_instagram_batches WHERE prospector_key=ANY($1::text[])',[[owner,other]]);
