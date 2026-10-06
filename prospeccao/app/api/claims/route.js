@@ -37,7 +37,7 @@ export async function GET(request) {
   try {
     const url = new URL(request.url);
     const actor = identity(request);
-    if (url.searchParams.get("instagram") === "1" && url.searchParams.get("discover") === "1") return Response.json(await discoverInstagramContacts({...actor,city:url.searchParams.get("city"),name:url.searchParams.get("name"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});
+    if (url.searchParams.get("instagram") === "1" && url.searchParams.get("discover") === "1") return Response.json(await discoverInstagramContacts({...actor,city:url.searchParams.get("city"),uf:url.searchParams.get("uf"),name:url.searchParams.get("name"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});
     if (url.searchParams.get("instagram") === "1") return Response.json(await listInstagramContacts({...actor,view:url.searchParams.get("view"),query:url.searchParams.get("query"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});
     if (url.searchParams.get("detail")) return Response.json(await getContact({...actor,key:url.searchParams.get("detail")}), {headers:{"cache-control":"no-store"}});
     if (url.searchParams.get("crm") === "1") return Response.json(await listContacts({...actor,view:url.searchParams.get("view"),view:url.searchParams.get("view"),query:url.searchParams.get("query"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});

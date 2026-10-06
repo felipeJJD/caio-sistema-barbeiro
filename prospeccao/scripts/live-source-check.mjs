@@ -1,3 +1,5 @@
+import {profilesFromPlaces,searchInstagramPlaces} from '../lib/instagram-discovery.js';
+import {resolveCity} from '../app/api/leads/search/route.js';
 import { GET as searchLeads } from "../app/api/leads/search/route.js";
 import { GET as listCities } from "../app/api/locations/cities/route.js";
 
@@ -70,3 +72,13 @@ async function checkSearch(city, minimumLeads, minimumMobiles, checkNextPage = f
 await checkCities();
 await checkSearch("Colombo, PR", 3, 3);
 await checkSearch("São Paulo, SP", 5, 5, true);
+
+async function checkInstagram(city,minimumProfiles){
+ const resolved=await resolveCity(city);
+ const places=await searchInstagramPlaces(resolved.bbox,0,'',resolved.city);
+ const profiles=profilesFromPlaces(places.slice(0,40),`${resolved.city}, ${resolved.uf}`);
+ if(profiles.length<minimumProfiles)throw Error(`Instagram de ${city}: apenas ${profiles.length} perfis. Esperava pelo menos ${minimumProfiles}.`);
+ console.log(`Instagram real OK: ${city} -> ${profiles.length} perfis públicos na primeira página; mais=${places.length>40}.`);
+}
+await checkInstagram('São Paulo, SP',10);
+await checkInstagram('Colombo, PR',2);

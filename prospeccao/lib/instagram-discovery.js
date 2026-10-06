@@ -1,4 +1,6 @@
-import {resolveCity,searchOverture} from '../app/api/leads/search/route.js';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {resolveCity} from '../app/api/leads/search/route.js';
 import {instagramUsername,ensureInstagramSchema} from './instagram-contacts.js';
 import {getPool,normalizeProspectorKey} from './affiliate-claims.js';
 
@@ -16,6 +18,7 @@ export function profilesFromPlaces(places,city){
    try{
     const url=new URL(link);if(!['instagram.com','www.instagram.com'].includes(url.hostname.toLowerCase()))continue;
     const username=instagramUsername(link);
+    if(/consultoria|contabilidade|marketing|agenciadigital|criacaodesites/i.test(username))continue;
     if(!profiles.has(username))profiles.set(username,{username,name:String(place.name||'Barbearia').slice(0,120),city,source:'Overture Maps',sourceUrl:`https://www.instagram.com/${username}/`});
    }catch{/* Publications and malformed URLs aren't profiles. */}
   }
@@ -23,19 +26,26 @@ export function profilesFromPlaces(places,city){
  return [...profiles.values()];
 }
 
+const execute=promisify(execFile);
+export async function searchInstagramPlaces(bbox,offset=0,name='',city=''){
+ const {stdout}=await execute('python3',['scripts/instagram-search.py',String(bbox.west),String(bbox.south),String(bbox.east),String(bbox.north),'41',String(offset),name,city],{cwd:process.cwd(),encoding:'utf8',timeout:55000,maxBuffer:12*1024*1024,env:process.env});
+ const parsed=JSON.parse(stdout);return Array.isArray(parsed.places)?parsed.places:[];
+}
+
 export async function discoverInstagramContacts(input){
- const city=String(input.city||'').trim().slice(0,90),name=String(input.name||'').trim().slice(0,80);
+ const city=String(input.city||'').trim().slice(0,90),uf=String(input.uf||'').trim().toUpperCase(),name=String(input.name||'').trim().slice(0,80);
  if(city.length<2){const error=Error('Digite uma cidade e UF para buscar.');error.status=400;throw error;}
+ if(uf&&!['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'].includes(uf)){const error=Error('Selecione um estado válido.');error.status=400;throw error;}
  if(name.length===1){const error=Error('Digite pelo menos 2 letras do nome.');error.status=400;throw error;}
  const owner=normalizeProspectorKey(input.prospectorKey);
  const offset=Math.max(0,Math.min(100000,Math.trunc(Number(input.offset)||0)));
- const resolved=await resolveCity(city),displayName=`${resolved.city}, ${resolved.uf}`;
- // Reuse the existing source and its unchanged pagination, without WhatsApp claims/phone filters.
- const raw=await searchOverture(resolved.bbox,offset,name),page=raw.slice(0,40);
+ const resolved=await resolveCity(uf?`${city}, ${uf}`:city),displayName=`${resolved.city}, ${resolved.uf}`;
+ // Dedicated Instagram query filters profiles across the city before pagination. WhatsApp query stays unchanged.
+ const raw=await searchInstagramPlaces(resolved.bbox,offset,name,resolved.city),page=raw.slice(0,40);
  const found=profilesFromPlaces(page,displayName);
  await ensureInstagramSchema();
  const saved=found.length?await getPool().query('SELECT username,status,queued_at FROM affiliate_instagram_contacts WHERE prospector_key=$1 AND username=ANY($2::text[])',[owner,found.map(x=>x.username)]):{rows:[]};
  const known=new Map(saved.rows.map(x=>[x.username,x]));
  const items=found.filter(x=>!known.has(x.username)||known.get(x.username).status==='ready').map(x=>({...x,status:'ready',contactedAt:null,queued:Boolean(known.get(x.username)?.queued_at)}));
- return {items,displayName,offset,nextOffset:offset+page.length,hasMore:raw.length>40,scanned:page.length,withoutProfile:page.filter(x=>!profilesFromPlaces([x],displayName).length).length,source:'Overture Maps',attribution:'Dados de lugares: Overture Maps Foundation e fontes contribuidoras.',tip:'Aparecem apenas perfis vinculados às barbearias na base pública. A conta pode ter mudado; confira o perfil antes de abordar. Não é uma busca completa dentro do Instagram.'};
+ return {items,displayName,offset,nextOffset:offset+page.length,hasMore:raw.length>40,scanned:page.length,withoutProfile:page.filter(x=>!profilesFromPlaces([x],displayName).length).length,source:'Overture Maps',attribution:'Dados de lugares: Overture Maps Foundation e fontes contribuidoras.',tip:'Busca de perfis públicos vinculados às barbearias da cidade. Confira o perfil antes de abordar, pois os cadastros podem mudar.'};
 }
