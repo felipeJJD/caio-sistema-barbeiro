@@ -67,9 +67,9 @@ export async function recordAffiliateCommission(subscriptionPaymentId: number) {
     affiliateLinkId: affiliateLinks.id,
     affiliateId: affiliateLinks.affiliateId,
     commissionBps: affiliateLinks.commissionBps,
-  }).from(organizationReferrals).innerJoin(affiliateLinks, eq(affiliateLinks.id, organizationReferrals.affiliateLinkId)).where(and(
+  }).from(organizationReferrals).innerJoin(affiliateLinks, eq(affiliateLinks.id, organizationReferrals.affiliateLinkId)).innerJoin(affiliates, eq(affiliates.id, affiliateLinks.affiliateId)).where(and(
     eq(organizationReferrals.organizationId, payment.organizationId),
-    eq(affiliateLinks.active, true),
+    eq(affiliates.active, true),
   )).limit(1))[0];
   if (!referral || referral.commissionEndsAt <= now) return null;
   const commissionAmountCents = Math.floor(payment.amountCents * referral.commissionBps / 10000);

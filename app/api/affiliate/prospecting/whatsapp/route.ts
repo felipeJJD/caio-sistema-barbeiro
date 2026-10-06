@@ -23,7 +23,7 @@ export async function POST(request:Request) {
   try {
     const access=await getAffiliateSessionAccess();
     if(!access?.active)return reply({error:"Entre como afiliado para usar a prospecção."},401);
-    const body=await request.json() as {action?:string;phone?:string;keys?:string[];template?:string;approachMode?:string;audioId?:string};
+    const body=await request.json() as {action?:string;phone?:string;keys?:string[];template?:string;approachMode?:string;audioId?:string;linkId?:number | null};
     const identity=affiliateProspectorIdentity(access);const instance=prospectingInstanceFor(access);
     if(body.action==='recover')return reply(await recoverProspectingWhatsappConnection(instance));
     if(body.action==='connect') {
@@ -43,8 +43,10 @@ export async function POST(request:Request) {
           return reply({error:'Salve um áudio próprio antes de iniciar esse envio.'},409);
       }
       const data=await getAffiliateDashboard(access);
-      const link=data.links.find(item=>item.active&&item.isMain)??data.links.find(item=>item.active);
-      const signupUrl=access.isAdmin?'https://cortouanotou.com.br/comece':link?.url;
+      const requestedLink = body.linkId != null ? data.links.find(item=>item.id===Number(body.linkId)&&item.active) : null;
+      if(body.linkId != null && !requestedLink)return reply({error:"Esta campanha não está ativa ou não pertence a você."},409);
+      const link=requestedLink??data.links.find(item=>item.active&&item.isMain)??data.links.find(item=>item.active);
+      const signupUrl=access.isAdmin&&!requestedLink?'https://cortouanotou.com.br/comece':link?.url;
       if(!signupUrl)return reply({error:"Ative seu link de indicação antes de enviar."},409);
       const state=await getProspectingWhatsappState(instance);
       if(!state.connected)return reply({error:"Conecte seu WhatsApp antes de enviar."},409);

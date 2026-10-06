@@ -26,14 +26,14 @@ test('menu fecha no item atual, URLs selecionam a tela certa e progresso abre os
  const navigation={useSearchParams(){React.useSyncExternalStore(subscribe,()=>window.location.href);return new URLSearchParams(window.location.search);},useRouter:()=>router};
  function Link({href,onClick,children,...props}){return React.createElement('a',{...props,href,onClick:event=>{onClick?.(event);if(!event.defaultPrevented){event.preventDefault();push(href);}}},children);}
  let unavailable=false,connected=true;const mutations=[];
- const contact={key:'phone:5541999990001',name:'Barbearia Teste',phoneE164:'5541999990001',city:'Colombo, PR',status:'contacted',contactedAt:'2026-10-05T20:00:00Z',respondedAt:'2026-10-05T20:01:00Z',lastInboundMessage:'Pode mandar sim',lastOutboundMessage:'Posso apresentar o sistema?',replyCount:1};
+ const contact={key:'phone:5541999990001',name:'Barbearia Teste',phoneE164:'5541999990001',city:'Colombo, PR',status:'contacted',contactedAt:'2026-10-05T20:00:00Z',respondedAt:'2026-10-05T20:01:00Z',lastInboundMessage:'Pode mandar sim',lastOutboundMessage:'Posso apresentar o sistema?',replyCount:1,followupAt:'2026-10-01T10:00:00Z',contactName:'Dono Teste',notes:'Quer organizar a agenda',nextStep:'Explicar o sistema',stage:'conversation'};
  const jobs=[{id:'00000000-0000-0000-0000-000000000001',key:contact.key,name:contact.name,phoneE164:contact.phoneE164,status:'sent',delivery:'delivered'}, {id:'00000000-0000-0000-0000-000000000002',key:'phone:5541999990002',name:'Barbearia Na Fila',phoneE164:'5541999990002',status:'pending',approachMode:'audio_only'}];
  const fetch=async(url,init={})=>{let payload={};let status=200;
   if(url.includes('/whatsapp')){payload={state:connected?'open':'close',connected,connectionMessage:connected?'Seu WhatsApp está conectado.':'O WhatsApp removeu o aparelho vinculado.',phone:'5541999990099'};if(unavailable){status=503;payload={error:'Consulta indisponível'};}}
   else if(url.includes('/queue'))payload={jobs};
   else if(url.includes('/summary'))payload={contacted:1,received:1};
   else if(url.includes('/cities'))payload={cities:[{id:1,name:'Colombo'}]};
-  else if(url.includes('/claims')){if(init.method==='POST'){const body=JSON.parse(init.body);mutations.push(body);if(body.action==='interested')contact.qualification='interested';payload={item:contact};}else payload={items:[contact],hasMore:false,nextOffset:50};}
+  else if(url.includes('/claims')){if(init.method==='POST'){const body=JSON.parse(init.body);mutations.push(body);if(body.action==='interested')contact.qualification='interested';if(body.action==='save_contact'){Object.assign(contact,body);contact.qualification=body.stage==='interested'?'interested':'';}payload={item:contact,timeline:[]};}else if(url.includes('detail='))payload={item:contact,timeline:[]};else payload={items:[contact],hasMore:false,nextOffset:50};}
   return Response.json(payload,{status});
  };
  const require=createRequire(import.meta.url);const cache=new Map();
@@ -68,11 +68,15 @@ test('menu fecha no item atual, URLs selecionam a tela certa e progresso abre os
  try {
   await act(async()=>root.render(React.createElement(App)));await settle();
   assert.equal(document.querySelector('div.panel:not([hidden])').querySelector('h2').textContent,'Contatos e mensagens');
+  assert.equal(button('Retornos').getAttribute('aria-pressed'),'true');
   await click([...document.querySelectorAll('button.contactRow')].find(node=>node.textContent.includes(contact.name)));
   assert.equal(document.querySelector('dialog').open,true);assert.match(document.querySelector('dialog').textContent,/Pode mandar sim/);
   assert.equal(document.body.style.position,'fixed');assert.equal(document.body.style.top,'-460px');assert.equal(document.documentElement.style.overflow,'hidden');
   assert.equal(document.querySelector('dialog a').href,'https://wa.me/5541999990001');
-  await click(button('Sim, tem interesse'));assert.equal(mutations[0].action,'interested');assert.match(document.querySelector('dialog').textContent,/Tem interesse/);
+  await click(button('Sim, tem interesse'));assert.equal(mutations[0].action,'save_contact');assert.equal(mutations[0].stage,'interested');assert.match(document.querySelector('dialog').textContent,/Tem interesse/);
+  assert.ok(document.querySelector('dialog textarea'));
+  await click(button('Agora não'));assert.equal(mutations[1].action,'save_contact');assert.equal(mutations[1].stage,'not_now');assert.equal(contact.status,'contacted','Agora não does not block future contacts');assert.equal(mutations[1].notes,'Quer organizar a agenda');
+  await click(button('Concluir retorno'));assert.equal(mutations[2].completeReturn,true);assert.equal(mutations[2].followupAt,null);
   await click(document.querySelector('[aria-label="Fechar detalhes"]'));
   assert.equal(document.body.style.position,'');assert.deepEqual(restoredPosition,{x:0,y:460});
   await click([...document.querySelectorAll('.metrics button')].find(node=>node.textContent.includes('Na fila')));
