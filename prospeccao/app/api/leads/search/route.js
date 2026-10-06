@@ -165,7 +165,7 @@ function explicitQuery(query) {
   return VALID_UFS.has(uf) ? { city: text(match[1]), uf } : { city: text(query), uf: "" };
 }
 
-async function resolveCity(query) {
+export async function resolveCity(query) {
   const requested = explicitQuery(query);
   const geocodeUrl = new URL("https://nominatim.openstreetmap.org/search");
   geocodeUrl.searchParams.set("format", "jsonv2");
@@ -200,7 +200,7 @@ async function resolveCity(query) {
   throw error;
 }
 
-async function searchOverture(bbox, offset = 0, name = "") {
+export async function searchOverture(bbox, offset = 0, name = "") {
   const args = [
     "scripts/overture-search.py",
     String(bbox.west),
