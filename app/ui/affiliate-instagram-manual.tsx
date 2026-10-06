@@ -2,6 +2,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {lockAffiliateScroll} from '../../lib/affiliate-scroll-lock';
 import styles from './affiliate-instagram-manual.module.css';
+import {AffiliateInstagramSender} from './affiliate-instagram-sender';
 type Contact={username:string;name:string;city:string;status:'ready'|'contacted'|'blocked';contactedAt:string|null;queued?:boolean};
 type Props={name:string;signupUrl:string;links:Array<{id:number;label:string;url:string}>;campaignId:number|null;onChooseCampaign:(id:number|null)=>void};
 const STATES = [
@@ -16,6 +17,7 @@ type City={id:number|string;name:string};
 type SearchPage={items:Contact[];displayName:string;nextOffset:number;hasMore:boolean;scanned:number;withoutProfile:number;tip:string};
 export function AffiliateInstagramManual({name,signupUrl,links,campaignId,onChooseCampaign}:Props){
  const [view,setView]=useState<'search'|'queue'|'history'|'all'>('search');
+ const [queueChecked,setQueueChecked]=useState<string[]>([]);
  const [items,setItems]=useState<Contact[]>([]),[selected,setSelected]=useState<Contact|null>(null);
  const [uf,setUf]=useState('PR'),[city,setCity]=useState('Colombo'),[cities,setCities]=useState<City[]>([]),[citiesLoading,setCitiesLoading]=useState(true),[citiesError,setCitiesError]=useState(''),[citiesRetry,setCitiesRetry]=useState(0);
  const [businessName,setBusinessName]=useState(''),[search,setSearch]=useState<SearchPage|null>(null),[searching,setSearching]=useState(false),[searchingMore,setSearchingMore]=useState(false);
@@ -115,7 +117,8 @@ export function AffiliateInstagramManual({name,signupUrl,links,campaignId,onChoo
  function changeView(next:typeof view){setView(next);setQuery('');setNotice('');setError('');}
  return <section className={styles.shell} aria-label="Prospecção pelo Instagram">
   <div className={styles.tabs} role="group" aria-label="Etapas do Instagram">{([['search','Buscar barbearias'],['queue','Fila de abordagens'],['history','Histórico'],['all','Perfis salvos']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={view===key} disabled={busy} onClick={()=>changeView(key)}>{label}</button>)}</div>
-  <p className={styles.helper}>Encontre os perfis e organize sua fila. Depois abra o Instagram para enviar a mensagem.</p>
+  <p className={styles.helper}>Busque barbearias, coloque na fila e conecte seu Instagram para enviar sua abordagem.</p>
+  <AffiliateInstagramSender name={name} signupUrl={signupUrl} links={links} campaignId={campaignId} onChooseCampaign={onChooseCampaign} selectedUsernames={view==='queue'?items.filter(item=>item.status==='ready'&&item.queued&&queueChecked.includes(item.username)).map(item=>item.username).slice(0,40):[]} showQueue={view==='queue'} onChanged={()=>void load()} />
   {view==='search'&&<div className={styles.card}><h2>Encontrar barbearias</h2><p>Selecione o estado e a cidade para encontrar perfis de barbearias.</p>
    <form onSubmit={event=>{event.preventDefault();void find();}}>
     <label>Estado<select disabled={searching||busy} value={uf} onChange={event=>{setCitiesLoading(true);setCitiesError('');setCities([]);setCity('');setUf(event.target.value);setSearch(null);setChecked([]);}}>{STATES.map(([code,label])=><option key={code} value={code}>{label}</option>)}</select></label>
@@ -132,9 +135,9 @@ export function AffiliateInstagramManual({name,signupUrl,links,campaignId,onChoo
    </>}
   </div>}
   {view!=='search'&&<div className={styles.card}><h2>{view==='queue'?'Fila de abordagens':view==='history'?'Contatados e bloqueados':'Seus perfis salvos'}</h2>
-   {view==='queue'&&<p>Toque na barbearia para preparar a mensagem. Depois de enviar no Instagram, confirme o envio para retirá-la da fila.</p>}
+   {view==='queue'&&<><p>Selecione até 40 barbearias para enviar pelo Instagram conectado. Toque no nome para abrir a ficha.</p><button type="button" className={styles.secondary} disabled={loading||busy||!items.length} onClick={()=>setQueueChecked(previous=>previous.length?[]:items.filter(item=>item.status==='ready'&&item.queued).slice(0,40).map(item=>item.username))}>{queueChecked.length?'Limpar seleção':'Selecionar as primeiras 40'}</button></>}
    <label>Buscar nesta lista<input type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Nome, @ ou cidade" /></label>
-   <div className={styles.list}>{items.map(item=><button type="button" key={item.username} className={styles.row} disabled={busy} onClick={()=>{setSelected(item);setNotice('');setError('');}}><strong>{item.name}</strong><span>@{item.username}{item.city?` · ${item.city}`:''}</span><small>{item.status==='blocked'?'Não contatar':item.status==='contacted'?'Direct registrado':item.queued?'Aguardando sua abordagem':'Sem envio registrado'}</small></button>)}</div>
+   <div className={styles.list}>{items.map(item=><div key={item.username} className={styles.queueRow}>{view==='queue'&&<input aria-label={`Selecionar ${item.name}`} type="checkbox" checked={queueChecked.includes(item.username)} disabled={busy||(!queueChecked.includes(item.username)&&queueChecked.length>=40)} onChange={event=>setQueueChecked(previous=>event.target.checked?[...previous,item.username]:previous.filter(value=>value!==item.username))} />}<button type="button" className={styles.row} disabled={busy} onClick={()=>{setSelected(item);setNotice('');setError('');}}><strong>{item.name}</strong><span>@{item.username}{item.city?` · ${item.city}`:''}</span><small>{item.status==='blocked'?'Não contatar':item.status==='contacted'?'Direct registrado':item.queued?'Aguardando sua abordagem':'Sem envio registrado'}</small></button></div>)}</div>
    {loading&&<p role="status">Carregando...</p>}{!loading&&!items.length&&<p>{view==='queue'?'Sua fila está vazia. Busque barbearias por cidade e selecione os perfis.':'Nenhum perfil encontrado.'}</p>}{hasMore&&<button type="button" disabled={loading} onClick={()=>void load(offset)}>Ver mais perfis</button>}
   </div>}
   {selected&&<dialog ref={dialogRef} className={styles.dialog} aria-label={`Detalhes de ${selected.name}`} onCancel={event=>{if(busy)event.preventDefault();else setSelected(null);}} onClick={event=>{if(event.target===event.currentTarget&&!busy)setSelected(null);}}><div className={styles.dialogHeader}><strong>{selected.name}</strong><button type="button" disabled={busy} onClick={()=>setSelected(null)} aria-label="Fechar ficha">×</button></div><div className={`${styles.card} ${styles.dialogBody}`}><h2>{selected.name}</h2><p>@{selected.username} · {selected.status==='blocked'?'Não contatar':selected.status==='contacted'?'Direct registrado por você':'Ainda sem envio registrado'}</p>

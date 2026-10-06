@@ -32,3 +32,4 @@
 .dialogHeader strong { overflow-wrap:anywhere; }
 .dialogHeader button { width:42px; height:42px; flex:0 0 42px; border:1px solid #d8dfd8; border-radius:50%; background:white; color:#17231f; font-size:25px; }
 .dialog .dialogBody { min-height:0; border:0; border-radius:0; overflow-y:auto; overscroll-behavior:contain; padding-bottom:calc(20px + env(safe-area-inset-bottom)); }
+.queueRow{display:flex;align-items:center;gap:12px;width:100%}.queueRow>input{width:24px;height:24px;flex:0 0 24px;accent-color:#416853}.queueRow>.row{flex:1;min-width:0}.sendPanel{display:grid;gap:12px;margin-top:20px;border-top:1px solid #dce2d8;padding-top:20px}.preview{white-space:pre-wrap;overflow-wrap:anywhere}.delivery{display:grid;gap:6px;padding:14px;border:1px solid #dce2d8;border-radius:14px;overflow-wrap:anywhere}.delivery small{color:#58655e}
