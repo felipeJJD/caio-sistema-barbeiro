@@ -225,6 +225,18 @@ export function AffiliateProspectingHistory({ signupUrl, jobs = [], onRefreshQue
         <p className={styles.interestStatus}>{interestLabel(currentContact)}</p>
         {currentJob && <p className={styles.helper}>{["audio_only", "audio_wait"].includes(currentJob.approachMode || "") ? "Somente áudio" : currentJob.approachMode === "text_audio" ? "Mensagem + áudio" : "Mensagem"}{currentJob.audioProviderId ? " · áudio enviado" : ""}</p>}
         {currentJob?.error && <p className={styles.error}>{currentJob.error}</p>}
+        <div className={styles.contactActions}>
+          {detailPhone && <a href={`https://wa.me/${detailPhone}`} target="_blank" rel="noopener noreferrer">Abrir conversa no WhatsApp</a>}
+          {hasReply && signupUrl && currentContact?.status !== "do_not_contact" && <a href={`https://wa.me/${detailPhone}?text=${encodeURIComponent(`Claro! Aqui está o link para conhecer o Cortou Anotou: ${signupUrl}`)}`} target="_blank" rel="noopener noreferrer">Enviar link do Cortou Anotou</a>}
+          {currentContact && currentContact.status !== "do_not_contact" && <>
+            {hasReply && currentContact.qualification !== "interested" && <button type="button" className={styles.interestButton} onClick={() => void saveDetails({stage:"interested"})} disabled={Boolean(actionKey) || !detailContact}>{actionKey ? "Salvando..." : "Sim, tem interesse"}</button>}
+            <button type="button" disabled={Boolean(actionKey) || !detailContact} onClick={() => void saveDetails({stage:"not_now"})}>Agora não</button>
+            <button type="button" disabled={Boolean(actionKey) || !detailContact} onClick={() => {document.getElementById("affiliate-followup-field")?.focus();}}>Retornar depois</button>
+            <button type="button" onClick={() => void classify(currentContact, false)} disabled={Boolean(actionKey)}>{actionKey ? "Salvando..." : "Não contatar mais"}</button>
+          </>}
+          {currentJob?.status === "uncertain" && <button type="button" onClick={() => void onJobAction?.(currentJob, "confirm_sent")} disabled={Boolean(jobActionId)}>{jobActionId ? "Registrando..." : "Conferi no WhatsApp: foi enviado"}</button>}
+          {currentJob?.status === "failed" && <><button type="button" onClick={() => void onJobAction?.(currentJob, "retry")} disabled={Boolean(jobActionId)}>{jobActionId ? "Preparando..." : currentJob.stage === "audio" ? "Tentar somente o áudio" : "Tentar novamente"}</button><button type="button" onClick={() => void onJobAction?.(currentJob, "cancel_failed")} disabled={Boolean(jobActionId)}>Descartar falha</button></>}
+        </div>
         {detailLoading && <p className={styles.helper}>Carregando ficha...</p>}
         {detailContact && <form className={styles.contactForm} onSubmit={event => {event.preventDefault(); void saveDetails();}}>
           <label>Responsável<input value={draft.contactName} maxLength={120} onChange={event=>setDraft({...draft,contactName:event.target.value})} placeholder="Nome de quem atende" /></label>
@@ -239,23 +251,12 @@ export function AffiliateProspectingHistory({ signupUrl, jobs = [], onRefreshQue
           {currentContact?.followupAt && <button type="button" disabled={Boolean(actionKey)} onClick={()=>void saveDetails({followupAt:""},true)}>Concluir retorno</button>}</div>
           {saved && <p role="status" className={styles.helper}>{saved}</p>}
         </form>}
-        {timeline.length > 0 && <><div className={styles.replyLabel}>HISTÓRICO DO CONTATO</div><p className={styles.helper}>Últimos 100 registros. Mensagens anteriores à atualização aparecem quando ainda estão disponíveis.</p>{timeline.map(event=><article key={event.id}><div className={styles.replyLabel}>{event.kind === "inbound" ? "RECEBIDA" : event.kind === "outbound" ? "ENVIADA" : "ACOMPANHAMENTO"} · {dateLabel(event.at)}</div><p className={styles.message}>{event.message || "Mensagem registrada"}</p></article>)}</>}
+        {timeline.length > 0 && <details className={styles.timeline}><summary>Histórico do contato ({timeline.length})</summary><p className={styles.helper}>Últimos 100 registros. Mensagens anteriores à atualização aparecem quando ainda estão disponíveis.</p>{timeline.map(event=><article key={event.id}><div className={styles.replyLabel}>{event.kind === "inbound" ? "RECEBIDA" : event.kind === "outbound" ? "ENVIADA" : "ACOMPANHAMENTO"} · {dateLabel(event.at)}</div><p className={styles.message}>{event.message || "Mensagem registrada"}</p></article>)}</details>}
         {timeline.length === 0 && currentContact?.lastOutboundMessage && <><div className={styles.replyLabel}>ÚLTIMA ABORDAGEM · {dateLabel(currentContact.lastOutboundAt || currentContact.contactedAt)}</div><p className={styles.message}>{currentContact.lastOutboundMessage}</p></>}
         {timeline.length === 0 && hasReply ? <><div className={styles.replyLabel}>MENSAGEM RECEBIDA · {dateLabel(currentContact?.lastInboundAt || currentContact?.respondedAt)}</div><p className={styles.message}>{currentContact?.lastInboundMessage || "Mensagem recebida"}</p></> : !hasReply && <p className={styles.helper}>{currentJob && ["pending", "leased", "sending"].includes(currentJob.status) ? "Esta barbearia está na fila. O status será atualizado conforme o envio avançar." : "Ainda não há resposta registrada."}</p>}
         {error && <p className={styles.error} role="alert">{error}</p>}
         {jobActionError && <p className={styles.error} role="alert">{jobActionError}</p>}
-        <div className={styles.contactActions}>
-          {detailPhone && <a href={`https://wa.me/${detailPhone}`} target="_blank" rel="noopener noreferrer">Abrir conversa no WhatsApp</a>}
-          {hasReply && signupUrl && currentContact?.status !== "do_not_contact" && <a href={`https://wa.me/${detailPhone}?text=${encodeURIComponent(`Claro! Aqui está o link para conhecer o Cortou Anotou: ${signupUrl}`)}`} target="_blank" rel="noopener noreferrer">Enviar link do Cortou Anotou</a>}
-          {currentContact && currentContact.status !== "do_not_contact" && <>
-            {hasReply && currentContact.qualification !== "interested" && <button type="button" className={styles.interestButton} onClick={() => void saveDetails({stage:"interested"})} disabled={Boolean(actionKey) || !detailContact}>{actionKey ? "Salvando..." : "Sim, tem interesse"}</button>}
-            <button type="button" disabled={Boolean(actionKey) || !detailContact} onClick={() => void saveDetails({stage:"not_now"})}>Agora não</button>
-            <button type="button" disabled={Boolean(actionKey) || !detailContact} onClick={() => {document.getElementById("affiliate-followup-field")?.focus();}}>Retornar depois</button>
-            <button type="button" onClick={() => void classify(currentContact, false)} disabled={Boolean(actionKey)}>{actionKey ? "Salvando..." : "Não contatar mais"}</button>
-          </>}
-          {currentJob?.status === "uncertain" && <button type="button" onClick={() => void onJobAction?.(currentJob, "confirm_sent")} disabled={Boolean(jobActionId)}>{jobActionId ? "Registrando..." : "Conferi no WhatsApp: foi enviado"}</button>}
-          {currentJob?.status === "failed" && <><button type="button" onClick={() => void onJobAction?.(currentJob, "retry")} disabled={Boolean(jobActionId)}>{jobActionId ? "Preparando..." : currentJob.stage === "audio" ? "Tentar somente o áudio" : "Tentar novamente"}</button><button type="button" onClick={() => void onJobAction?.(currentJob, "cancel_failed")} disabled={Boolean(jobActionId)}>Descartar falha</button></>}
-        </div>
+
       </div>
     </dialog>
   </section>;
