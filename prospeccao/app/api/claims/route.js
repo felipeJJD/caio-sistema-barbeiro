@@ -1,3 +1,4 @@
+import { getContact, listContacts, saveContact } from "../../../lib/affiliate-contacts.js";
 import { markDoNotContact } from "../../../lib/prospecting-queue.js";
 import { listClaims, markClaimContacted, recordClaimInbound, reserveClaimLeads } from "../../../lib/affiliate-claims.js";
 import { enrichClaimQualifications, listInterestedClaims, markClaimInterested } from "../../../lib/affiliate-qualification.js";
@@ -34,6 +35,8 @@ export async function GET(request) {
   try {
     const url = new URL(request.url);
     const actor = identity(request);
+    if (url.searchParams.get("detail")) return Response.json(await getContact({...actor,key:url.searchParams.get("detail")}), {headers:{"cache-control":"no-store"}});
+    if (url.searchParams.get("crm") === "1") return Response.json(await listContacts({...actor,view:url.searchParams.get("view"),query:url.searchParams.get("query"),offset:url.searchParams.get("offset")}), {headers:{"cache-control":"no-store"}});
     if (url.searchParams.get("summary") === "1") {
       return Response.json(await getClaimSummary(actor.prospectorKey), { headers: { "cache-control": "no-store" } });
     }
@@ -58,6 +61,7 @@ export async function POST(request) {
     const body = await bodyOf(request);
     const action = String(body?.action || "reserve");
     const actor = identity(request);
+    if (action === "save_contact") return Response.json(await saveContact({...body,...actor}), {headers:{"cache-control":"no-store"}});
     if (action === "reserve") {
       const result = await reserveClaimLeads(body?.leads, { ...actor, city: body?.city || "" });
       return Response.json(result, { status: 201, headers: { "cache-control": "no-store" } });

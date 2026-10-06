@@ -3,7 +3,7 @@ import { text } from "./funnel-records.js";
 
 let qualificationSchemaReady;
 
-async function ensureQualificationSchema() {
+export async function ensureQualificationSchema() {
   if (qualificationSchemaReady) return qualificationSchemaReady;
   qualificationSchemaReady = (async () => {
     await ensureClaimsSchema();
