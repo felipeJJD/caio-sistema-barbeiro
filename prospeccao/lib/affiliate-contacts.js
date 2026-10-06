@@ -15,17 +15,23 @@ export async function ensureContactSchema() {
       CREATE INDEX IF NOT EXISTS affiliate_contact_returns_idx ON affiliate_contact_profiles(prospector_key,followup_at) WHERE followup_at IS NOT NULL;
       CREATE TABLE IF NOT EXISTS affiliate_contact_events (
         id BIGSERIAL PRIMARY KEY, prospector_key TEXT NOT NULL, lead_key TEXT NOT NULL,
-        kind TEXT NOT NULL, message TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+        kind TEXT NOT NULL, message TEXT NOT NULL, provider_id TEXT NOT NULL DEFAULT '', occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+      ALTER TABLE affiliate_contact_events ADD COLUMN IF NOT EXISTS provider_id TEXT NOT NULL DEFAULT '';
+      CREATE UNIQUE INDEX IF NOT EXISTS affiliate_contact_event_provider_idx ON affiliate_contact_events(prospector_key,kind,provider_id) WHERE provider_id <> '';
       CREATE INDEX IF NOT EXISTS affiliate_contact_events_idx ON affiliate_contact_events(prospector_key,lead_key,occurred_at DESC);
       CREATE OR REPLACE FUNCTION ca_capture_contact_message() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
-        IF NEW.last_outbound_at IS DISTINCT FROM OLD.last_outbound_at AND NEW.last_outbound_at IS NOT NULL THEN
-          INSERT INTO affiliate_contact_events(prospector_key,lead_key,kind,message,occurred_at)
-          VALUES(NEW.prospector_key,NEW.lead_key,'outbound',NEW.last_outbound_message,NEW.last_outbound_at);
+        IF (NEW.last_outbound_at IS DISTINCT FROM OLD.last_outbound_at OR NEW.last_outbound_provider_id IS DISTINCT FROM OLD.last_outbound_provider_id) AND NEW.last_outbound_at IS NOT NULL THEN
+          INSERT INTO affiliate_contact_events(prospector_key,lead_key,kind,message,occurred_at,provider_id)
+          VALUES(NEW.prospector_key,NEW.lead_key,'outbound',NEW.last_outbound_message,NEW.last_outbound_at,NEW.last_outbound_provider_id) ON CONFLICT DO NOTHING;
         END IF;
-        IF NEW.last_inbound_at IS DISTINCT FROM OLD.last_inbound_at AND NEW.last_inbound_at IS NOT NULL THEN
-          INSERT INTO affiliate_contact_events(prospector_key,lead_key,kind,message,occurred_at)
-          VALUES(NEW.prospector_key,NEW.lead_key,'inbound',NEW.last_inbound_message,NEW.last_inbound_at);
+        IF (NEW.last_inbound_at IS DISTINCT FROM OLD.last_inbound_at OR NEW.last_inbound_provider_id IS DISTINCT FROM OLD.last_inbound_provider_id) AND NEW.last_inbound_at IS NOT NULL THEN
+          INSERT INTO affiliate_contact_events(prospector_key,lead_key,kind,message,occurred_at,provider_id)
+          VALUES(NEW.prospector_key,NEW.lead_key,'inbound',NEW.last_inbound_message,NEW.last_inbound_at,NEW.last_inbound_provider_id) ON CONFLICT DO NOTHING;
+        END IF;
+        IF NEW.status='do_not_contact' AND OLD.status <> 'do_not_contact' THEN
+          INSERT INTO affiliate_contact_events(prospector_key,lead_key,kind,message)
+          VALUES(NEW.prospector_key,NEW.lead_key,'note','Contato bloqueado para novas abordagens.');
         END IF;
         RETURN NEW;
       END $$;
@@ -64,11 +70,11 @@ export async function getContact(input) {
   const result=await getPool().query(`${select} WHERE c.prospector_key=$1 AND c.lead_key=$2`,[owner,key]);
   if(!result.rowCount) fail('Barbearia não encontrada.',404);
   const contact=item(result.rows[0]);
-  const events=await getPool().query(`SELECT id,kind,message,occurred_at FROM affiliate_contact_events WHERE prospector_key=$1 AND lead_key=$2 ORDER BY occurred_at DESC,id DESC LIMIT 100`,[owner,key]);
-  const timeline=events.rows.map(row=>({id:String(row.id),kind:row.kind,message:row.message,at:new Date(row.occurred_at).toISOString()}));
+  const events=await getPool().query(`SELECT id,kind,message,occurred_at,provider_id FROM affiliate_contact_events WHERE prospector_key=$1 AND lead_key=$2 ORDER BY occurred_at DESC,id DESC LIMIT 100`,[owner,key]);
+  const timeline=events.rows.map(row=>({id:String(row.id),providerId:row.provider_id,kind:row.kind,message:row.message,at:new Date(row.occurred_at).toISOString()}));
   for(const direction of ['Outbound','Inbound']) {
     const at=contact[`last${direction}At`],kind=direction.toLowerCase();
-    if(at && !timeline.some(event=>event.kind===kind && event.at===at)) timeline.push({id:`last-${kind}`,kind,message:contact[`last${direction}Message`],at});
+    if(at && !timeline.some(event=>event.kind===kind && (event.at===at || (contact[`last${direction}ProviderId`] && event.providerId===contact[`last${direction}ProviderId`])))) timeline.push({id:`last-${kind}`,kind,message:contact[`last${direction}Message`],at});
   }
   timeline.sort((a,b)=>Date.parse(b.at)-Date.parse(a.at));
   return {item:contact,timeline};
@@ -92,7 +98,7 @@ export async function saveContact(input) {
       [owner,key,text(input.contactName,120),text(input.notes,5000),text(input.nextStep,500),input.stage,followup]);
     await client.query(`UPDATE affiliate_prospecting_claims SET qualification=$3 WHERE prospector_key=$1 AND lead_key=$2`,[owner,key,input.stage==='interested'?'interested':'']);
     await client.query(`INSERT INTO affiliate_contact_events(prospector_key,lead_key,kind,message) VALUES($1,$2,'note',$3)`,
-      [owner,key,`${input.completeReturn ? 'Retorno concluído.' : 'Ficha atualizada.'}${followup ? ` Próximo retorno: ${followup}.` : ''}${text(input.nextStep,500) ? ` Próxima ação: ${text(input.nextStep,500)}` : ''}`]);
+      [owner,key,`${input.completeReturn ? 'Retorno concluído.' : 'Ficha atualizada.'}${followup ? ` Próximo retorno: ${followup}.` : ''}${text(input.nextStep,500) ? ` Próxima ação: ${text(input.nextStep,500)}` : ''}${text(input.notes,5000) ? ` Anotações: ${text(input.notes,5000)}` : ''}`]);
     await client.query('COMMIT');
   } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   return getContact({prospectorKey:owner,key});

@@ -37,6 +37,9 @@ test('CRM PostgreSQL: persistência, busca completa, retornos, histórico e isol
    for(let i=0;i<2;i++)await db.query(`UPDATE affiliate_prospecting_claims SET last_inbound_at=$3,last_inbound_message=$4 WHERE prospector_key=$1 AND lead_key=$2`,[owner.prospectorKey,key,`2026-01-0${i+1}T12:00:00Z`,`Resposta ${i}`]);
    await db.query(`UPDATE affiliate_prospecting_claims SET last_inbound_message=last_inbound_message WHERE lead_key=$1`,[key]);
    const timeline=(await getContact({...owner,key})).timeline.filter(event=>event.kind==='inbound');assert.equal(timeline.length,2);
+   await db.query(`UPDATE affiliate_prospecting_claims SET last_outbound_at=$2,last_outbound_message='Oi',last_outbound_provider_id='crm-provider' WHERE lead_key=$1`,[key,'2026-01-01T12:00:00Z']);
+   await db.query(`UPDATE affiliate_prospecting_claims SET last_outbound_at=$2 WHERE lead_key=$1`,[key,'2026-01-01T12:01:00Z']);
+   assert.equal((await getContact({...owner,key})).timeline.filter(event=>event.kind==='outbound').length,1);
   });
   await t.test('bloqueio definitivo retira retorno e impede novo agendamento',async()=>{
    await saveContact(values);await markDoNotContact(owner.prospectorKey,key);
