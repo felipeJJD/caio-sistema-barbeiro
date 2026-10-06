@@ -25,6 +25,6 @@ export default async function AffiliateProspectingPage({ searchParams }: { searc
   const signupUrl = access.isAdmin ? "https://cortouanotou.com.br/comece" : (mainLink?.url ?? "");
 
   return <AffiliateAppShell name={data.profile.name} section={section} workspace>
-    <AffiliateProspectingWorkspace name={data.profile.name} initialWhatsapp={data.profile.whatsapp} signupUrl={signupUrl} isAdmin={Boolean(access.isAdmin)} />
+    <AffiliateProspectingWorkspace name={data.profile.name} initialWhatsapp={data.profile.whatsapp} signupUrl={signupUrl} isAdmin={Boolean(access.isAdmin)} links={data.links.filter(link => link.active).map(link => ({id:link.id,label:link.label,url:link.url}))} />
   </AffiliateAppShell>;
 }

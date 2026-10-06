@@ -8,7 +8,7 @@ import { validAppOrigin } from '../lib/request-origin.ts';
 function runtime(path,imports={},extra={}) {
  const module={exports:{}};
  const source=ts.transpile(fs.readFileSync(new URL('../'+path,import.meta.url),'utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022});
- const context={module,exports:module.exports,require:name=>{if(name in imports)return imports[name];throw Error('Unexpected import '+name);},console,process,crypto,TextEncoder,AbortSignal,setTimeout,clearTimeout,Response,...extra};
+ const context={module,exports:module.exports,require:name=>{if(name in imports)return imports[name];throw Error('Unexpected import '+name);},console,process,crypto,TextEncoder,AbortSignal,setTimeout,clearTimeout,Response,URL,URLSearchParams,...extra};
  vm.runInNewContext(source,context,{filename:path});return module.exports;
 }
 const ok=body=>Promise.resolve(Response.json(body));
@@ -266,3 +266,15 @@ test('ponte de prospecção indisponível não falsifica desconexão e recupera�
  assert.equal((await api.POST(new Request('https://app.test/api/affiliate/prospecting/whatsapp',{method:'POST',body:JSON.stringify({action:'recover',instance:'ca-prospeccao-outbound'})}))).status,200);
  assert.equal(recovered,'ca-prospeccao-affiliate-42');
 });
+
+ test('ficha e pesquisa remota usam identidade da sessão e limitam os campos',async()=>{
+ const calls=[];const prefix='../'.repeat(5);
+ const api=runtime('app/api/affiliate/prospecting/claims/route.ts',{
+ [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active:true,affiliateId:42})},
+ [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'}),affiliateProspectingFetch:async(path,options)=>{calls.push({path,...options});return {response:{status:200},payload:{items:[]}};}}
+ });
+ await api.GET(new Request('https://fixture.test/api/claims?crm=1&view=returns&query=Barbearia%20Antiga&offset=50'));
+ assert.match(calls[0].path,/crm=1/);assert.match(calls[0].path,/query=Barbearia\+Antiga/);assert.match(calls[0].path,/view=returns/);assert.equal(calls[0].prospectorKey,'affiliate:42');
+ await api.POST(new Request('https://fixture.test/api/claims',{method:'POST',body:JSON.stringify({action:'save_contact',key:'phone:5541999990001',prospectorKey:'affiliate:99',notes:'a'.repeat(6000),stage:'not_now',followupAt:null})}));
+ assert.equal(calls[1].prospectorKey,'affiliate:42');assert.equal(calls[1].body.notes.length,5000);assert.equal(calls[1].body.prospectorKey,undefined);
+ });

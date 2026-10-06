@@ -179,7 +179,7 @@ export async function getOrganizationAffiliateSplit(organizationId: number) {
   }).from(organizationReferrals)
     .innerJoin(affiliateLinks, eq(affiliateLinks.id, organizationReferrals.affiliateLinkId))
     .innerJoin(affiliates, eq(affiliates.id, affiliateLinks.affiliateId))
-    .where(and(eq(organizationReferrals.organizationId, organizationId), eq(affiliateLinks.active, true), eq(affiliates.active, true), eq(affiliates.payoutStatus, "connected")))
+    .where(and(eq(organizationReferrals.organizationId, organizationId), eq(affiliates.active, true), eq(affiliates.payoutStatus, "connected")))
     .limit(1))[0];
   if (!referral || referral.commissionEndsAt <= now) return null;
   const accessToken = await activeAccessToken(referral.affiliateId);

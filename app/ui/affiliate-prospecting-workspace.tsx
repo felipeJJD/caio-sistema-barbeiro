@@ -78,7 +78,11 @@ function modeLabel(mode: ApproachMode) {
   return "Mensagem";
 }
 
-export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl }: { name: string; initialWhatsapp: string; signupUrl: string; isAdmin: boolean }) {
+export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl: defaultSignupUrl, links = [] }: { name: string; initialWhatsapp: string; signupUrl: string; isAdmin: boolean; links?: Array<{id:number;label:string;url:string}> }) {
+  const [campaignId, setCampaignId] = useState<number | null>(null);
+  const campaign = links.find(link => link.id === campaignId);
+  const signupUrl = campaign?.url || defaultSignupUrl;
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const tab = affiliateWorkspaceTab(searchParams.get("tab"));
@@ -354,6 +358,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           action: "enqueue",
+          linkId: campaignId,
           keys: ready.map((lead) => `phone:${lead.phoneE164}`),
           template: approachMode === "audio_only" || approachMode === "audio_wait" ? "" : message,
           approachMode,
@@ -486,6 +491,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
 
       <section className={styles.card}>
         <div className={styles.cardTitle}><div><b>Link do Cortou Anotou</b><span>Quando a abordagem usa link, este é o endereço aplicado automaticamente.</span></div></div>
+        {links.length > 0 && <label className={styles.messageField}><span>Campanha para os próximos envios</span><select value={campaignId ?? ""} onChange={event => setCampaignId(event.target.value ? Number(event.target.value) : null)}><option value="">Link padrão</option>{links.map(link => <option key={link.id} value={link.id}>{link.label}</option>)}</select></label>}
         <div className={styles.linkValue}>{signupUrl || "Link ainda não configurado"}</div>
       </section>
     </div>

@@ -161,7 +161,7 @@ export async function getAffiliateDashboard(access: AffiliateAccess, monthValue?
       active: link.active,
       isMain: link.id === mainLinkId,
       referrals: referrals.length,
-      payingReferrals: referrals.filter((item) => (paymentsByOrganization.get(item.organizationId) ?? []).length > 0).length,
+      payingReferrals: referrals.filter((item) => shops.some((shop) => shop.id === item.id && shop.status === "paying")).length,
       earnedCents: commissions.reduce((total, item) => total + item.commissionAmountCents, 0),
       createdAt: link.createdAt,
     };
@@ -188,7 +188,7 @@ export async function getAffiliateDashboard(access: AffiliateAccess, monthValue?
     summary: {
       monthReferrals: referralRows.filter((item) => inPeriod(item.attributedAt, start, end)).length,
       totalReferrals: referralRows.length,
-      payingReferrals: new Set(paymentRows.map((item) => item.organizationId)).size,
+      payingReferrals: shops.filter((shop) => shop.status === "paying").length,
       activeLinks: linkRows.filter((item) => item.active).length,
       monthCommissionCents: monthCommissions.reduce((total, item) => total + item.commissionAmountCents, 0),
       monthPaidCents: commissionRows.filter((item) => item.status === "paid" && inPeriod(item.paidAt, start, end)).reduce((total, item) => total + item.commissionAmountCents, 0),
