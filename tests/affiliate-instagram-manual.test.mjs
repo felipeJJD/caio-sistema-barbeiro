@@ -4,7 +4,7 @@ test('Instagram busca por cidade, pagina, enfileira, copia com fallback e só re
  const dom=new JSDOM('<div id="root"></div>',{url:'https://fixture.test'});const {window}=dom;
  globalThis.window=window;globalThis.document=window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true;
  window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
- const contact={username:'barbearia.teste',name:'Barbearia Teste',city:'Colombo, PR',status:'ready',queued:false,contactedAt:null};
+ const contact={username:'barbearia.teste',name:'Barbearia Teste',city:'São Paulo, SP',status:'ready',queued:false,contactedAt:null};
  const calls=[],copies=[],searches=[];let confirmed=false,clipboardFails=false,fallbackCalls=0,fallbackWorks=true;
  window.confirm=()=>confirmed;window.document.execCommand=()=>{fallbackCalls++;return fallbackWorks;};
  const fetch=async(url,init={})=>{
@@ -15,10 +15,11 @@ test('Instagram busca por cidade, pagina, enfileira, copia com fallback e só re
    if(body.action==='instagram_block'){contact.status='blocked';contact.queued=false;}
    return Response.json({item:{...contact}});
   }
-  const params=new URL(url,'https://fixture.test').searchParams;
+  const path=new URL(url,'https://fixture.test');const params=path.searchParams;
+  if(path.pathname.endsWith('/cities'))return Response.json({cities:params.get('uf')==='SP'?[{id:3550308,name:'São Paulo'},{id:3509502,name:'Campinas'}]:[{id:4105805,name:'Colombo'},{id:4106902,name:'Curitiba'}]});
   if(params.get('discover')==='1'){
    searches.push(Object.fromEntries(params));
-   return Response.json({items:params.get('offset')==='0'?[{...contact}]:[],displayName:'Colombo, PR',nextOffset:params.get('offset')==='0'?40:80,hasMore:params.get('offset')==='0',scanned:40,withoutProfile:39,tip:'Fonte pública'});
+   return Response.json({items:params.get('offset')==='0'?[{...contact}]:[],displayName:'São Paulo, SP',nextOffset:params.get('offset')==='0'?40:80,hasMore:params.get('offset')==='0',scanned:40,withoutProfile:39,tip:'Fonte pública'});
   }
   const view=params.get('view');const visible=view==='queue'?contact.queued:view==='history'?contact.status!=='ready':true;
   return Response.json({items:visible?[{...contact}]:[],hasMore:false});
@@ -32,13 +33,15 @@ test('Instagram busca por cidade, pagina, enfileira, copia com fallback e só re
  try{
   await act(async()=>root.render(React.createElement(module.exports.AffiliateInstagramManual,{name:'Kaio',signupUrl:'https://fixture.test/comece?ref=kaio',links:[],campaignId:null,onChooseCampaign(){}})));await settle();
   assert.equal(button('Salvar perfil'),undefined,'manual registration is not the primary flow');
-  const input=window.document.querySelector('input[placeholder="Colombo, PR"]');
-  // The form uses the input state. React's onChange is called through its actual mounted handler.
-  const reactPropsKey=Object.keys(input).find(key=>key.startsWith('__reactProps$'));
-  await act(async()=>input[reactPropsKey].onChange({target:{value:'Colombo, PR'}}));
+  const selectors=[...window.document.querySelectorAll('form select')];
+  const choose=async(node,value)=>{const props=Object.keys(node).find(key=>key.startsWith('__reactProps$'));await act(async()=>node[props].onChange({target:{value}}));await settle();};
+  assert.equal(selectors[0].querySelectorAll('option').length,27);assert.equal(selectors[1].value,'Colombo');
+  await choose(selectors[0],'SP');assert.equal(selectors[1].value,'','changing state clears the old city');assert.equal(window.document.querySelector('form button').disabled,true);
+  assert.deepEqual([...selectors[1].options].map(x=>x.value),['','São Paulo','Campinas']);
+  await choose(selectors[1],'São Paulo');assert.equal(window.document.querySelector('form button').disabled,false);
   await act(async()=>window.document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true})));await settle();
-  assert.equal(searches[0].city,'Colombo, PR');assert.equal(searches[0].offset,'0');assert.equal(calls.length,0,'search does not enqueue/send');
-  await click(button('Buscar mais barbearias'));assert.equal(searches[1].offset,'40');assert.equal(window.document.querySelectorAll('input[type=checkbox]').length,1);
+  assert.equal(searches[0].city,'São Paulo');assert.equal(searches[0].uf,'SP');assert.equal(searches[0].offset,'0');assert.equal(calls.length,0,'search does not enqueue/send');
+  await click(button('Buscar mais barbearias'));assert.equal(searches[1].offset,'40');assert.equal(searches[1].city,'São Paulo');assert.equal(searches[1].uf,'SP');assert.equal(window.document.querySelectorAll('input[type=checkbox]').length,1);
   await click(window.document.querySelector('input[type=checkbox]'));await click(button('Colocar 1 na fila'));
   assert.equal(calls[0].action,'instagram_enqueue');assert.equal(calls[0].items[0].username,'barbearia.teste');
   await click(button('Fila de abordagens'));await click(window.document.querySelector('button.row'));

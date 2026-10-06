@@ -4,11 +4,21 @@ import {lockAffiliateScroll} from '../../lib/affiliate-scroll-lock';
 import styles from './affiliate-instagram-manual.module.css';
 type Contact={username:string;name:string;city:string;status:'ready'|'contacted'|'blocked';contactedAt:string|null;queued?:boolean};
 type Props={name:string;signupUrl:string;links:Array<{id:number;label:string;url:string}>;campaignId:number|null;onChooseCampaign:(id:number|null)=>void};
+const STATES = [
+  ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"], ["BA", "Bahia"],
+  ["CE", "Ceará"], ["DF", "Distrito Federal"], ["ES", "Espírito Santo"], ["GO", "Goiás"], ["MA", "Maranhão"],
+  ["MT", "Mato Grosso"], ["MS", "Mato Grosso do Sul"], ["MG", "Minas Gerais"], ["PA", "Pará"], ["PB", "Paraíba"],
+  ["PR", "Paraná"], ["PE", "Pernambuco"], ["PI", "Piauí"], ["RJ", "Rio de Janeiro"], ["RN", "Rio Grande do Norte"],
+  ["RS", "Rio Grande do Sul"], ["RO", "Rondônia"], ["RR", "Roraima"], ["SC", "Santa Catarina"], ["SP", "São Paulo"],
+  ["SE", "Sergipe"], ["TO", "Tocantins"],
+] as const;
+type City={id:number|string;name:string};
 type SearchPage={items:Contact[];displayName:string;nextOffset:number;hasMore:boolean;scanned:number;withoutProfile:number;tip:string};
 export function AffiliateInstagramManual({name,signupUrl,links,campaignId,onChooseCampaign}:Props){
  const [view,setView]=useState<'search'|'queue'|'history'|'all'>('search');
  const [items,setItems]=useState<Contact[]>([]),[selected,setSelected]=useState<Contact|null>(null);
- const [city,setCity]=useState(''),[businessName,setBusinessName]=useState(''),[search,setSearch]=useState<SearchPage|null>(null),[searching,setSearching]=useState(false);
+ const [uf,setUf]=useState('PR'),[city,setCity]=useState('Colombo'),[cities,setCities]=useState<City[]>([]),[citiesLoading,setCitiesLoading]=useState(true),[citiesError,setCitiesError]=useState(''),[citiesRetry,setCitiesRetry]=useState(0);
+ const [businessName,setBusinessName]=useState(''),[search,setSearch]=useState<SearchPage|null>(null),[searching,setSearching]=useState(false),[searchingMore,setSearchingMore]=useState(false);
  const [checked,setChecked]=useState<string[]>([]),[query,setQuery]=useState(''),[loading,setLoading]=useState(true),[hasMore,setHasMore]=useState(false),[offset,setOffset]=useState(0);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const [manualName,setManualName]=useState(''),[manualUsername,setManualUsername]=useState('');
@@ -16,10 +26,19 @@ export function AffiliateInstagramManual({name,signupUrl,links,campaignId,onChoo
  const baseText=template.replaceAll('{barbearia}',selected?.name||'sua barbearia').replaceAll('{link}',signupUrl);
  const text=signupUrl&&!baseText.includes(signupUrl)?`${baseText.trim()}\n${signupUrl}`:baseText;
  const textRef=useRef<HTMLTextAreaElement>(null),actionRef=useRef(false),searchRef=useRef(false),searchVersion=useRef(0),version=useRef(0);
- const dialogRef=useRef<HTMLDialogElement>(null);
+ const dialogRef=useRef<HTMLDialogElement>(null),searchController=useRef<AbortController|null>(null);
  const detailsOpen=Boolean(selected);
  useEffect(()=>{if(!detailsOpen)return;if(!dialogRef.current?.open)dialogRef.current?.showModal();return lockAffiliateScroll();},[detailsOpen]);
- const searchQuery=useRef({city:'',name:''});
+ const searchQuery=useRef({city:'',uf:'',name:''});
+ useEffect(()=>{
+  let active=true;const controller=new window.AbortController();const timer=window.setTimeout(()=>controller.abort(),15000);
+  fetch(`/api/affiliate/prospecting/cities?uf=${encodeURIComponent(uf)}`,{cache:'no-store',signal:controller.signal})
+   .then(async response=>{const payload=await response.json();if(!response.ok)throw Error(payload.error||'Não consegui carregar as cidades.');return Array.isArray(payload.cities)?payload.cities:[];})
+   .then((available:City[])=>{if(!active)return;setCities(available);setCity(current=>available.some(item=>item.name===current)?current:'');})
+   .catch(()=>{if(active)setCitiesError('Não consegui carregar as cidades. Toque em Recarregar cidades.');})
+   .finally(()=>{window.clearTimeout(timer);if(active)setCitiesLoading(false);});
+  return()=>{active=false;controller.abort();window.clearTimeout(timer);};
+ },[uf,citiesRetry]);
  const load=useCallback(async(nextOffset=0)=>{
   const current=++version.current;setLoading(true);
   try{
@@ -33,21 +52,22 @@ export function AffiliateInstagramManual({name,signupUrl,links,campaignId,onChoo
   finally{if(current===version.current)setLoading(false);}
  },[view,query]);
  useEffect(()=>{const requests=version;const timer=window.setTimeout(()=>void load(),query?300:0);return()=>{window.clearTimeout(timer);++requests.current;};},[load,query]);
- useEffect(()=>{const requests=searchVersion;return()=>{++requests.current;};},[]);
+ useEffect(()=>{const requests=searchVersion,controllers=searchController;return()=>{++requests.current;controllers.current?.abort();};},[]);
  async function find(nextOffset=0){
   if(searchRef.current)return;
-  const requestQuery=nextOffset?searchQuery.current:{city:city.trim(),name:businessName.trim()};
-  if(requestQuery.city.length<2){setError('Digite a cidade e UF, por exemplo: Colombo, PR.');return;}
-  searchQuery.current=requestQuery;searchRef.current=true;setSearching(true);setError('');setNotice('');
+  const requestQuery=nextOffset?searchQuery.current:{city:city.trim(),uf,name:businessName.trim()};
+  if(!requestQuery.city||citiesLoading){setError('Selecione o estado e a cidade.');return;}
+  searchQuery.current=requestQuery;searchRef.current=true;setSearching(true);setSearchingMore(Boolean(nextOffset));setError('');setNotice('');
+  const controller=new window.AbortController();searchController.current=controller;const timer=window.setTimeout(()=>controller.abort(),85000);
   const current=++searchVersion.current;if(!nextOffset){setSearch(null);setChecked([]);}
   try{
-   const params=new URLSearchParams({discover:'1',city:requestQuery.city,name:requestQuery.name,offset:String(nextOffset)});
-   const response=await fetch(`/api/affiliate/prospecting/instagram?${params}`,{cache:'no-store'}),payload=await response.json();
+   const params=new URLSearchParams({discover:'1',city:requestQuery.city,uf:requestQuery.uf,name:requestQuery.name,offset:String(nextOffset)});
+   const response=await fetch(`/api/affiliate/prospecting/instagram?${params}`,{cache:'no-store',signal:controller.signal}),payload=await response.json();
    if(!response.ok)throw Error(response.status>=500?'A pesquisa demorou ou está indisponível. Tente novamente.':payload.error||'Não foi possível buscar.');
    if(current!==searchVersion.current)return;
    setSearch(previous=>({...payload,items:nextOffset?[...new Map([...(previous?.items||[]),...(payload.items||[])].map(item=>[item.username,item])).values()]:payload.items||[],scanned:(nextOffset?previous?.scanned||0:0)+(payload.scanned||0),withoutProfile:(nextOffset?previous?.withoutProfile||0:0)+(payload.withoutProfile||0)}));
   }catch(cause){if(current===searchVersion.current)setError(cause instanceof Error?cause.message:'Não foi possível buscar.');}
-  finally{searchRef.current=false;if(current===searchVersion.current)setSearching(false);}
+  finally{window.clearTimeout(timer);searchRef.current=false;if(current===searchVersion.current){setSearching(false);setSearchingMore(false);}}
  }
  async function mutate(action:string,contacts:Contact[]=[]){
   if(actionRef.current||searchRef.current)return;
@@ -56,7 +76,7 @@ export function AffiliateInstagramManual({name,signupUrl,links,campaignId,onChoo
   if(action==='instagram_block'&&!window.confirm('Marcar este perfil para não contatar mais?'))return;
   actionRef.current=true;setBusy(true);setError('');setNotice('');
   try{
-   const response=await fetch('/api/affiliate/prospecting/instagram',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,username:action==='save_instagram'?manualUsername:selected?.username,name:manualName,city,items:contacts})}),payload=await response.json();
+   const response=await fetch('/api/affiliate/prospecting/instagram',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,username:action==='save_instagram'?manualUsername:selected?.username,name:manualName,city:city?`${city}, ${uf}`:'',items:contacts})}),payload=await response.json();
    if(!response.ok)throw Error(payload.error||'Não foi possível salvar.');
    if(action==='instagram_enqueue'){
     const added=new Set((payload.items||[]).map((item:Contact)=>item.username));
@@ -95,18 +115,20 @@ export function AffiliateInstagramManual({name,signupUrl,links,campaignId,onChoo
  function changeView(next:typeof view){setView(next);setQuery('');setNotice('');setError('');}
  return <section className={styles.shell} aria-label="Prospecção pelo Instagram">
   <div className={styles.tabs} role="group" aria-label="Etapas do Instagram">{([['search','Buscar barbearias'],['queue','Fila de abordagens'],['history','Histórico'],['all','Perfis salvos']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={view===key} disabled={busy} onClick={()=>changeView(key)}>{label}</button>)}</div>
-  <p className={styles.helper}>A fila organiza os contatos. O primeiro direct é enviado por você no Instagram: a integração oficial não permite iniciar uma conversa automaticamente com um perfil que nunca escreveu para sua conta.</p>
-  {view==='search'&&<div className={styles.card}><h2>Encontrar barbearias</h2><p>Escolha a cidade. Os perfis encontrados aparecem abaixo, sem precisar cadastrar um por um.</p>
+  <p className={styles.helper}>Encontre os perfis e organize sua fila. Depois abra o Instagram para enviar a mensagem.</p>
+  {view==='search'&&<div className={styles.card}><h2>Encontrar barbearias</h2><p>Selecione o estado e a cidade para encontrar perfis de barbearias.</p>
    <form onSubmit={event=>{event.preventDefault();void find();}}>
-    <label>Cidade e UF<input required disabled={searching||busy} value={city} maxLength={90} placeholder="Colombo, PR" onChange={event=>setCity(event.target.value)} /></label>
+    <label>Estado<select disabled={searching||busy} value={uf} onChange={event=>{setCitiesLoading(true);setCitiesError('');setCities([]);setCity('');setUf(event.target.value);setSearch(null);setChecked([]);}}>{STATES.map(([code,label])=><option key={code} value={code}>{label}</option>)}</select></label>
+    <label>Cidade<select required disabled={citiesLoading||searching||busy} value={city} onChange={event=>{setCity(event.target.value);setSearch(null);setChecked([]);}}><option value="">{citiesLoading?'Carregando cidades...':'Selecione a cidade'}</option>{cities.map(item=><option key={item.id} value={item.name}>{item.name}</option>)}</select></label>
+    {citiesError&&<p role="alert">{citiesError}<button type="button" className={styles.secondary} onClick={()=>{setCitiesLoading(true);setCitiesError('');setCitiesRetry(previous=>previous+1);}}>Recarregar cidades</button></p>}
     <label>Nome da barbearia <small>(opcional)</small><input disabled={searching||busy} value={businessName} maxLength={80} onChange={event=>setBusinessName(event.target.value)} /></label>
-    <button disabled={searching||busy}>{searching?'Buscando perfis...':'Buscar barbearias'}</button>
+    <button disabled={searching||busy||citiesLoading||!city}>{searching&&!searchingMore?'Buscando perfis...':'Buscar barbearias'}</button>
    </form>
-   {search&&<><h3>{search.items.length} perfis encontrados · {search.displayName}</h3><p className={styles.helper}>{search.scanned} cadastros consultados. {search.withoutProfile} sem perfil utilizável para essa cidade na base. {search.tip}</p>
+   {search&&<><h3>{search.items.length} perfis encontrados · {search.displayName}</h3><p className={styles.helper}>{search.tip}</p>
     <div className={styles.list}>{search.items.map(item=><label className={styles.result} key={item.username}><input type="checkbox" checked={checked.includes(item.username)} disabled={busy||Boolean(item.queued)||(!checked.includes(item.username)&&checked.length>=40)} onChange={event=>setChecked(previous=>event.target.checked?[...previous,item.username]:previous.filter(value=>value!==item.username))} /><span><strong>{item.name}</strong><small>@{item.username} · {item.city}{item.queued?' · Na fila':''}</small><a href={`https://www.instagram.com/${item.username}/`} target="_blank" rel="noopener noreferrer">Conferir perfil</a></span></label>)}</div>
-    {!search.items.length&&<p>Nenhum perfil com link cadastrado foi encontrado nesta página. {search.hasMore?'Consulte mais barbearias abaixo.':'A base pode não ter perfis nesta cidade.'}</p>}
+    {!search.items.length&&<p>Nenhum novo perfil foi encontrado nesta pesquisa. {search.hasMore?'Consulte mais barbearias abaixo.':'Tente outra cidade ou remova o filtro de nome.'}</p>}
     <div className={styles.actions}><button type="button" disabled={busy||!chosen.length} onClick={()=>void mutate('instagram_enqueue',chosen)}>Colocar {chosen.length||''} na fila</button>{search.hasMore&&<button type="button" className={styles.secondary} disabled={searching||busy} onClick={()=>void find(search.nextOffset)}>{searching?'Buscando mais...':'Buscar mais barbearias'}</button>}</div>
-    <p className={styles.helper}>Selecione até 40 perfis por vez. Fonte: Overture Maps Foundation e fontes contribuidoras.</p>
+    <p className={styles.helper}>Selecione até 40 perfis por vez. Perfis públicos. Dados de lugares: Overture Maps Foundation e fontes contribuidoras.</p>
    </>}
   </div>}
   {view!=='search'&&<div className={styles.card}><h2>{view==='queue'?'Fila de abordagens':view==='history'?'Contatados e bloqueados':'Seus perfis salvos'}</h2>
