@@ -16,3 +16,19 @@
 .error,.notice { padding:14px; border-radius:12px; background:#e0f1e8; }
 .error { background:#f5dfdc; color:#7d2929; }
 @media(max-width:520px){.card{padding:16px;}}
+.tabs { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
+.tabs button { flex:0 0 auto; min-height:46px; padding:10px 14px; border:1px solid #d8dfd8; border-radius:12px; background:white; color:#345c47; font:inherit; font-weight:800; }
+.tabs button[aria-pressed=true] { background:#1f6b48; color:white; border-color:#1f6b48; }
+.card .result { display:flex; gap:12px; padding:14px; margin:0; border:1px solid #dddcd2; border-radius:12px; align-items:flex-start; }
+.result input { flex:0 0 22px; width:22px; height:22px; padding:0; }
+.result span { display:grid; gap:6px; overflow-wrap:anywhere; }
+.result small { color:#68716d; font-weight:400; line-height:1.5; }
+.result a { color:#1f6b48; }
+.card summary { cursor:pointer; font-weight:800; }
+.dialog { position:fixed; inset:0; margin:auto; width:min(560px,calc(100% - 24px)); max-height:min(85dvh,760px); padding:0; border:1px solid #dddcd2; border-radius:22px; background:#fffdf8; color:#17231f; overflow:hidden; }
+.dialog[open] { display:flex; flex-direction:column; }
+.dialog::backdrop { background:#101b16b3; backdrop-filter:blur(3px); }
+.dialogHeader { display:flex; flex-shrink:0; justify-content:space-between; align-items:center; gap:12px; padding:16px; border-bottom:1px solid #dddcd2; }
+.dialogHeader strong { overflow-wrap:anywhere; }
+.dialogHeader button { width:42px; height:42px; flex:0 0 42px; border:1px solid #d8dfd8; border-radius:50%; background:white; color:#17231f; font-size:25px; }
+.dialog .dialogBody { min-height:0; border:0; border-radius:0; overflow-y:auto; overscroll-behavior:contain; padding-bottom:calc(20px + env(safe-area-inset-bottom)); }

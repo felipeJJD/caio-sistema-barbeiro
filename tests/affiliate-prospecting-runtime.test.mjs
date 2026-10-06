@@ -293,5 +293,11 @@ test('Instagram usa sessão ativa, protege origem e não expõe ação de envio 
  assert.equal(calls[1].prospectorKey,'affiliate:42');assert.equal(calls[1].body.prospectorKey,undefined);
  assert.equal((await api.POST(request({action:'send_instagram'}))).status,400);
  assert.equal((await api.POST(request({action:'save_instagram'},'https://evil.test'))).status,403);
- active=false;assert.equal((await api.GET(new Request('https://fixture.test/api/instagram'))).status,401);assert.equal(calls.length,2);
+ await api.GET(new Request('https://fixture.test/api/instagram?discover=1&city=Colombo%2C%20PR&name=Teste&prospectorKey=affiliate:99'));
+ const params=new URL(calls[2].path,'https://fixture.test').searchParams;assert.equal(params.get('city'),'Colombo, PR');assert.equal(params.get('name'),'Teste');assert.equal(params.get('discover'),'1');assert.equal(calls[2].prospectorKey,'affiliate:42');
+ assert.equal((await api.POST(request({action:'instagram_enqueue',items:[{username:'teste',name:'Teste',city:'Colombo',prospectorKey:'affiliate:99'}]}))).status,200);
+ assert.equal(calls[3].body.items[0].prospectorKey,undefined);assert.equal(calls[3].prospectorKey,'affiliate:42');
+ assert.equal((await api.POST(request({action:'instagram_enqueue',items:[]}))).status,400);
+ assert.equal((await api.POST(request({action:'instagram_enqueue',items:Array(41).fill({username:'test'})}))).status,400);
+ active=false;assert.equal((await api.GET(new Request('https://fixture.test/api/instagram'))).status,401);assert.equal(calls.length,4);
 });
