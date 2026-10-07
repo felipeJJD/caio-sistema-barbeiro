@@ -74,7 +74,7 @@ test("C.A. Atende só liga com conexão, direito de uso e automações", () => {
 });
 
 test("fila humana mantém o bot em silêncio até o proprietário encerrar", () => {
-  assert.match(whatsappUi, /Clientes esperando uma pessoa/);
+  assert.match(whatsappUi, /Conversas com automação pausada/);
   assert.match(whatsappUi, /O bot fica em silêncio/);
   assert.match(whatsappUi, /resume-conversation/);
   assert.match(whatsappUi, /Encerrar atendimento/);
