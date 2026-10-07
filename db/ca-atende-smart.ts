@@ -158,13 +158,13 @@ function greetingText(organizationName: string, slug: string, custom: string) {
   if (!intro.includes(link)) blocks.push(`Para agendar seu horário, use nosso link:\n${link}`);
   const hasBothChoices = /\bcontinuar por aqui\b/.test(normalizedIntro) && /\bfalar com (alguem|a barbearia)\b/.test(normalizedIntro);
   if (!hasBothChoices) {
-    blocks.push("Se preferir, posso te ajudar por aqui.\n1️⃣ 💬 Continuar por aqui\n2️⃣ 👤 Falar com alguém da barbearia");
+    blocks.push("Se preferir, posso te ajudar por aqui.\n\n*Digite somente o número da opção desejada.*\n1️⃣ Continuar por aqui\n2️⃣ Falar com alguém da barbearia");
   }
   return blocks.join("\n\n").slice(0, 3500);
 }
 
 function entryChoiceText(organizationName: string) {
-  return `Pode escolher como prefere continuar:\n1️⃣ 💬 Continuar por aqui\n2️⃣ 👤 Falar com alguém da ${organizationName}`;
+  return `Pode escolher como prefere continuar:\n\n*Digite somente o número da opção desejada.*\n1️⃣ Continuar por aqui\n2️⃣ Falar com alguém da ${organizationName}`;
 }
 
 function handoffText(organizationName: string, custom: string) {
@@ -173,7 +173,7 @@ function handoffText(organizationName: string, custom: string) {
 }
 
 function clarificationText(organizationName: string) {
-  return `Não entendi certinho. Escolha uma opção ou escreva do seu jeito:\n1️⃣ 📅 Agendar horário\n2️⃣ 🕒 Ver horários disponíveis\n3️⃣ 💈 Preços e serviços\n4️⃣ 👤 Falar com alguém da ${organizationName}`;
+  return `Não entendi certinho.\n\n*Digite somente o número da opção desejada.*\n1️⃣ Agendar horário\n2️⃣ Ver horários disponíveis\n3️⃣ Preços e serviços\n4️⃣ Falar com alguém da ${organizationName}`;
 }
 
 function clarificationChoice(value: string) {
