@@ -321,11 +321,13 @@ export function WhatsappAutomation() {
       .wa2-human{padding:14px 15px}
       .wa2-human h3{margin:0;font-size:13px}
       .wa2-human>p{margin:4px 0 10px;color:#858a82;font-size:10px;line-height:1.35}
-      .wa2-human-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #efeee8}
-      .wa2-human-item>div{min-width:0;flex:1}
+      .wa2-human-item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #efeee8;text-align:left}
+      .wa2-human-item>div{min-width:0;width:100%}
       .wa2-human-item strong,.wa2-human-item small,.wa2-human-item em{display:block}
-      .wa2-human-item strong{font-size:11px}.wa2-human-item small,.wa2-human-item em{margin-top:3px;color:#858a82;font-size:9px;font-style:normal}
-      .wa2-human-item button{border:0;border-radius:8px;background:#202720;color:#fff;padding:8px 9px;font-size:10px;font-weight:800}
+      .wa2-human-item strong{font-size:11px}.wa2-human-item small,.wa2-human-item em{margin-top:3px;color:#858a82;font-size:9px;font-style:normal;white-space:normal;overflow-wrap:anywhere;line-height:1.5}
+      .wa2-human-item .wa2-human-reason{color:#6d6759;font-weight:700}
+      .wa2-human-item button{min-height:44px;border:0;border-radius:8px;background:#202720;color:#fff;padding:8px 9px;font-size:10px;font-weight:800}
+      @media(max-width:820px){.wa2-human-item{grid-template-columns:minmax(0,1fr)}.wa2-human-item button{width:100%}}
       .wa2-advanced{border-radius:12px!important;box-shadow:none!important}
       .wa2-advanced summary{cursor:pointer;list-style:none;padding:13px 15px;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:12px}
       .wa2-advanced summary::-webkit-details-marker{display:none}
@@ -470,13 +472,13 @@ export function WhatsappAutomation() {
         </div>
       </details>
 
-      {data.humanHandoffs.length > 0 && <section className="wa2-card wa2-human whatsapp-human-queue">
-        <h3>Clientes esperando uma pessoa</h3>
-        <p>O bot fica em silêncio nesses contatos até você encerrar o atendimento aqui.</p>
+      {data.humanHandoffs.length > 0 && <section className="wa2-card wa2-human">
+        <h3>Conversas com automação pausada</h3>
+        <p>Inclui conversas assumidas por você no WhatsApp e atendimentos transferidos pelo C.A. Atende. O bot fica em silêncio nesses contatos. Encerrar atendimento libera as respostas às próximas mensagens.</p>
         {data.humanHandoffs.map((item) => {
           const ending = item.phone.replace(/\D/g, "").slice(-4);
-          return <div className="wa2-human-item whatsapp-human-item" key={item.phone}>
-            <div><strong>WhatsApp final {ending || "----"}</strong><small>{item.lastInboundPreview || "Cliente pediu atendimento humano."}</small>{item.humanRequestedAt && <em>{formatDate(item.humanRequestedAt)}</em>}</div>
+          return <div className="wa2-human-item" key={item.phone}>
+            <div><strong>WhatsApp final {ending || "----"}</strong><small className="wa2-human-reason">{item.humanRequestedAt ? "Atendimento transferido pelo C.A. Atende" : "Conversa assumida manualmente no WhatsApp"}</small><small>{item.lastInboundPreview || "Sem mensagem recebida registrada."}</small>{(item.humanRequestedAt || item.lastInboundAt) && <em>{formatDate(item.humanRequestedAt || item.lastInboundAt)}</em>}</div>
             <button type="button" onClick={() => void resumeHandoff(item.phone)} disabled={saving}>Encerrar atendimento</button>
           </div>;
         })}
