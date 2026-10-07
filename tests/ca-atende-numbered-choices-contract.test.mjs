@@ -119,10 +119,10 @@ test("WhatsApp renderiza números com emoji e a entrada inteligente segue o mesm
   assert.match(dbSource,/choiceNumberEmoji = \["1️⃣", "2️⃣", "3️⃣"/);
   assert.match(dbSource,/formatChoiceLine\(choice,index\)/);
   assert.match(dbSource,/lastChoices:safeChoices\(decision\.choices\)/);
-  assert.match(smartSource,/1️⃣ 💬 Continuar por aqui/);
-  assert.match(smartSource,/2️⃣ 👤 Falar com alguém/);
-  assert.match(smartSource,/1️⃣ 📅 Agendar horário/);
-  assert.match(smartSource,/4️⃣ 👤 Falar com alguém/);
+  assert.match(smartSource,/1️⃣ Continuar por aqui/);
+  assert.match(smartSource,/2️⃣ Falar com alguém/);
+  assert.match(smartSource,/1️⃣ Agendar horário/);
+  assert.match(smartSource,/4️⃣ Falar com alguém/);
   assert.match(smartSource,/conversation\?\.botState === "smart_clarify"/);
   assert.match(smartSource,/hasStageNumberedChoice\(event\.text, memory\)/);
   const numericGate = smartSource.indexOf("hasStageNumberedChoice(event.text, memory)");

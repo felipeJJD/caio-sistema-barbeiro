@@ -35,8 +35,8 @@ test("porta de entrada usa tag de cinco dias antes de interpretar a mensagem", (
   assert.match(smart, /state: "entry_choice"/);
   assert.match(smart, /resetConversation: true/);
   assert.match(smart, /Para agendar seu horário, use nosso link/);
-  assert.match(smart, /1️⃣ 💬 Continuar por aqui/);
-  assert.match(smart, /2️⃣ 👤 Falar com alguém da barbearia/);
+  assert.match(smart, /1️⃣ Continuar por aqui/);
+  assert.match(smart, /2️⃣ Falar com alguém da barbearia/);
   const welcomeGate = smart.indexOf("if (!flow.active)");
   const rule = smart.indexOf("const rule = classifyCaAtendeByRule", welcomeGate);
   assert.ok(welcomeGate >= 0 && rule > welcomeGate, "a primeira mensagem do ciclo deve passar pela porta de entrada antes da intenção");

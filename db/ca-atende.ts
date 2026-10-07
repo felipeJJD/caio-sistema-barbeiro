@@ -457,29 +457,9 @@ function rememberedChoice(value: string, choices: string[] | undefined) {
   return index >= 0 && index < safe.length ? safe[index] : "";
 }
 
-function choiceIcon(choice: string) {
-  const text = normalizeCaAtendeText(choice);
-  if (/\bconfirmar|\bconfirmacao/.test(text)) return "✅";
-  if (/\bcancelar|\bcancelamento|\bdesistir/.test(text)) return "❌";
-  if (/\bremarcar|\btrocar|\balterar|\bmudar/.test(text)) return "🔄";
-  if (/\bagendar|\bmarcar/.test(text)) return "📅";
-  if (/\bfalar com|\bbarbearia|\batendente|\bhumano|\bresponsavel/.test(text)) return "👤";
-  if (/\bpreco|\bprecos|\bservico|\bservicos|\bvalor|\bvalores/.test(text)) return "💈";
-  if (/\bpix\b/.test(text)) return "💠";
-  if (/\bdinheiro|\bespecie/.test(text)) return "💵";
-  if (/\bdebito|\bcredito|\bcartao/.test(text)) return "💳";
-  if (/\bqualquer profissional/.test(text)) return "👥";
-  if (/\bhoje|\bamanha|\bsegunda|\bterca|\bquarta|\bquinta|\bsexta|\bsabado|\bdomingo|\d{1,2}\/\d{1,2}/.test(text)) return "📆";
-  if (/\b\d{1,2}:\d{2}\b|\bhorario|\bhorarios/.test(text)) return "🕒";
-  if (/\bcorte|\bcabelo/.test(text)) return "✂️";
-  if (/\bbarba|\bbarbear/.test(text)) return "🧔";
-  return "";
-}
-
 function formatChoiceLine(choice: string, index: number) {
   const number = choiceNumberEmoji[index] ?? `${index + 1}.`;
-  const icon = choiceIcon(choice);
-  return `${number}${icon ? ` ${icon}` : ""} ${choice}`;
+  return `${number} ${choice}`;
 }
 
 function bookingDayChoices(count = 5) {
@@ -1248,7 +1228,7 @@ export async function processCaAtendeInbound(event: WhatsappInboundTextEvent) {
     organizationId:event.organizationId,
     phone:event.phone,
     // Text equivalent until official Meta interactive payloads are reviewed and enabled.
-    text:decision.choices?.length ? `${decision.reply}\n${decision.choices.map((choice,index) => formatChoiceLine(choice,index)).join("\n")}` : decision.reply,
+    text:decision.choices?.length ? `${decision.reply}\n\n*Digite somente o número da opção desejada.*\n${decision.choices.map((choice,index) => formatChoiceLine(choice,index)).join("\n")}` : decision.reply,
     inboundProviderMessageId:event.providerMessageId,
   });
   if (!queued.queued) return { handled:false, reason:queued.reason };
