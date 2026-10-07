@@ -472,7 +472,9 @@ export function WhatsappAutomation() {
         </div>
       </details>
 
-      {data.humanHandoffs.length > 0 && <section className="wa2-card wa2-human">
+      <details className="panel whatsapp-advanced-settings wa2-advanced">
+        <summary><span>Configurações avançadas</span><span aria-hidden="true">›</span></summary>
+      {data.humanHandoffs.length > 0 && <section className="wa2-human">
         <h3>Conversas com automação pausada</h3>
         <p>Inclui conversas assumidas por você no WhatsApp e atendimentos transferidos pelo C.A. Atende. O bot fica em silêncio nesses contatos. Encerrar atendimento libera as respostas às próximas mensagens.</p>
         {data.humanHandoffs.map((item) => {
@@ -484,8 +486,6 @@ export function WhatsappAutomation() {
         })}
       </section>}
 
-      <details className="panel whatsapp-advanced-settings wa2-advanced">
-        <summary><span>Configurações avançadas</span><span aria-hidden="true">›</span></summary>
         <div className="whatsapp-danger-zone" style={{ margin: 0, border: 0, borderTop: "1px solid var(--line)", borderRadius: 0, boxShadow: "none" }}>
           <div><strong>{formatPhone(data.connection.displayPhoneNumber)}</strong><small>Desconectar pausa as automações. Agendamentos e histórico continuam intactos.</small></div>
           <button type="button" onClick={() => void disconnect()} disabled={saving}>Desconectar WhatsApp</button>
