@@ -74,22 +74,24 @@ test("capa vem primeiro e agendamento avança profissional → serviço → data
   } finally { await ui.cleanup(); }
 });
 
-test("galeria move somente os trabalhos, pausa na interação e não escolhe barbeiro", async () => {
-  const ui = await setup(); const { document, timers, click } = ui;
+test("galeria abre a foto certa sem escolher barbeiro nem repetir controles acessíveis", async () => {
+  const ui = await setup(); const { document, click } = ui;
   try {
-    const rail = document.querySelector(".booking-work-rail"); let moved = 0;
-    Object.defineProperties(rail, { scrollWidth: { value: 1000 }, clientWidth: { value: 400 } });
-    rail.getBoundingClientRect = () => ({ top: 100, bottom: 400 });
-    rail.firstElementChild.getBoundingClientRect = () => ({ width: 280 });
-    rail.scrollTo = options => { moved++; rail.scrollLeft = options.left; };
-    [...timers.values()].find(timer => timer.delay === 4800).callback();
-    assert.equal(moved, 1);
-    assert.equal(document.querySelectorAll(".booking-team-portrait.selected").length, 0);
-    assert.equal(document.querySelector("#booking-service"), null);
-    await click([...document.querySelectorAll("button")].find(b => b.textContent === "Pausar fotos"));
-    assert.equal([...timers.values()].filter(t => t.delay === 4800).length, 0);
-    await click(document.querySelector(".booking-work-rail button"));
-    assert.ok(document.querySelector('[role="dialog"][aria-label="Foto ampliada"]'));
+    assert.doesNotMatch(document.body.textContent, /Pausar fotos|Mover fotos|Arraste para ver mais|Vamos reservar seu próximo visual|SEU HORÁRIO, DO SEU JEITO|QUEM VAI TE ATENDER/);
+    assert.equal(document.querySelector(".booking-steps"), null);
+    const photos = [...document.querySelectorAll(".booking-work-rail button")];
+    assert.equal(photos.filter(button => button.tabIndex === 0).length, 3, "cada trabalho tem apenas um controle no teclado");
+    for (const photo of [photos[0], photos.find(button => button.tabIndex === -1)]) {
+      const expectedSrc = photo.querySelector("img").getAttribute("src");
+      await click(photo);
+      const dialog = document.querySelector('[role="dialog"][aria-label="Foto ampliada"]');
+      assert.equal(dialog.querySelector("img").getAttribute("src"), expectedSrc);
+      assert.equal(document.body.style.overflow, "hidden");
+      await click(document.querySelector('[aria-label="Fechar foto"]'));
+      assert.equal(document.body.style.overflow, "");
+      assert.equal(document.querySelectorAll(".booking-team-portrait.selected").length, 0);
+      assert.equal(document.querySelector("#booking-service"), null);
+    }
   } finally { await ui.cleanup(); }
 });
 
@@ -113,15 +115,8 @@ test("mensalista se identifica depois do profissional e segue com o serviço do 
   } finally { await ui.cleanup(); }
 });
 
-test("movimento reduzido e ausência de fotos preservam o acesso ao agendamento", async () => {
-  const ui = await setup({ reduced: true });
-  try {
-    const rail = ui.document.querySelector(".booking-work-rail"); let moved = false;
-    rail.scrollTo = () => { moved = true; };
-    [...ui.timers.values()].find(t => t.delay === 4800).callback();
-    assert.equal(moved, false);
-  } finally { await ui.cleanup(); }
-  const fallback = await setup({ noPhotos: true });
+test("sem fotos, a capa alternativa e qualquer profissional preservam o acesso ao agendamento", async () => {
+  const fallback = await setup({ noPhotos: true, reduced: true });
   try {
     assert.ok(fallback.document.querySelector(".booking-hero-empty"));
     assert.ok(fallback.document.querySelector(".booking-team-initial"));

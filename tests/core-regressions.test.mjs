@@ -37,7 +37,7 @@ test("public gallery photos open in an accessible lightbox", async () => {
   const workGallery = await readFile(new URL("../app/ui/public-booking-work-gallery.tsx", import.meta.url), "utf8");
   assert.match(publicBookingUi, /public-gallery-lightbox/);
   assert.match(publicBookingUi, /aria-modal="true"/);
-  assert.match(workGallery, /Toque para ampliar/);
+  assert.match(workGallery, /aria-label=.*Ampliar foto:/);
 });
 
 test("voice help records real audio without exposing the transcript by default", () => {
