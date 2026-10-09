@@ -85,7 +85,7 @@ export function PasswordResetRequestScreen({ initialEmail = "" }: { initialEmail
       });
       const result = await response.json() as ActionResult;
       if (!response.ok) return setError(result.error ?? "Não foi possível continuar.");
-      setFeedback("Se esse e-mail tiver um acesso confirmado, enviamos um link para criar uma nova senha. Confira também o spam.");
+      setFeedback("Se houver um cadastro elegível, enviamos um link de recuperação. Se o e-mail ainda não foi confirmado, enviamos primeiro a confirmação do cadastro. Confira também o spam.");
     } catch {
       setError("Não foi possível continuar. Verifique sua conexão.");
     } finally {

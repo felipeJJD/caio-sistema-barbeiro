@@ -470,10 +470,12 @@ export async function listBarbershopInvites(access: AccessContext) {
 export async function listBarbershops(access: AccessContext) {
   requirePlatformAdmin(access);
   const db = await getDb();
-  const [shops, owners] = await Promise.all([
+  const [shops, owners, accounts] = await Promise.all([
     db.select().from(organizations).where(isNull(organizations.deletedAt)).orderBy(desc(organizations.id)),
     db.select().from(team).where(eq(team.accessRole, "owner")).orderBy(team.id),
+    db.select({ teamMemberId: authAccounts.teamMemberId, emailVerifiedAt: authAccounts.emailVerifiedAt }).from(authAccounts),
   ]);
+  const verifiedOwnerIds = new Set(accounts.filter((account) => account.emailVerifiedAt).map((account) => account.teamMemberId));
   const ownerByOrganization = new Map<number, typeof owners[number]>();
   for (const owner of owners) if (!ownerByOrganization.has(owner.organizationId)) ownerByOrganization.set(owner.organizationId, owner);
   return shops.map((shop) => {
@@ -487,6 +489,7 @@ export async function listBarbershops(access: AccessContext) {
       createdAt: shop.createdAt,
       ownerName: owner?.name ?? "Proprietário pendente",
       ownerEmail: owner?.loginEmail ?? "",
+      ownerEmailVerified: Boolean(owner && verifiedOwnerIds.has(owner.id)),
       ownerWhatsapp: shop.ownerWhatsapp,
       signupSource: shop.signupSource,
       estimatedMonthlyClients: shop.estimatedMonthlyClients,
@@ -497,6 +500,30 @@ export async function listBarbershops(access: AccessContext) {
       isCurrent: shop.id === access.organizationId,
     };
   });
+}
+
+export async function setBarbershopOwnerPassword(access: AccessContext, organizationId: number, password: string) {
+  requirePlatformAdmin(access);
+  requireOwner(access);
+  validatePassword(password);
+  if (!Number.isInteger(organizationId) || organizationId <= 0 || organizationId === access.organizationId) {
+    throw new Error("Selecione uma barbearia cliente para recuperar o acesso.");
+  }
+  const db = await getDb();
+  const shop = (await db.select().from(organizations).where(and(eq(organizations.id, organizationId), isNull(organizations.deletedAt))).limit(1))[0];
+  if (!shop || shop.status === "blocked" || shop.status === "deleted" || shop.statusBeforeBlock) throw new Error("Esta barbearia não está disponível para recuperação.");
+  const owner = (await db.select().from(team).where(and(eq(team.organizationId, organizationId), eq(team.accessRole, "owner"))).orderBy(team.id).limit(1))[0];
+  if (!owner?.active || owner.platformAdmin) throw new Error("O proprietário não está disponível para recuperação.");
+  const account = (await db.select().from(authAccounts).where(and(eq(authAccounts.organizationId, organizationId), eq(authAccounts.teamMemberId, owner.id))).limit(1))[0];
+  if (!account?.emailVerifiedAt || shop.status === "pending_email") throw new Error("O proprietário precisa confirmar o e-mail antes de receber uma nova senha.");
+  const salt = randomHex(16);
+  const hash = await passwordHash(password, salt, PASSWORD_ITERATIONS);
+  const now = new Date().toISOString();
+  await db.batch([
+    db.update(authAccounts).set({ passwordHash: hash, passwordSalt: salt, passwordIterations: PASSWORD_ITERATIONS, updatedAt: now }).where(eq(authAccounts.id, account.id)),
+    db.delete(authSessions).where(eq(authSessions.accountId, account.id)),
+    db.update(passwordResets).set({ usedAt: now }).where(and(eq(passwordResets.accountId, account.id), isNull(passwordResets.usedAt))),
+  ]);
 }
 
 export async function setBarbershopBlocked(access: AccessContext, organizationId: number, blocked: boolean) {
@@ -940,7 +967,7 @@ export async function resendOwnerVerificationEmail(emailValue: string) {
 
   const member = (await db.select().from(team).where(eq(team.id, account.teamMemberId)).limit(1))[0];
   const organization = (await db.select().from(organizations).where(eq(organizations.id, account.organizationId)).limit(1))[0];
-  if (!member?.active || member.accessRole !== "owner" || !organization || organization.status !== "pending_email") return;
+  if (!member?.active || member.accessRole !== "owner" || !organization || organization.deletedAt || organization.statusBeforeBlock || organization.status !== "pending_email") return;
 
   const latestVerification = (await db.select().from(emailVerifications)
     .where(eq(emailVerifications.accountId, account.id))
@@ -985,7 +1012,11 @@ export async function requestPasswordReset(emailValue: string) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
   const db = await getDb();
   const account = (await db.select().from(authAccounts).where(eq(authAccounts.email, email)).limit(1))[0];
-  if (!account?.emailVerifiedAt) return;
+  if (!account) return;
+  if (!account.emailVerifiedAt) {
+    await resendOwnerVerificationEmail(email);
+    return;
+  }
   const member = (await db.select().from(team).where(eq(team.id, account.teamMemberId)).limit(1))[0];
   if (!member?.active || !await getAccessContextByTeamMemberId(account.teamMemberId)) return;
 
