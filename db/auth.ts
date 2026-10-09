@@ -4,6 +4,7 @@ import type { AccessContext } from "./access";
 import { getAccessContextByTeamMemberId, requireOwner, requirePlatformAdmin } from "./access";
 import { getDb } from "./index";
 import { authAccounts, authSessions, barbershopInvites, emailVerifications, goals, organizations, passwordResets, paymentMethods, services, signupAttempts, team, teamInvites } from "./schema";
+import { enforceRateLimit } from "./rate-limit";
 import { appMonth } from "../lib/app-date";
 import { ownerEmailVerificationIsConfigured, sendOwnerVerificationEmail, sendPasswordResetEmail } from "../lib/owner-email";
 import { attachOrganizationReferral } from "./affiliates";
@@ -473,13 +474,14 @@ export async function listBarbershops(access: AccessContext) {
   const [shops, owners, accounts] = await Promise.all([
     db.select().from(organizations).where(isNull(organizations.deletedAt)).orderBy(desc(organizations.id)),
     db.select().from(team).where(eq(team.accessRole, "owner")).orderBy(team.id),
-    db.select({ teamMemberId: authAccounts.teamMemberId, emailVerifiedAt: authAccounts.emailVerifiedAt }).from(authAccounts),
+    db.select({ teamMemberId: authAccounts.teamMemberId, email: authAccounts.email, emailVerifiedAt: authAccounts.emailVerifiedAt }).from(authAccounts),
   ]);
-  const verifiedOwnerIds = new Set(accounts.filter((account) => account.emailVerifiedAt).map((account) => account.teamMemberId));
+  const accountByOwner = new Map(accounts.map((account) => [account.teamMemberId, account]));
   const ownerByOrganization = new Map<number, typeof owners[number]>();
   for (const owner of owners) if (!ownerByOrganization.has(owner.organizationId)) ownerByOrganization.set(owner.organizationId, owner);
   return shops.map((shop) => {
     const owner = ownerByOrganization.get(shop.id);
+    const account = owner ? accountByOwner.get(owner.id) : undefined;
     return {
       id: shop.id,
       name: shop.name,
@@ -488,8 +490,9 @@ export async function listBarbershops(access: AccessContext) {
       trialEndsAt: shop.trialEndsAt,
       createdAt: shop.createdAt,
       ownerName: owner?.name ?? "Proprietário pendente",
-      ownerEmail: owner?.loginEmail ?? "",
-      ownerEmailVerified: Boolean(owner && verifiedOwnerIds.has(owner.id)),
+      ownerEmail: account?.email ?? owner?.loginEmail ?? "",
+      ownerEmailVerified: Boolean(account?.emailVerifiedAt),
+      ownerHasPassword: Boolean(account && owner?.active && !owner.platformAdmin),
       ownerWhatsapp: shop.ownerWhatsapp,
       signupSource: shop.signupSource,
       estimatedMonthlyClients: shop.estimatedMonthlyClients,
@@ -502,10 +505,9 @@ export async function listBarbershops(access: AccessContext) {
   });
 }
 
-export async function setBarbershopOwnerPassword(access: AccessContext, organizationId: number, password: string) {
+async function barbershopOwnerRecoveryAccount(access: AccessContext, organizationId: number) {
   requirePlatformAdmin(access);
   requireOwner(access);
-  validatePassword(password);
   if (!Number.isInteger(organizationId) || organizationId <= 0 || organizationId === access.organizationId) {
     throw new Error("Selecione uma barbearia cliente para recuperar o acesso.");
   }
@@ -515,7 +517,20 @@ export async function setBarbershopOwnerPassword(access: AccessContext, organiza
   const owner = (await db.select().from(team).where(and(eq(team.organizationId, organizationId), eq(team.accessRole, "owner"))).orderBy(team.id).limit(1))[0];
   if (!owner?.active || owner.platformAdmin) throw new Error("O proprietário não está disponível para recuperação.");
   const account = (await db.select().from(authAccounts).where(and(eq(authAccounts.organizationId, organizationId), eq(authAccounts.teamMemberId, owner.id))).limit(1))[0];
-  if (!account?.emailVerifiedAt || shop.status === "pending_email") throw new Error("O proprietário precisa confirmar o e-mail antes de receber uma nova senha.");
+  if (!account) throw new Error("Este proprietário ainda não tem um acesso com senha cadastrado.");
+  return { db, shop, owner, account };
+}
+
+export async function sendBarbershopOwnerAccessEmail(access: AccessContext, organizationId: number) {
+  const { shop, account } = await barbershopOwnerRecoveryAccount(access, organizationId);
+  if (!account.emailVerifiedAt && shop.status !== "pending_email") throw new Error("Este cadastro não está disponível para reenvio de confirmação.");
+  await enforceRateLimit({ scope: "password-reset-account", identifier: account.email, limit: 3, windowMs: 60 * 60 * 1000, message: "Muitas solicitações para este e-mail. Aguarde uma hora e tente novamente." });
+  await requestPasswordReset(account.email);
+}
+
+export async function setBarbershopOwnerPassword(access: AccessContext, organizationId: number, password: string) {
+  const { db, account } = await barbershopOwnerRecoveryAccount(access, organizationId);
+  validatePassword(password);
   const salt = randomHex(16);
   const hash = await passwordHash(password, salt, PASSWORD_ITERATIONS);
   const now = new Date().toISOString();

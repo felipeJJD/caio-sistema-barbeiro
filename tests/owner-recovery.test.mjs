@@ -20,7 +20,7 @@ async function fixture({ verified = true, status = 'trial', active = true, platf
   const mocks = { './index': { getDb: async () => db }, './schema': schema };
   const access = load('db/access.ts', mocks);
   const sent = [];
-  const auth = load('db/auth.ts', { ...mocks, './access': access, 'next/headers': {}, '../lib/app-date': {}, './affiliates': {}, './platform-trial': { getPlatformTrialDays: async () => 20 }, '../lib/owner-email': {
+  const auth = load('db/auth.ts', { ...mocks, './access': access, 'next/headers': {}, '../lib/app-date': {}, './affiliates': {}, './platform-trial': { getPlatformTrialDays: async () => 20 }, './rate-limit': { enforceRateLimit: async () => {} }, '../lib/owner-email': {
     ownerEmailVerificationIsConfigured: async () => true,
     sendOwnerVerificationEmail: async input => sent.push({ kind: 'confirmation', ...input }),
     sendPasswordResetEmail: async input => sent.push({ kind: 'reset', ...input }),
@@ -48,8 +48,8 @@ test('assisted recovery changes only target credentials, revokes sessions and li
     assert.equal((await f.storage.prepare("SELECT used_at FROM password_resets WHERE token_hash='other'").first()).used_at, null);
   } finally { f.storage.close(); }
 });
-test('assisted recovery rejects non-admin, own workspace, unconfirmed, blocked, inactive and privileged owners', async () => {
-  for (const options of [{ verified:false, status:'pending_email' },{ status:'blocked' },{ active:false },{ platformAdmin:true },{}]) {
+test('assisted recovery rejects non-admin, own workspace, blocked, inactive and privileged owners', async () => {
+  for (const options of [{ status:'blocked' },{ active:false },{ platformAdmin:true },{}]) {
     const f = await fixture(options);
     try {
       const before = await f.storage.prepare('SELECT * FROM auth_accounts WHERE id=900').first();
@@ -82,4 +82,40 @@ test('expired trial can recover password and unknown email creates no token or m
     assert.equal(f.sent[0].kind,'reset');
     assert.equal((await f.storage.prepare('SELECT COUNT(*) n FROM password_resets').first()).n,1);
   } finally { f.storage.close(); }
+});
+
+// A support password change must never confirm an address or activate a trial.
+test('admin can set a pending owner password while login remains blocked until email confirmation', async () => {
+  const f = await fixture({ verified:false, status:'pending_email' });
+  try {
+    const before = await f.storage.prepare('SELECT * FROM organizations WHERE id=900').first();
+    await f.auth.setBarbershopOwnerPassword(f.admin,900,'new-fixture-password');
+    const account = await f.storage.prepare('SELECT * FROM auth_accounts WHERE id=900').first();
+    assert.equal(account.email_verified_at,null);
+    assert.equal(account.password_hash,pbkdf2Sync('new-fixture-password',Buffer.from(account.password_salt,'hex'),100000,32,'sha256').toString('hex'));
+    await assert.rejects(f.auth.loginWithPassword('owner@example.invalid','new-fixture-password'),/Confirme seu e-mail/);
+    assert.deepEqual(await f.storage.prepare('SELECT * FROM organizations WHERE id=900').first(),before);
+    assert.equal((await f.storage.prepare('SELECT COUNT(*) n FROM auth_sessions').first()).n,0);
+    const shops = await f.auth.listBarbershops(f.admin);
+    const shop = shops.find(s=>s.id===900);
+    assert.equal(shop.ownerHasPassword,true);
+    assert.equal(shop.ownerEmailVerified,false);
+  } finally { f.storage.close(); }
+});
+test('admin access email uses the registered account address and never grants login or renews a trial', async () => {
+  for (const verified of [true,false]) {
+    const f = await fixture({ verified, status:verified ? 'trial':'pending_email' });
+    try {
+      await f.storage.prepare("UPDATE team SET login_email='stale@example.invalid' WHERE id=900").run();
+      const before = await f.storage.prepare('SELECT * FROM organizations WHERE id=900').first();
+      await f.auth.sendBarbershopOwnerAccessEmail(f.admin,900);
+      assert.equal(f.sent.length,1);
+      assert.equal(f.sent[0].email,'owner@example.invalid');
+      assert.equal(f.sent[0].kind,verified ? 'reset':'confirmation');
+      const shops = await f.auth.listBarbershops(f.admin);
+      assert.equal(shops.find(s=>s.id===900).ownerEmail,'owner@example.invalid');
+      assert.deepEqual(await f.storage.prepare('SELECT * FROM organizations WHERE id=900').first(),before);
+      assert.equal((await f.storage.prepare('SELECT COUNT(*) n FROM auth_sessions').first()).n,0);
+    } finally { f.storage.close(); }
+  }
 });
