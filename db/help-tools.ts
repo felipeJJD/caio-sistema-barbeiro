@@ -229,8 +229,8 @@ export async function executeHelpTool(access:AccessContext, intent:HelpIntent, p
     }
     case "get_monthly_members": {
       if (!access.isOwner) return deny("os mensalistas da barbearia");
-      const items=await rows<{name:string;due_date:string;balance:number;status:string}>(db,"SELECT name,due_date,balance,status FROM clients WHERE organization_id = ? AND deleted_at IS NULL AND status = 'Ativo' ORDER BY due_date,name LIMIT 30",access.organizationId);
-      return reply({answer:`${items.length}${items.length===30?" ou mais":""} mensalista${items.length===1?"":"s"} ativo${items.length===1?"":"s"}.`,details:items.map(c=>`${c.name}: ${c.balance} uso(s) · vence ${dateLabel(c.due_date)}`).join("\n")||undefined,destination:{section:"Mensalistas",label:"Abrir Mensalistas"}});
+      const items=await rows<{name:string;due_date:string;balance:number;unlimited_uses:number;status:string}>(db,"SELECT name,due_date,balance,unlimited_uses,status FROM clients WHERE organization_id = ? AND deleted_at IS NULL AND status = 'Ativo' ORDER BY due_date,name LIMIT 30",access.organizationId);
+      return reply({answer:`${items.length}${items.length===30?" ou mais":""} mensalista${items.length===1?"":"s"} ativo${items.length===1?"":"s"}.`,details:items.map(c=>`${c.name}: ${c.unlimited_uses ? "Usos ilimitados" : `${c.balance} uso(s)`} · vence ${dateLabel(c.due_date)}`).join("\n")||undefined,destination:{section:"Mensalistas",label:"Abrir Mensalistas"}});
     }
     case "get_products": {
       const items=await rows<{name:string;stock_quantity:number;price_cents:number}>(db,"SELECT name,stock_quantity,price_cents FROM shop_products WHERE organization_id = ? AND deleted_at IS NULL AND active = 1 ORDER BY name LIMIT 40",access.organizationId);
