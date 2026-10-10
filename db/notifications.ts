@@ -88,7 +88,7 @@ function pushLog(kind: string, details: Record<string, string | number>) {
 }
 
 function pushError(kind: string, details: Record<string, string | number>, error: unknown) {
-  console.error(`[push:${kind}:error]`, { ...details, error: error instanceof Error ? error.message : String(error) });
+  console.error(`[push:${kind}:error]`, { ...details, error: error instanceof Error ? error.name : "Unknown" });
 }
 
 function pushFailureStatus(error: unknown) {
@@ -109,13 +109,17 @@ function logBatchResult(kind: string, details: Record<string, string | number>, 
   });
   if (!result.failed.length) return;
   const statuses = new Map<string, number>();
+  const reasons = new Map<string, number>();
   for (const item of result.failed) {
     const status = pushFailureStatus(item.error);
     statuses.set(status, (statuses.get(status) ?? 0) + 1);
+    const reason = status === "400" ? "invalid-request" : status === "401" || status === "403" ? "authorization-rejected" : status === "404" || status === "410" ? "subscription-expired" : status === "429" ? "provider-rate-limit" : status === "network" ? "network-error" : Number(status) >= 500 ? "provider-unavailable" : "unknown";
+    reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
   }
   console.error(`[push:${kind}:failed]`, {
     ...details,
     failed: result.failed.length,
+    reasons: [...reasons.entries()].map(([reason, count]) => `${reason}:${count}`).join(","),
     statuses: [...statuses.entries()].map(([status, count]) => `${status}:${count}`).join(","),
   });
 }

@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { getSessionAccess } from "../../../../db/auth";
 import { getMercadoPagoIntegrationStatus, getMercadoPagoMarketplaceStatus, saveMercadoPagoCredentials, saveMercadoPagoMarketplaceCredentials } from "../../../../db/platform-secrets";
 
@@ -11,7 +12,7 @@ export async function GET() {
     if (!access) return noStore({ error: "Sua sessão terminou. Entre novamente." }, 401);
     return noStore({ status: await getMercadoPagoIntegrationStatus(access), marketplaceStatus: await getMercadoPagoMarketplaceStatus(access) });
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível consultar a integração." }, 403);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível consultar a integração.") }, 403);
   }
 }
 
@@ -35,6 +36,6 @@ export async function POST(request: Request) {
       marketplaceStatus: await getMercadoPagoMarketplaceStatus(access),
     });
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível conectar o Mercado Pago." }, 400);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível conectar o Mercado Pago.") }, 400);
   }
 }

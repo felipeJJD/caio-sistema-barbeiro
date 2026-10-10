@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../lib/api-error";
 import { getSessionAccess } from "../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../db/access";
 import { validNotificationOrigin as validOrigin } from "../../../lib/request-origin";
@@ -17,7 +18,7 @@ export async function GET() {
     const [publicKey, notifications] = await Promise.all([getVapidPublicKey(), listNotifications(access)]);
     return Response.json({ publicKey, configured: Boolean(publicKey), notifications }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar as notificações." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível carregar as notificações.") }, { status: 400 });
   }
 }
 
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true, notifications: await listNotifications(access) });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível configurar as notificações." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível configurar as notificações.") }, { status: 400 });
   }
 }
 
@@ -60,6 +61,6 @@ export async function DELETE(request: Request) {
     await removePushSubscription(access, String(data.endpoint ?? ""));
     return Response.json({ ok: true });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível desligar as notificações." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível desligar as notificações.") }, { status: 400 });
   }
 }

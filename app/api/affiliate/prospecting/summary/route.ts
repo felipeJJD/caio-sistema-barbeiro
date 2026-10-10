@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../../lib/api-error";
 import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
 import { affiliateProspectingFetch, affiliateProspectorIdentity } from "../../../../../lib/affiliate-prospecting-bridge";
 
@@ -14,6 +15,6 @@ export async function GET() {
     });
     return noStore(payload, response.status);
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível carregar o resumo da prospecção." }, 503);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível carregar o resumo da prospecção.") }, 503);
   }
 }

@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../../lib/api-error";
 import { findPublicMembership, searchPublicMembershipNames } from "../../../../../db/public-booking";
 import { enforceRateLimit, RateLimitError } from "../../../../../db/rate-limit";
 
@@ -27,7 +28,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     return Response.json({ candidates }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Não foi possível procurar o mensalista." },
+      { error: publicErrorMessage(error, "Não foi possível procurar o mensalista.") },
       { status: error instanceof RateLimitError ? 429 : 400, headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -55,7 +56,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     return Response.json({ membership }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Não foi possível identificar o mensalista." },
+      { error: publicErrorMessage(error, "Não foi possível identificar o mensalista.") },
       { status: error instanceof RateLimitError ? 429 : 400, headers: { "Cache-Control": "no-store" } },
     );
   }

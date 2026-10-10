@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../../../lib/api-error";
 import { getSessionAccess } from "../../../../../../db/auth";
 import { getTeamPaymentClosureForAccess } from "../../../../../../db/team-money";
 import { buildTeamClosurePdf } from "../../../../../../lib/team-closure-pdf";
@@ -27,6 +28,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       },
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível gerar o PDF." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível gerar o PDF.") }, { status: 400 });
   }
 }

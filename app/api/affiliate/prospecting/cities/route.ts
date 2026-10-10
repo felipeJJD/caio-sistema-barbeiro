@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../../lib/api-error";
 import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
 import { affiliateProspectingFetch } from "../../../../../lib/affiliate-prospecting-bridge";
 
@@ -14,6 +15,6 @@ export async function GET(request: Request) {
     const { response, payload } = await affiliateProspectingFetch(`/api/locations/cities?uf=${encodeURIComponent(uf)}`);
     return noStore(payload, response.status);
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível carregar as cidades." }, 503);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível carregar as cidades.") }, 503);
   }
 }

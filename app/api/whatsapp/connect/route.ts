@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { getSessionAccess } from "../../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../../db/access";
 import {
@@ -19,7 +20,7 @@ export async function GET() {
     );
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Não foi possível preparar a conexão com a Meta." },
+      { error: publicErrorMessage(error, "Não foi possível preparar a conexão com a Meta.") },
       { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, whatsapp }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Não foi possível concluir a conexão com a Meta." },
+      { error: publicErrorMessage(error, "Não foi possível concluir a conexão com a Meta.") },
       { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }

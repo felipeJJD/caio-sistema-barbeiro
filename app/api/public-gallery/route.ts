@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../lib/api-error";
 import { getSessionAccess } from "../../../db/auth";
 import { assertGalleryUploadAllowed, deleteGalleryImage, isPublicGalleryKind, listPublicGalleryImages, nextGalleryPosition, updateGalleryImage } from "../../../db/public-gallery";
 import { getDb } from "../../../db/index";
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
     }
     return Response.json({ ok: true, images: await listPublicGalleryImages(access.organizationId, true) });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível publicar a foto." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível publicar a foto.") }, { status: 400 });
   }
 }
 
@@ -82,7 +83,7 @@ export async function PATCH(request: Request) {
     await updateGalleryImage(access, { id: Number(data.id), active: typeof data.active === "boolean" ? data.active : undefined, direction: data.direction });
     return Response.json({ ok: true, images: await listPublicGalleryImages(access.organizationId, true) });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível alterar a foto." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível alterar a foto.") }, { status: 400 });
   }
 }
 
@@ -95,6 +96,6 @@ export async function DELETE(request: Request) {
     await (await bucket()).delete(record.objectKey);
     return Response.json({ ok: true, images: await listPublicGalleryImages(access.organizationId, true) });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível excluir a foto." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível excluir a foto.") }, { status: 400 });
   }
 }

@@ -8,5 +8,5 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
   const { token } = await params;
   const invite = await getTeamInvitePreview(token);
   if (!invite || !invite.valid) return <InvalidInviteScreen status={invite?.status} />;
-  return <TeamInviteSetupScreen inviteToken={token} organizationName={invite.organizationName} invitedName={invite.invitedName} role={invite.role} accessRole={invite.accessRole} />;
+  return <TeamInviteSetupScreen inviteToken={token} organizationName={invite.organizationName} invitedName={invite.invitedName} invitedEmail={invite.invitedEmail} role={invite.role} accessRole={invite.accessRole} />;
 }

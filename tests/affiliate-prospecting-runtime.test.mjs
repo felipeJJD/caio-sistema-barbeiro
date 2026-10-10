@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { spawn, spawnSync } from 'node:child_process';
 import ts from 'typescript';
 import { validAppOrigin } from '../lib/request-origin.ts';
+import { publicErrorMessage } from '../lib/api-error.ts';
 function runtime(path,imports={},extra={}) {
  const module={exports:{}};
  const source=ts.transpile(fs.readFileSync(new URL('../'+path,import.meta.url),'utf8'),{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022});
@@ -270,6 +271,7 @@ test('ponte de prospecção indisponível não falsifica desconexão e recupera�
  test('ficha e pesquisa remota usam identidade da sessão e limitam os campos',async()=>{
  const calls=[];const prefix='../'.repeat(5);
  const api=runtime('app/api/affiliate/prospecting/claims/route.ts',{
+ [prefix+'lib/api-error']:{publicErrorMessage},
  [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active:true,affiliateId:42})},
  [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'}),affiliateProspectingFetch:async(path,options)=>{calls.push({path,...options});return {response:{status:200},payload:{items:[]}};}}
  });

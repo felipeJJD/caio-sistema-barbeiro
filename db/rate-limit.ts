@@ -24,8 +24,8 @@ export async function enforceRateLimit(input: {
   windowMs: number;
   message: string;
 }) {
-  const identifier = input.identifier?.trim();
-  if (!identifier) return;
+  // A shared fallback bucket is stricter, but never silently bypasses protection.
+  const identifier = input.identifier?.trim() || "missing-request-identity";
 
   const { env } = await import("@/runtime/env");
   const database = (env as unknown as { DB?: D1DatabaseLike }).DB;

@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { getSessionAccess } from "../../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../../db/access";
 import { disconnectEvolutionWhatsapp } from "../../../../db/evolution-whatsapp";
@@ -18,7 +19,7 @@ export async function GET() {
     if (!access.isOwner) return Response.json({ error: "Somente o proprietário pode configurar o WhatsApp." }, { status: 403 });
     return Response.json({ whatsapp: await getWhatsappAutomationStatus(access) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar o WhatsApp." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível carregar o WhatsApp.") }, { status: 400 });
   }
 }
 
@@ -64,6 +65,6 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true, whatsapp: await getWhatsappAutomationStatus(access) });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível salvar o WhatsApp." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível salvar o WhatsApp.") }, { status: 400 });
   }
 }

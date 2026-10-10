@@ -1,3 +1,5 @@
+import { validAppOrigin } from "../../../lib/request-origin";
+import { publicErrorMessage } from "../../../lib/api-error";
 import { isOrganizationAccessExpired } from "../../../db/access";
 import { getSessionAccess } from "../../../db/auth";
 import {
@@ -21,11 +23,12 @@ export async function GET() {
     if ("response" in auth) return auth.response;
     return Response.json(await listTeamCleanupCandidates(auth.access), { headers: { "cache-control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar a lixeira da equipe." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível carregar a lixeira da equipe.") }, { status: 400 });
   }
 }
 
 export async function POST(request: Request) {
+  if (!validAppOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
   try {
     const auth = await requireAccess();
     if ("response" in auth) return auth.response;
@@ -43,6 +46,6 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true, ...(await listTeamCleanupCandidates(auth.access)) }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível concluir a exclusão." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível concluir a exclusão.") }, { status: 400 });
   }
 }

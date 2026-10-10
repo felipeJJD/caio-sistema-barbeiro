@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { getSessionAccess } from "../../../../db/auth";
 import { BillingConfigurationError, createPixPayment, getPixPayment } from "../../../../db/billing";
 import type { PixPlanCode } from "../../../../db/platform-billing";
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
         configurationRequired: true,
       }, { status: 503 });
     }
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível gerar o Pix." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível gerar o Pix.") }, { status: 400 });
   }
 }
 
@@ -34,6 +35,6 @@ export async function GET(request: Request) {
     if (error instanceof BillingConfigurationError) {
       return Response.json({ error: "Integração Pix indisponível." }, { status: 503 });
     }
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível consultar o Pix." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível consultar o Pix.") }, { status: 400 });
   }
 }

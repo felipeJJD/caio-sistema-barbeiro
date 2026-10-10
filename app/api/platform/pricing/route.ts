@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { getSessionAccess } from "../../../../db/auth";
 import { getPlatformBillingOffer, savePlatformBillingOffer } from "../../../../db/platform-billing";
 import { requirePlatformAdmin } from "../../../../db/access";
@@ -13,7 +14,7 @@ export async function GET() {
     requirePlatformAdmin(access);
     return noStore({ offer: await getPlatformBillingOffer() });
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível consultar o preço." }, 403);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível consultar o preço.") }, 403);
   }
 }
 
@@ -35,6 +36,6 @@ export async function POST(request: Request) {
     });
     return noStore({ ok: true, offer });
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível salvar o preço." }, 400);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível salvar o preço.") }, 400);
   }
 }

@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import {
   deleteBarbershop,
   endBarbershopTrialNow,
@@ -23,7 +24,7 @@ export async function GET() {
     if (!access.isPlatformAdmin) return Response.json({ error: "Esta área é exclusiva do administrador da plataforma." }, { status: 403 });
     return Response.json(await platformData(access));
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar a plataforma." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível carregar a plataforma.") }, { status: 400 });
   }
 }
 
@@ -53,6 +54,6 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true, ...(await platformData(access)) });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível concluir a ação." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível concluir a ação.") }, { status: 400 });
   }
 }

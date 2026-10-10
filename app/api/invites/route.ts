@@ -1,6 +1,8 @@
+import { validAppOrigin } from "../../../lib/request-origin";
+import { publicErrorMessage } from "../../../lib/api-error";
 import { createTeamInvite, getSessionAccess, listTeamInvites, revokeTeamInvite, setTeamUserActive } from "../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../db/access";
-import { deleteTeamInviteHistoryRecord, listVisibleTeamUsers } from "../../../db/team-cleanup";
+import { deleteSuspendedTeamUser, deleteTeamInviteHistoryRecord, listVisibleTeamUsers } from "../../../db/team-cleanup";
 
 async function accessData(access: NonNullable<Awaited<ReturnType<typeof getSessionAccess>>>) {
   return { invites: await listTeamInvites(access), users: await listVisibleTeamUsers(access) };
@@ -14,11 +16,12 @@ export async function GET() {
     if (!access.isOwner) return Response.json({ error: "Somente o administrador pode gerenciar usuários." }, { status: 403 });
     return Response.json(await accessData(access));
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar os usuários." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível carregar os usuários.") }, { status: 400 });
   }
 }
 
 export async function POST(request: Request) {
+  if (!validAppOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
   try {
     const access = await getSessionAccess();
     if (!access) return Response.json({ error: "Sua sessão terminou. Entre novamente." }, { status: 401 });
@@ -31,6 +34,7 @@ export async function POST(request: Request) {
       const invite = await createTeamInvite(access, {
         teamMemberId: Number(data.teamMemberId ?? 0),
         invitedName: String(data.invitedName ?? ""),
+        invitedEmail: String(data.invitedEmail ?? ""),
         role: String(data.role ?? "Barbeiro"),
         accessRole: String(data.accessRole ?? "barber"),
         commissionRateBps: Number(data.commissionRateBps ?? 5000),
@@ -40,6 +44,8 @@ export async function POST(request: Request) {
       await revokeTeamInvite(access, Number(data.inviteId));
     } else if (data.action === "delete-history") {
       await deleteTeamInviteHistoryRecord(access, Number(data.inviteId));
+    } else if (data.action === "delete-user") {
+      await deleteSuspendedTeamUser(access, Number(data.teamMemberId));
     } else if (data.action === "toggle-user") {
       await setTeamUserActive(access, Number(data.teamMemberId), Boolean(data.active));
     } else {
@@ -48,6 +54,6 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true, ...(await accessData(access)), inviteUrl });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível concluir a ação." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível concluir a ação.") }, { status: 400 });
   }
 }

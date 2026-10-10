@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { getSessionAccess } from "../../../../db/auth";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,6 @@ export async function POST() {
     if (!access.isPlatformAdmin) return Response.json({ error: "Acesso restrito." }, { status: 403 });
     return Response.json({ error: "Pacotes de mensagens foram encerrados. WhatsApp está incluído na assinatura." }, { status: 410 });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível atualizar o pacote de WhatsApp." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível atualizar o pacote de WhatsApp.") }, { status: 400 });
   }
 }

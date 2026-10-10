@@ -284,7 +284,7 @@ export async function listTeamUsers(access: AccessContext) {
   }));
 }
 
-export async function createTeamInvite(access: AccessContext, input: { teamMemberId?: number; invitedName?: string; role?: string; accessRole?: string; commissionRateBps?: number }) {
+export async function createTeamInvite(access: AccessContext, input: { teamMemberId?: number; invitedName?: string; invitedEmail?: string; role?: string; accessRole?: string; commissionRateBps?: number }) {
   requireOwner(access);
   const db = await getDb();
   const requestedTeamMemberId = Number(input.teamMemberId ?? 0);
@@ -297,6 +297,9 @@ export async function createTeamInvite(access: AccessContext, input: { teamMembe
   if (existingMember && await hasPasswordForTeamMember(existingMember.id)) throw new Error("Este profissional já possui login. Use suspender ou reativar acesso.");
 
   const invitedName = existingMember?.name ?? input.invitedName?.trim().slice(0, 80) ?? "";
+  const emailValue = existingMember?.loginEmail || input.invitedEmail?.trim() || "";
+  const invitedEmail = emailValue ? validateEmail(emailValue) : "";
+  if (invitedEmail && invitedName.length < 2) throw new Error("Informe o nome do funcionário.");
   const role = existingMember?.role ?? (input.role?.trim().slice(0, 60) || "Barbeiro");
   const accessRole = existingMember?.accessRole === "owner" || (!existingMember && input.accessRole === "owner") ? "owner" : "barber";
   const commissionRateBps = Number(existingMember?.commissionRateBps ?? input.commissionRateBps ?? 5000);
@@ -312,6 +315,7 @@ export async function createTeamInvite(access: AccessContext, input: { teamMembe
     teamMemberId: existingMember?.id ?? null,
     tokenHash,
     invitedName,
+    invitedEmail,
     role,
     accessRole,
     commissionRateBps: Math.round(commissionRateBps),
@@ -357,6 +361,7 @@ export async function getTeamInvitePreview(inviteToken: string) {
   return {
     organizationName: organization.name,
     invitedName: invite.invitedName,
+    invitedEmail: invite.invitedEmail,
     role: invite.role,
     accessRole: invite.accessRole,
     expiresAt: invite.expiresAt,

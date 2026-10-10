@@ -159,3 +159,19 @@ test('editing without the new flag preserves unlimited mode and invalid numeric 
     for(const bad of [NaN,1.5,-1,Infinity]) await assert.rejects(f.dashboard.savePlan(f.access,{...values,unlimitedUses:false,maxUses:bad}),/valores válidos/);
   }finally{f.storage.close();}
 });
+
+test('monthly expiry also protects finite credits without changing existing balance or account status',async()=>{
+ const f=await fixture({unlimited:false,balance:4});try{
+ await f.storage.prepare('UPDATE clients SET due_date=? WHERE id=900').bind(day(-1)).run();
+ await assert.rejects(use(f),/venceu/);
+ await assert.rejects(f.publicBooking.findPublicMembership('unlimited-fixture','Cliente mensal','41999990000',900),/venceu/);
+ const row=await f.storage.prepare('SELECT balance,status FROM clients WHERE id=900').first();assert.equal(row.balance,4);assert.equal(row.status,'Ativo');
+ }finally{f.storage.close();}
+});
+test('disabled public booking blocks both membership name search and lookup',async()=>{
+ const f=await fixture();try{
+ await f.storage.prepare('UPDATE organizations SET public_booking_enabled=0 WHERE id=900').run();
+ await assert.rejects(f.publicBooking.searchPublicMembershipNames('unlimited-fixture','Cliente'),/não está disponível/);
+ await assert.rejects(f.publicBooking.findPublicMembership('unlimited-fixture','Cliente mensal','41999990000',900),/não está disponível/);
+ }finally{f.storage.close();}
+});

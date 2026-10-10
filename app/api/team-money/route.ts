@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../lib/api-error";
 import { getSessionAccess } from "../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../db/access";
 import { closeTeamPaymentCycle, getTeamMoneyData, saveTeamPaymentDay } from "../../../db/team-money";
@@ -9,7 +10,7 @@ export async function GET() {
     if (isOrganizationAccessExpired(access)) return Response.json({ error: "O período da barbearia terminou." }, { status: 402 });
     return Response.json({ data: await getTeamMoneyData(access) }, { headers: { "cache-control": "private, no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar a Minha Grana." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível carregar a Minha Grana.") }, { status: 400 });
   }
 }
 
@@ -31,6 +32,6 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true, closureId, data: await getTeamMoneyData(access) });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível concluir." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível concluir.") }, { status: 400 });
   }
 }

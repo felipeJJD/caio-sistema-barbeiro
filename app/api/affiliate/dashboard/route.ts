@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { getAffiliateSessionAccess } from "../../../../db/affiliate-auth";
 import { createAffiliateLink, deleteOwnUnusedAffiliateLink, getAffiliateDashboard, setOwnAffiliateLinkActive, setOwnReferralArchived, updateOwnAffiliatePix } from "../../../../db/affiliate-portal";
 
@@ -12,7 +13,7 @@ export async function GET(request: Request) {
     const month = new URL(request.url).searchParams.get("month") ?? undefined;
     return noStore(await getAffiliateDashboard(access, month));
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível carregar sua área." }, 400);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível carregar sua área.") }, 400);
   }
 }
 
@@ -38,6 +39,6 @@ export async function POST(request: Request) {
     }
     return noStore({ ok: true, ...(await getAffiliateDashboard(access, String(body.month ?? ""))) });
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível salvar." }, 400);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível salvar.") }, 400);
   }
 }
