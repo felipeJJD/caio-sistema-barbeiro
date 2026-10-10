@@ -680,7 +680,7 @@ export async function rescheduleAppointmentFromAgenda(access: AccessContext, inp
   });
   if (changed && existing.status === "Agendado") {
     const queued = await queueAppointmentWhatsappSafely("rescheduled", existing.id);
-    if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, 3);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, existing.id, 3);
   }
 }
 
@@ -701,7 +701,7 @@ export async function cancelAppointment(access: AccessContext, id: number) {
     time: existing.appointmentTime,
   });
   const queued = await queueAppointmentWhatsappSafely("cancellation", id);
-  if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, 3);
+  if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, id, 3);
 }
 
 export async function confirmAppointment(access: AccessContext, id: number, pixPaymentVerified = false) {
@@ -721,7 +721,7 @@ export async function confirmAppointment(access: AccessContext, id: number, pixP
   )).returning({ id: appointments.id });
   if (!updated.length) throw new Error("O estado deste agendamento mudou. Atualize a agenda.");
   const queued = await queueAppointmentWhatsappSafely("confirmation", id);
-  if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, 3);
+  if (queued.queued) await processConnectedWhatsappQueueSafely(access.organizationId, id, 3);
 }
 export async function completeAppointment(access: AccessContext, input: { id: number; occurredAt: string; paymentMethodId: number; membershipClientId?: number; tipCents?: number }) {
   const db = await getDb();
@@ -873,8 +873,23 @@ export async function saveTeamMember(access: AccessContext, input: { id?: number
   const requestedEmail = input.loginEmail?.trim().toLowerCase() || null;
   if (requestedEmail && !requestedEmail.includes("@")) throw new Error("Informe um e-mail de acesso válido.");
   const members = await db.select().from(team).where(eq(team.organizationId, access.organizationId));
-  if (requestedEmail && members.some((member) => member.id !== input.id && member.loginEmail?.toLowerCase() === requestedEmail)) throw new Error("Este e-mail já está ligado a outro profissional.");
+  if (input.id && !members.some((member) => member.id === input.id)) throw new Error("Profissional não encontrado nesta barbearia.");
   const isSelf = input.id === access.teamMemberId;
+  const loginEmail = isSelf ? access.email.trim().toLowerCase() : requestedEmail;
+  const emailInUse = "Este e-mail já está em uso. Use outro e-mail para este profissional.";
+  if (loginEmail) {
+    const [existingMember, existingAccount] = await Promise.all([
+      db.select({ id: team.id }).from(team).where(and(
+        sql`lower(${team.loginEmail}) = ${loginEmail}`,
+        input.id ? sql`${team.id} <> ${input.id}` : undefined,
+      )).limit(1),
+      db.select({ id: authAccounts.id }).from(authAccounts).where(and(
+        sql`lower(${authAccounts.email}) = ${loginEmail}`,
+        input.id ? sql`${authAccounts.teamMemberId} <> ${input.id}` : undefined,
+      )).limit(1),
+    ]);
+    if (existingMember.length || existingAccount.length) throw new Error(emailInUse);
+  }
   const values: {
     name: string;
     role: string;
@@ -887,18 +902,28 @@ export async function saveTeamMember(access: AccessContext, input: { id?: number
   } = {
     name: input.name.trim(),
     role: input.role.trim(),
-    loginEmail: isSelf ? access.email : requestedEmail,
+    loginEmail,
     accessRole: isSelf ? "owner" : input.accessRole === "owner" ? "owner" : "barber",
     commissionRateBps: input.commissionRateBps,
     active: isSelf ? true : input.active,
     commissionCents: 0,
   };
   if (input.weeklyHours !== undefined) values.weeklyBookingHours = serializeTeamWeeklyBookingHours(input.weeklyHours);
-  if (input.id) {
-    await db.update(team).set(values).where(and(eq(team.id, input.id), eq(team.organizationId, access.organizationId)));
-    await syncTeamAccount(input.id, values.loginEmail, values.active);
-  } else {
-    await db.insert(team).values({ ...values, organizationId: access.organizationId, weeklyBookingHours: values.weeklyBookingHours ?? "" });
+  try {
+    if (input.id) {
+      await db.update(team).set(values).where(and(eq(team.id, input.id), eq(team.organizationId, access.organizationId)));
+      await syncTeamAccount(input.id, values.loginEmail, values.active);
+    } else {
+      await db.insert(team).values({ ...values, organizationId: access.organizationId, weeklyBookingHours: values.weeklyBookingHours ?? "" });
+    }
+  } catch (error) {
+    // A second request may claim this email between validation and the write.
+    let cause: unknown = error;
+    for (let depth = 0; cause instanceof Error && depth < 5; depth += 1) {
+      if (/unique constraint failed: (team\.login_email|auth_accounts\.email)/i.test(cause.message)) throw new Error(emailInUse);
+      cause = cause.cause;
+    }
+    throw error;
   }
 }
 

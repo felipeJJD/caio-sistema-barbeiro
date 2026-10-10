@@ -11,6 +11,7 @@ import {
   whatsappMessages,
 } from "./schema";
 import { normalizeWhatsappPhone } from "../lib/whatsapp";
+import { cancelInvalidAppointmentMessage } from "./whatsapp-message-guard";
 import { evolutionDeliveryStatus, evolutionRetryDelay } from "../lib/evolution-status";
 import { getWhatsappAutomationStatus, type WhatsappInboundTextEvent } from "./whatsapp";
 
@@ -301,7 +302,7 @@ async function sendEvolutionText(instance: string, phone: string, text: string) 
   return providerMessageId;
 }
 
-export async function processEvolutionWhatsappQueue(options: { organizationId?: number; limit?: number } = {}) {
+export async function processEvolutionWhatsappQueue(options: { organizationId?: number; appointmentId?: number; limit?: number } = {}) {
   const db = await getDb();
   const limit = Math.max(1, Math.min(50, Math.round(Number(options.limit ?? 20))));
   const now = new Date().toISOString();
@@ -309,6 +310,7 @@ export async function processEvolutionWhatsappQueue(options: { organizationId?: 
   // happened. Surface it as failed for reconciliation instead of leaving it stuck.
   await db.update(whatsappMessages).set({ status:"failed", failedAt:now, errorText:"Envio interrompido; confirme no WhatsApp antes de reenviar.", updatedAt:now }).where(and(
     options.organizationId ? eq(whatsappMessages.organizationId, options.organizationId) : undefined,
+    options.appointmentId !== undefined ? eq(whatsappMessages.appointmentId, options.appointmentId) : undefined,
     eq(whatsappMessages.status, "sending"),
     lte(whatsappMessages.updatedAt, new Date(Date.now() - 10 * 60_000).toISOString()),
     sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'evolution')`,
@@ -317,9 +319,12 @@ export async function processEvolutionWhatsappQueue(options: { organizationId?: 
     eq(whatsappMessages.status, "queued"),
     and(eq(whatsappMessages.status, "failed"), eq(whatsappMessages.errorText, META_FALLTHROUGH_ERROR)),
   );
-  const condition = options.organizationId
-    ? and(eq(whatsappMessages.organizationId, options.organizationId), statusCondition, lte(whatsappMessages.scheduledAt, now), sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'evolution')`)
-    : and(statusCondition, lte(whatsappMessages.scheduledAt, now), sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'evolution')`);
+  const condition = and(
+    options.organizationId !== undefined ? eq(whatsappMessages.organizationId, options.organizationId) : undefined,
+    options.appointmentId !== undefined ? eq(whatsappMessages.appointmentId, options.appointmentId) : undefined,
+    eq(whatsappMessages.direction, "outbound"), statusCondition, lte(whatsappMessages.scheduledAt, now),
+    sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'evolution')`,
+  );
   const queue = await db.select().from(whatsappMessages).where(condition).orderBy(whatsappMessages.scheduledAt, whatsappMessages.id).limit(limit);
   let sent = 0;
   let failed = 0;
@@ -362,6 +367,7 @@ export async function processEvolutionWhatsappQueue(options: { organizationId?: 
     if (!claimed[0]?.id) continue;
 
     try {
+      if (await cancelInvalidAppointmentMessage(message)) continue;
       const payload = JSON.parse(message.payloadJson || "{}") as Record<string, string>;
       const text = evolutionText(message.kind, payload);
       const providerMessageId = await sendEvolutionText(connection.phoneNumberId, message.phone, text);
