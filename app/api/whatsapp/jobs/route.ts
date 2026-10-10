@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { processWhatsappQueue } from "../../../../db/whatsapp";
 import { processEvolutionWhatsappQueue } from "../../../../db/evolution-whatsapp";
 
@@ -23,7 +24,7 @@ async function run(request: Request) {
       providers: { meta, evolution },
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível processar a fila." }, { status: 500 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível processar a fila.") }, { status: 500 });
   }
 }
 

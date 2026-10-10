@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../../lib/api-error";
 import { after } from "next/server";
 import {
   handleEvolutionWebhook,
@@ -64,6 +65,6 @@ export async function POST(request: Request) {
     }
     return Response.json({ ok:true, received:result.received, statuses:result.statuses });
   } catch (error) {
-    return Response.json({ error:error instanceof Error ? error.message : "Webhook inválido." }, { status:Number((error as {status?:number})?.status) === 503 ? 503 : 400 });
+    return Response.json({ error: publicErrorMessage(error, "Webhook inválido.") }, { status:Number((error as {status?:number})?.status) === 503 ? 503 : 400 });
   }
 }

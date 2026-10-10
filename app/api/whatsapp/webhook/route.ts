@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { after } from "next/server";
 import { handleWhatsappWebhook } from "../../../../db/whatsapp";
 import { processCaAtendeSmartInboundSafely } from "../../../../db/ca-atende-smart";
@@ -59,6 +60,6 @@ export async function POST(request: Request) {
     }
     return Response.json({ ok: true, received: result.received, statuses: result.statuses });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Webhook inválido." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Webhook inválido.") }, { status: 400 });
   }
 }

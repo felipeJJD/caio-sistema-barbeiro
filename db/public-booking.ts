@@ -128,6 +128,8 @@ export async function getPublicBookingData(slugValue: string): Promise<PublicBoo
 export async function getPublicBookingPaymentOptions(slugValue: string) {
   const slug = cleanSlug(slugValue);
   if (!slug) return null;
+  const publicData = await getPublicBookingData(slug);
+  if (!publicData?.organization.enabled) throw new Error("O agendamento online desta barbearia não está disponível agora.");
   const db = await getDb();
   const organization = (await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).limit(1))[0];
   if (!organization) return null;
@@ -157,6 +159,8 @@ export type PublicMembershipCandidate = {
 async function publicMembershipContext(slugValue: string) {
   const slug = cleanSlug(slugValue);
   if (!slug) throw new Error("Barbearia não encontrada.");
+  const publicData = await getPublicBookingData(slug);
+  if (!publicData?.organization.enabled) throw new Error("O agendamento online desta barbearia não está disponível agora.");
   const db = await getDb();
   const organization = (await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).limit(1))[0];
   if (!organization) throw new Error("Barbearia não encontrada.");
@@ -178,7 +182,7 @@ export async function searchPublicMembershipNames(slugValue: string, queryValue:
   const context = await publicMembershipContext(slugValue);
   const usableClients = context.clientList.filter((client) => {
     const plan = context.planList.find((item) => item.id === client.planId);
-    return Boolean(plan && resolveMembershipService(plan.planKind, plan.name, context.serviceList, plan.serviceId));
+    return Boolean(client.dueDate >= appDate() && plan && resolveMembershipService(plan.planKind, plan.name, context.serviceList, plan.serviceId));
   });
   const names = usableClients.map((client) => client.name);
   return usableClients
@@ -227,7 +231,7 @@ export async function findPublicMembership(slugValue: string, nameValue: string,
   if (!plan) throw new Error("Seu cadastro mensalista está sem um plano ativo. Fale com a barbearia.");
   const service = resolveMembershipService(plan.planKind, plan.name, context.serviceList, plan.serviceId);
   if (!service) throw new Error("O serviço do seu plano precisa ser revisado pela barbearia antes de agendar.");
-  if (client.unlimitedUses && client.dueDate < appDate()) throw new Error("Seu plano venceu. Fale com a barbearia para renovar antes de agendar.");
+  if (client.dueDate < appDate()) throw new Error("Seu plano venceu. Fale com a barbearia para renovar antes de agendar.");
   const reservedUses = context.reservedRows.filter((row) => row.clientId === client.id).length;
   const remainingUses = availableMembershipUses(client.balance, reservedUses);
   if (!client.unlimitedUses && remainingUses <= 0) throw new Error("Seu plano não possui créditos disponíveis no momento.");
@@ -335,7 +339,7 @@ export async function createPublicBooking(slug: string, input: { date: string; t
   const membership = input.isMembership ? await findPublicMembership(slug, clientName, phone, input.membershipClientId ?? 0) : null;
   if (membership && membership.clientId !== Number(input.membershipClientId || 0)) throw new Error("Confirme novamente seu cadastro de mensalista.");
   if (membership && membership.serviceId !== service.id) throw new Error("O serviço do seu plano mudou. Identifique seu cadastro novamente.");
-  if (membership?.unlimitedUses && input.date > membership.dueDate) throw new Error("Escolha um dia até o vencimento do seu plano ou renove com a barbearia.");
+  if (membership && input.date > membership.dueDate) throw new Error("Escolha um dia até o vencimento do seu plano ou renove com a barbearia.");
   const bookingClientName = membership?.clientName ?? clientName;
   const paymentChoice = input.isMembership ? "Mensalista" : input.paymentChoice;
   const allowedPayments = [data.payments.pixEnabled && "Pix", data.payments.cashEnabled && "Dinheiro", data.payments.debitEnabled && "Débito", data.payments.creditEnabled && "Crédito"].filter(Boolean) as string[];
@@ -371,7 +375,7 @@ export async function createPublicBooking(slug: string, input: { date: string; t
           AND reserved_credit.membership_client_id = membership_client.id
           AND reserved_credit.membership_credit_state = 'reserved'
       ))
-      AND (membership_client.unlimited_uses = 0 OR membership_client.due_date >= ?)
+      AND membership_client.due_date >= ?
       AND NOT EXISTS (
         SELECT 1
         FROM appointments AS existing
@@ -675,11 +679,11 @@ export async function cancelWhatsappManagedBooking(slugValue: string, phoneValue
   return { ...row, status:"Cancelado" };
 }
 
-async function assertUnlimitedMembershipDate(organizationId: number, clientId: number | null, date: string) {
+async function assertMembershipDate(organizationId: number, clientId: number | null, date: string) {
   if (!clientId) return;
   const db = await getDb();
   const client = (await db.select().from(clients).where(and(eq(clients.id, clientId), eq(clients.organizationId, organizationId))).limit(1))[0];
-  if (client?.unlimitedUses && (client.deletedAt || client.status !== "Ativo" || date > client.dueDate || appDate() > client.dueDate)) throw new Error("Renove o plano mensalista antes de agendar depois do vencimento.");
+  if (!client || client.deletedAt || client.status !== "Ativo" || date > client.dueDate || appDate() > client.dueDate) throw new Error("Renove o plano mensalista antes de agendar depois do vencimento.");
 }
 
 export async function rescheduleWhatsappManagedBooking(slugValue: string, phoneValue: string, appointmentId: number, date: string, time: string, options: { skipWhatsappNotice?: boolean } = {}) {
@@ -687,7 +691,7 @@ export async function rescheduleWhatsappManagedBooking(slugValue: string, phoneV
   if (!row) throw new Error("Não encontrei esse agendamento para este WhatsApp.");
   if (row.status === "Cancelado") throw new Error("Um horário cancelado não pode ser remarcado.");
   if (!clientCanChangeAppointment(row.date, row.time)) throw new Error("Faltam menos de 2 horas para o atendimento. Vou chamar a barbearia para ajudar.");
-  await assertUnlimitedMembershipDate(row.organizationId, row.membershipClientId, date);
+  await assertMembershipDate(row.organizationId, row.membershipClientId, date);
   const slots = await getPublicBookingSlots(slugValue, date, row.serviceId, row.barberId);
   if (!slots.some((slot) => slot.time === time && slot.barberId === row.barberId)) throw new Error("Esse horário não está mais disponível. Escolha outro.");
   const data = await getPublicBookingData(slugValue);
@@ -745,7 +749,7 @@ export async function reschedulePublicBooking(slug: string, token: string, date:
   if (!row) throw new Error("Este link não é válido ou já expirou.");
   if (row.status === "Cancelado") throw new Error("Um horário cancelado não pode ser remarcado por este link.");
   if (!clientCanChangeAppointment(row.date, row.time)) throw new Error("Faltam menos de 2 horas para o atendimento. Entre em contato diretamente com a barbearia.");
-  await assertUnlimitedMembershipDate(row.organizationId, row.membershipClientId, date);
+  await assertMembershipDate(row.organizationId, row.membershipClientId, date);
   const slots = await getPublicBookingSlots(slug, date, row.serviceId, row.barberId);
   if (!slots.some((slot) => slot.time === time && slot.barberId === row.barberId)) throw new Error("Esse horário não está mais disponível. Escolha outro.");
   const data = await getPublicBookingData(slug);

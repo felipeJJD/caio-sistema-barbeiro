@@ -124,7 +124,7 @@ export function PublicBookingApp({ data, today }: { data: PublicBookingData; tod
   const selectedBarberName = barberId ? data.barbers.find((item) => item.id === barberId)?.name : selectedSlot?.barberName;
   const selectedServiceLabel = isMembership && membershipInfo ? `Mensalista · ${membershipInfo.serviceName}` : service?.name ?? "";
   const calendarDays = useMemo(() => monthDays(month), [month]);
-  const maxDate = useMemo(() => { const value = new Date(`${today}T12:00:00`); value.setDate(value.getDate() + 90); const horizon = isoDate(value); return isMembership && membershipInfo?.unlimitedUses && membershipInfo.dueDate ? (membershipInfo.dueDate < horizon ? membershipInfo.dueDate : horizon) : horizon; }, [today, isMembership, membershipInfo]);
+  const maxDate = useMemo(() => { const value = new Date(`${today}T12:00:00`); value.setDate(value.getDate() + 90); const horizon = isoDate(value); return isMembership && membershipInfo?.dueDate ? (membershipInfo.dueDate < horizon ? membershipInfo.dueDate : horizon) : horizon; }, [today, isMembership, membershipInfo]);
   const cover = data.gallery.find((image) => image.kind === "cover");
   const shopImages = data.gallery.filter((image) => image.kind === "shop");
   const workImages = data.gallery.filter((image) => image.kind === "work");

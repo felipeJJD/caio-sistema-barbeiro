@@ -427,6 +427,7 @@ export const teamInvites = sqliteTable("team_invites", {
   teamMemberId: integer("team_member_id"),
   tokenHash: text("token_hash").notNull(),
   invitedName: text("invited_name").notNull().default(""),
+  invitedEmail: text("invited_email").notNull().default(""),
   role: text("role").notNull().default("Barbeiro"),
   accessRole: text("access_role").notNull().default("barber"),
   commissionRateBps: integer("commission_rate_bps").notNull().default(5000),

@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../../lib/api-error";
 import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
 import { affiliateProspectingFetch, affiliateProspectorIdentity } from "../../../../../lib/affiliate-prospecting-bridge";
 
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
     });
     return noStore(payload, response.status);
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível carregar a prospecção." }, 503);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível carregar a prospecção.") }, 503);
   }
 }
 
@@ -59,6 +60,6 @@ export async function POST(request: Request) {
     });
     return noStore(payload, response.status);
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível atualizar a prospecção." }, 503);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível atualizar a prospecção.") }, 503);
   }
 }

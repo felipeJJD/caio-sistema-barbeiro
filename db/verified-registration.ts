@@ -150,8 +150,6 @@ export async function hasPendingRegistrationEmail(emailValue: string, kind: Pend
 export async function startTeamInviteVerification(inviteToken: string, input: { name: string; email: string; password: string }) {
   if (!await ownerEmailVerificationIsConfigured()) throw new Error("O envio de confirmação por e-mail ainda não está configurado.");
   if (!/^[0-9a-f]{32}$/i.test(inviteToken)) throw new Error("Este convite não existe.");
-  const name = cleanName(input.name);
-  const email = normalizeEmail(input.email);
   validatePassword(input.password);
 
   const db = await getDb();
@@ -159,6 +157,8 @@ export async function startTeamInviteVerification(inviteToken: string, input: { 
   const invite = (await db.select().from(teamInvites).where(eq(teamInvites.tokenHash, tokenHash)).limit(1))[0];
   if (!invite) throw new Error("Este convite não existe.");
   if (!inviteAvailable(invite)) throw new Error("Este convite não está mais disponível. Peça um novo link ao administrador.");
+  const name = cleanName(invite.invitedEmail ? invite.invitedName : input.name);
+  const email = normalizeEmail(invite.invitedEmail || input.email);
   const organization = (await db.select({ name: organizations.name }).from(organizations).where(eq(organizations.id, invite.organizationId)).limit(1))[0];
   if (!organization) throw new Error("A barbearia deste convite não foi encontrada.");
   if ((await db.select({ id: authAccounts.id }).from(authAccounts).where(eq(authAccounts.email, email)).limit(1))[0]) {

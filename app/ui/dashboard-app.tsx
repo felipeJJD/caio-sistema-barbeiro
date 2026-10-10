@@ -1321,7 +1321,7 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
   const editorRef = useEditorAutoScroll<HTMLDivElement>(editingId);
   const editing = data.appointments.find((item) => item.id === editingId);
   const completingAppointment = data.appointments.find((item) => item.id === completingId);
-  const activeAppointments = data.appointments.filter((item) => item.status !== "Concluído" && item.status !== "Atendido");
+  const activeAppointments = data.appointments.filter((item) => (item.status !== "Concluído" && item.status !== "Atendido") || (item.status === "Concluído" && item.membershipCreditState === "reserved"));
   useEffect(() => {
     const id = Number(new URLSearchParams(window.location.search).get("appointment") || 0);
     if (!Number.isInteger(id) || id <= 0 || focusedFromNotificationRef.current === id || !data.appointments.some((item) => item.id === id)) return;
@@ -1386,7 +1386,7 @@ function Agenda({ data, post, pending }: { data: DashboardData; post: Post; pend
         {activeAppointments.map((item) => <article id={"appointment-" + item.id} className={(item.status === "Cancelado" ? "appointment canceled" : item.status === "Aguardando" || item.status === "Aguardando pagamento" ? "appointment awaiting" : "appointment") + (focusedId === item.id ? " notification-focus" : "")} key={item.id}>
           <time>{item.appointmentTime}<small>{date(item.appointmentDate)}</small></time>
           <div className="avatar">{initials(item.clientName)}</div>
-          <div className="appointment-info"><strong>{item.clientName}</strong><p>{item.paymentChoice === "Mensalista" ? "Mensalista" : item.serviceName} com {item.barberName}</p><small>{date(item.appointmentDate)} às {item.appointmentTime}</small><small>{item.phone}{item.notes ? ` · ${item.notes}` : ""}</small><small>{item.paymentChoice === "Mensalista" ? "Uso do plano mensal · conferir cadastro" : `Pagamento escolhido: ${item.paymentChoice}`}</small><small className="appointment-state-note">{item.status === "Agendado" ? "Horário confirmado" : item.status === "Aguardando pagamento" ? "Pagamento pendente · ainda não confirmado" : item.status === "Aguardando" && item.paymentChoice === "Pix" ? "Pix informado · confira o recebimento antes de confirmar" : item.status === "Aguardando" ? "Pedido pendente · confirme o horário" : item.status === "Cancelado" ? "Cancelado · use Remarcar para reativar" : item.status}</small>{item.reminderSentAt && <small className="appointment-reminder-status">✓ {reminderSentLabel(item.reminderSentAt)}</small>}</div>
+          <div className="appointment-info"><strong>{item.clientName}</strong><p>{item.paymentChoice === "Mensalista" ? "Mensalista" : item.serviceName} com {item.barberName}</p><small>{date(item.appointmentDate)} às {item.appointmentTime}</small><small>{item.phone}{item.notes ? ` · ${item.notes}` : ""}</small><small>{item.paymentChoice === "Mensalista" ? "Uso do plano mensal · conferir cadastro" : `Pagamento escolhido: ${item.paymentChoice}`}</small><small className="appointment-state-note">{item.status === "Agendado" ? "Horário confirmado" : item.status === "Aguardando pagamento" ? "Pagamento pendente · ainda não confirmado" : item.status === "Aguardando" && item.paymentChoice === "Pix" ? "Pix informado · confira o recebimento antes de confirmar" : item.status === "Aguardando" ? "Pedido pendente · confirme o horário" : item.status === "Cancelado" ? "Cancelado · use Remarcar para reativar" : item.status}</small>{item.status === "Concluído" && item.membershipCreditState === "reserved" && <small className="notice">Crédito ainda reservado. Conclua o atendimento para registrar o uso ou cancele se o cliente não compareceu.</small>}{item.reminderSentAt && <small className="appointment-reminder-status">✓ {reminderSentLabel(item.reminderSentAt)}</small>}</div>
           <span className={`status ${item.status.toLowerCase()}`}>{item.status === "Aguardando" && item.paymentChoice === "Pix" ? "Pix informado · conferir" : item.status}</span>
           <div className="appointment-actions">
             {(data.viewer.isOwner || item.barberId === data.viewer.teamMemberId) && item.status === "Aguardando" && item.paymentChoice !== "Pix" && <button className="confirm whatsapp-confirm" disabled={pending} title="Confirmar este horário" onClick={() => confirm(item)}>Confirmar horário</button>}
@@ -1506,6 +1506,13 @@ function Club({ data: baseData, register, renew, addClient, post, pending }: { d
   const membershipPayments = data.membershipPayments.filter((payment) => payment.paidMonth === selectedMonth);
   const membershipRecords = data.records.filter((item) => item.recordType === "Mensalista" && item.occurredAt.startsWith(selectedMonth));
   const monthTotals = membershipMonthTotals(membershipPayments, membershipRecords);
+  const marginWarnings = data.clients.filter((client) => {
+    const payment = membershipPayments.find((row) => row.clientId === client.id);
+    if (!(payment?.unlimitedUses ?? client.unlimitedUses)) return false;
+    const revenue = membershipPayments.filter((row) => row.clientId === client.id).reduce((sum, row) => sum + row.amountCents - row.feeCents, 0);
+    const commission = membershipRecords.filter((row) => row.membershipClientId === client.id).reduce((sum, row) => sum + row.commissionCents, 0);
+    return revenue > 0 && commission > revenue;
+  });
   const paymentByClient = new Map(membershipPayments.map((payment) => [payment.clientId, payment]));
   const usageByClient = new Map<number, number>();
   membershipRecords.forEach((record) => {
@@ -1581,7 +1588,7 @@ function Club({ data: baseData, register, renew, addClient, post, pending }: { d
     if (!window.confirm(`Excluir ${name} de ${referenceLabel}? A mensalidade e a receita deste mês serão removidas. Os atendimentos continuarão no Histórico.`)) return;
     await post({ action: "delete-membership-payment", id }, `${name} foi removido de ${referenceLabel}.`);
   }
-  return <>
+  return <>{marginWarnings.length > 0 && <div className="notice">Atenção aos ilimitados: as comissões superaram a mensalidade líquida neste mês para {marginWarnings.map((client) => client.name).join(", ")}. Confira o preço e a comissão do plano.</div>}
     <section className="panel date-filter membership-month-filter">
       <div><strong>Qual mês você quer consultar?</strong><small>Escolha o mês da mensalidade. Depois, pesquise pelo nome.</small></div>
       <label><span>MÊS DE REFERÊNCIA</span><input type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value || appMonth())} /></label>
@@ -1629,7 +1636,7 @@ function UserInvites() {
       const response = await fetch("/api/invites", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json() as AccessPayload;
       if (!response.ok) { setFeedback(payload.error ?? "Não foi possível concluir."); return false; }
-      applyPayload(payload); return true;
+      applyPayload(payload); window.dispatchEvent(new Event("cortou-anotou:refresh-data")); return true;
     } catch { setFeedback("Não foi possível concluir. Verifique sua conexão."); return false; }
     finally { setPending(false); }
   }
@@ -1637,7 +1644,7 @@ function UserInvites() {
   async function createInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget; const data = new FormData(form);
-    const ok = await action({ action: "create", teamMemberId: Number(data.get("teamMemberId") ?? 0), invitedName: String(data.get("invitedName") ?? ""), role: String(data.get("role") ?? "Barbeiro"), accessRole: String(data.get("accessRole") ?? "barber"), commissionRateBps: Math.round(Number(data.get("commission") ?? 50) * 100) });
+    const ok = await action({ action: "create", teamMemberId: Number(data.get("teamMemberId") ?? 0), invitedName: String(data.get("invitedName") ?? ""), invitedEmail: String(data.get("invitedEmail") ?? ""), role: String(data.get("role") ?? "Barbeiro"), accessRole: String(data.get("accessRole") ?? "barber"), commissionRateBps: Math.round(Number(data.get("commission") ?? 50) * 100) });
     if (ok) { showAppToast("Convite criado. Copie o link e envie ao funcionário."); form.reset(); }
   }
 
@@ -1652,12 +1659,18 @@ function UserInvites() {
     }
   }
 
+  async function deleteUser(user: ManagedUser) {
+    if (!window.confirm(`Excluir o acesso de ${user.name}? Atendimentos, comissões e pagamentos serão preservados.`)) return;
+    if (user.active && !await action({ action: "toggle-user", teamMemberId: user.id, active: false })) return;
+    if (await action({ action: "delete-user", teamMemberId: user.id })) showAppToast("Acesso excluído. Histórico preservado.");
+  }
+
   async function toggleUser(user: ManagedUser) {
     const active = !user.active;
     if (await action({ action: "toggle-user", teamMemberId: user.id, active })) showAppToast(active ? "Acesso reativado." : "Acesso suspenso. Os registros foram preservados.");
   }
 
-  return <><section className="settings-layout user-access-layout"><div className="panel"><SectionTitle title="Usuários cadastrados" copy="Suspenda ou reative o acesso sem apagar atendimentos e ganhos." /><div className="user-access-list">{users.map((user) => <div className="user-access-row" key={user.id}><span className="avatar">{initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email || "Cadastro ainda sem e-mail"} · {user.accessRole === "owner" ? "Administrador" : "Funcionário"}</small></div><span className={user.active && user.hasPassword ? "access-state active" : "access-state"}>{user.active ? (user.hasPassword ? "Ativo" : "Senha pendente") : "Suspenso"}</span>{!user.isCurrentUser && <button className={user.active ? "suspend-button" : "reactivate-button"} disabled={pending} onClick={() => toggleUser(user)}>{user.active ? "Suspender" : "Reativar"}</button>}{user.isCurrentUser && <span className="self-label">VOCÊ</span>}</div>)}</div></div><div className="panel form-card compact"><SectionTitle title="Convidar funcionário" copy="Escolha alguém da equipe ou cadastre uma pessoa nova." /><form className="app-form" onSubmit={createInvite}><Field label="Quem será convidado?"><select name="teamMemberId" defaultValue="0"><option value="0">Novo profissional</option>{users.filter((user) => !user.isCurrentUser && !user.hasPassword).map((user) => <option value={user.id} key={user.id}>{user.name} — cadastro existente</option>)}</select></Field><Field label="Nome (para novo profissional)"><input name="invitedName" placeholder="Ex.: Novo barbeiro" /></Field><Field label="Função"><input name="role" defaultValue="Barbeiro" required /></Field><Field label="Permissão"><select name="accessRole" defaultValue="barber"><option value="barber">Funcionário — somente os próprios dados</option><option value="owner">Administrador — acesso completo</option></select></Field><Field label="Comissão avulso (%)"><input name="commission" type="number" min="0" max="100" step="0.01" defaultValue="50" required /></Field><p className="form-note">Ao escolher um cadastro existente, o acesso será ligado ao histórico correto desse profissional.</p><button className="primary-button" disabled={pending}>{pending ? "Gerando..." : "Gerar link de convite"}</button></form></div></section>{inviteUrl && <section className="panel invite-result"><div><span>LINK PRONTO PARA ENVIAR</span><strong>Este link funciona uma única vez e expira em 7 dias.</strong></div><div className="invite-copy"><input value={inviteUrl} readOnly aria-label="Link de convite" /><button onClick={copyInvite}>Copiar link</button></div><small>Por segurança, guarde este link agora. Depois de sair desta tela, gere outro se precisar.</small></section>}{feedback && <div className={feedback.includes("Não") || feedback.includes("não") ? "notice error access-feedback" : "notice access-feedback"}>{feedback}</div>}<section className="panel invite-history"><SectionTitle title="Convites recentes" copy="Links utilizados, ativos, expirados ou cancelados." /><div className="invite-list">{invites.map((invite) => <div className="invite-row" key={invite.id}><div><strong>{invite.invitedName || "Novo profissional"}</strong><small>{invite.role} · {invite.accessRole === "owner" ? "Administrador" : "Funcionário"} · expira {new Date(invite.expiresAt).toLocaleDateString("pt-BR")}</small></div><span className={`invite-status ${invite.status.toLowerCase()}`}>{invite.status}</span>{invite.status === "Ativo" && <button disabled={pending} onClick={() => revokeInvite(invite.id)}>Cancelar</button>}</div>)}{!invites.length && <Empty text="Nenhum convite criado ainda." />}</div></section></>;
+  return <><section className="settings-layout user-access-layout"><div className="panel"><SectionTitle title="Usuários cadastrados" copy="Suspenda, reative ou exclua o acesso. A exclusão suspende o acesso e preserva atendimentos e ganhos." /><div className="user-access-list">{users.map((user) => <div className="user-access-row" key={user.id}><span className="avatar">{initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email || "Cadastro ainda sem e-mail"} · {user.accessRole === "owner" ? "Administrador" : "Funcionário"}</small></div><span className={user.active && user.hasPassword ? "access-state active" : "access-state"}>{user.active ? (user.hasPassword ? "Ativo" : "Senha pendente") : "Suspenso"}</span>{!user.isCurrentUser && <button className={user.active ? "suspend-button" : "reactivate-button"} disabled={pending} onClick={() => toggleUser(user)}>{user.active ? "Suspender" : "Reativar"}</button>}{!user.isCurrentUser && <button className="suspend-button" disabled={pending} onClick={() => deleteUser(user)}>Excluir</button>}{user.isCurrentUser && <span className="self-label">VOCÊ</span>}</div>)}</div></div><div className="panel form-card compact"><SectionTitle title="Convidar funcionário" copy="Escolha alguém da equipe ou cadastre uma pessoa nova." /><form className="app-form" onSubmit={createInvite}><Field label="Quem será convidado?"><select name="teamMemberId" defaultValue="0"><option value="0">Novo profissional</option>{users.filter((user) => !user.isCurrentUser && !user.hasPassword).map((user) => <option value={user.id} key={user.id}>{user.name} — cadastro existente</option>)}</select></Field><Field label="Nome (para novo profissional)"><input name="invitedName" placeholder="Ex.: Novo barbeiro" /></Field><Field label="E-mail do funcionário"><input name="invitedEmail" type="email" autoCapitalize="none" placeholder="E-mail que ele usará para entrar" required /></Field><Field label="Função"><input name="role" defaultValue="Barbeiro" required /></Field><Field label="Permissão"><select name="accessRole" defaultValue="barber"><option value="barber">Funcionário — somente os próprios dados</option><option value="owner">Administrador — acesso completo</option></select></Field><Field label="Comissão avulso (%)"><input name="commission" type="number" min="0" max="100" step="0.01" defaultValue="50" required /></Field><p className="form-note">O funcionário abre o link e cria sua senha. Nome e e-mail já ficam preenchidos. Ele confirma o e-mail para liberar o acesso. Ao escolher um cadastro existente, preservamos seu histórico.</p><button className="primary-button" disabled={pending}>{pending ? "Gerando..." : "Gerar link de convite"}</button></form></div></section>{inviteUrl && <section className="panel invite-result"><div><span>LINK PRONTO PARA ENVIAR</span><strong>Este link funciona uma única vez e expira em 7 dias.</strong></div><div className="invite-copy"><input value={inviteUrl} readOnly aria-label="Link de convite" /><button onClick={copyInvite}>Copiar link</button></div><small>Por segurança, guarde este link agora. Depois de sair desta tela, gere outro se precisar.</small></section>}{feedback && <div className={feedback.includes("Não") || feedback.includes("não") ? "notice error access-feedback" : "notice access-feedback"}>{feedback}</div>}<section className="panel invite-history"><SectionTitle title="Convites recentes" copy="Links utilizados, ativos, expirados ou cancelados." /><div className="invite-list">{invites.map((invite) => <div className="invite-row" key={invite.id}><div><strong>{invite.invitedName || "Novo profissional"}</strong><small>{invite.role} · {invite.accessRole === "owner" ? "Administrador" : "Funcionário"} · expira {new Date(invite.expiresAt).toLocaleDateString("pt-BR")}</small></div><span className={`invite-status ${invite.status.toLowerCase()}`}>{invite.status}</span>{invite.status === "Ativo" && <button disabled={pending} onClick={() => revokeInvite(invite.id)}>Cancelar</button>}</div>)}{!invites.length && <Empty text="Nenhum convite criado ainda." />}</div></section></>;
 }
 
 function TeamHub({ post, pending }: { post: Post; pending: boolean }) {
@@ -2318,7 +2331,7 @@ function TeamSettings({ data, post, pending, editingId, setEditingId }: SettingP
     }
     setEditingId(null);
   }
-  return <SettingsLayout
+  return <><UserInvites /><SettingsLayout
     title="Equipe e acessos"
     copy="Cada profissional entra com seu próprio e-mail e pode ter dias e horários diferentes."
     list={<div className="edit-list">{data.team.map((x) => {
@@ -2351,7 +2364,7 @@ function TeamSettings({ data, post, pending, editingId, setEditingId }: SettingP
         <button className="primary-button" disabled={pending}>{pending ? "Salvando..." : "Salvar profissional, acesso e horários"}</button>
       </form>
     </>}
-  />;
+  /></>;
 }
 
 function GoalSettings({ data, post, pending }: { data: DashboardData; post: Post; pending: boolean }) { async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); await post({ action: "save-goal", revenueCents: Math.round(Number(f.get("revenue")) * 100), grossProfitCents: Math.round(Number(f.get("gross")) * 100), expenseCents: Math.round(Number(f.get("expense")) * 100), netProfitCents: Math.round(Number(f.get("net")) * 100), attendanceTarget: Number(f.get("attendance")) }, "Metas atualizadas."); } return <section className="panel form-card config-goal"><SectionTitle title={`Metas de ${appMonthLabel()}`} copy="Altere os objetivos sempre que quiser." /><form className="app-form field-grid" onSubmit={submit}><Field label="Faturamento (R$)"><input name="revenue" type="number" step="0.01" defaultValue={data.goal.revenueCents / 100} /></Field><Field label="Lucro bruto (R$)"><input name="gross" type="number" step="0.01" defaultValue={data.goal.grossProfitCents / 100} /></Field><Field label="Despesas (R$)"><input name="expense" type="number" step="0.01" defaultValue={data.goal.expenseCents / 100} /></Field><Field label="Lucro líquido (R$)"><input name="net" type="number" step="0.01" defaultValue={data.goal.netProfitCents / 100} /></Field><Field label="Atendimentos"><input name="attendance" type="number" defaultValue={data.goal.attendanceTarget} /></Field><button className="primary-button" disabled={pending}>Salvar metas</button></form></section>; }

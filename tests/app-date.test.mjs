@@ -48,3 +48,9 @@ test("rejects invalid or already started appointments", () => {
   assert.equal(clientCanChangeAppointment("data inválida", "12:00", now), false);
   assert.equal(clientCanChangeAppointment("2026-09-14", "09:00", now), false);
 });
+
+ test("monthly membership renews on day 1 and day 10, not after four weeks", () => {
+  assert.equal(nextMonthDueDate("2026-10-01"), "2026-11-01");
+  assert.equal(nextMonthDueDate("2026-10-10"), "2026-11-10");
+  assert.equal(membershipRenewalDates("2026-10-10", "2026-10-10").dueDate, "2026-11-10");
+});

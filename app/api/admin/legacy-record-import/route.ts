@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { backup, DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -52,6 +53,6 @@ export async function POST(request: Request) {
     return Response.json({ imported: prepared.pending.length, sourceIds: prepared.summary.pendingIds,
       snapshotCreated: true }, { headers: { "cache-control": "private, no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Falha na importação." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Falha na importação.") }, { status: 400 });
   }
 }

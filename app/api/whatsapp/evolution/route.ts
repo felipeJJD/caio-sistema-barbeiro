@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { getSessionAccess } from "../../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../../db/access";
 import {
@@ -16,7 +17,7 @@ export async function GET() {
     const status = await refreshEvolutionStatus(access);
     return Response.json({ evolution:getEvolutionClientConfig(), ...status }, { headers:{ "Cache-Control":"no-store" } });
   } catch (error) {
-    return Response.json({ error:error instanceof Error ? error.message : "Não foi possível consultar o WhatsApp." }, { status:400, headers:{ "Cache-Control":"no-store" } });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível consultar o WhatsApp.") }, { status:400, headers:{ "Cache-Control":"no-store" } });
   }
 }
 
@@ -33,6 +34,6 @@ export async function POST(request: Request) {
     const result = await beginEvolutionPairingSafe(access, phone);
     return Response.json({ ok:true, ...result }, { headers:{ "Cache-Control":"no-store" } });
   } catch (error) {
-    return Response.json({ error:error instanceof Error ? error.message : "Não foi possível gerar o código do WhatsApp." }, { status:400, headers:{ "Cache-Control":"no-store" } });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível gerar o código do WhatsApp.") }, { status:400, headers:{ "Cache-Control":"no-store" } });
   }
 }

@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../lib/api-error";
 import { isOrganizationAccessExpired } from "../../../db/access";
 import { getSessionAccess } from "../../../db/auth";
 import { getBusinessInsights } from "../../../db/business-insights";
@@ -10,6 +11,6 @@ export async function GET() {
     if (!access.isOwner) return Response.json({ error: "Somente o proprietário pode acessar esta análise." }, { status: 403 });
     return Response.json({ data: await getBusinessInsights(access) }, { headers: { "cache-control": "private, no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar a análise agora." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível carregar a análise agora.") }, { status: 400 });
   }
 }

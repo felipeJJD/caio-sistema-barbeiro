@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { requirePlatformAdmin } from "../../../../db/access";
 import { getSessionAccess } from "../../../../db/auth";
 import { getPlatformTrialDays, savePlatformTrialDays } from "../../../../db/platform-trial";
@@ -13,7 +14,7 @@ export async function GET() {
     requirePlatformAdmin(access);
     return noStore({ trialDays: await getPlatformTrialDays() });
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível consultar os dias de teste." }, 403);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível consultar os dias de teste.") }, 403);
   }
 }
 
@@ -25,6 +26,6 @@ export async function POST(request: Request) {
     const trialDays = await savePlatformTrialDays(access, data.trialDays);
     return noStore({ ok: true, trialDays });
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível salvar os dias de teste." }, 400);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível salvar os dias de teste.") }, 400);
   }
 }

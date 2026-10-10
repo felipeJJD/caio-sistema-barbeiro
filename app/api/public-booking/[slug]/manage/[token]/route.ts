@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../../../lib/api-error";
 import { cancelPublicBooking, getPublicBookingManagement, reschedulePublicBooking } from "@/db/public-booking";
 import { enforceRateLimit, RateLimitError } from "@/db/rate-limit";
 
@@ -16,7 +17,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     if (!booking) return Response.json({ error: "Este link não é válido ou já expirou." }, { status: 404 });
     return Response.json({ booking }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível consultar o horário." }, { status: error instanceof RateLimitError ? 429 : 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível consultar o horário.") }, { status: error instanceof RateLimitError ? 429 : 400 });
   }
 }
 
@@ -33,6 +34,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
     if (!booking) throw new Error("Escolha uma ação válida.");
     return Response.json({ ok: true, booking }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível alterar o horário." }, { status: error instanceof RateLimitError ? 429 : 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível alterar o horário.") }, { status: error instanceof RateLimitError ? 429 : 400 });
   }
 }

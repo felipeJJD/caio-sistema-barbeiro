@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../lib/api-error";
 import { changeOwnPassword, getSessionAccess, setPasswordForTeamMember } from "../../../db/auth";
 import { isOrganizationAccessExpired } from "../../../db/access";
 import { cancelAppointment, completeAppointment, confirmAppointment, createDailyRecord, deleteAppointment, deleteClient, deleteDailyRecord, deleteExpense, deleteMembershipPayment, deletePlan, deleteService, deleteTeamPayment, ensureDemoData, getDashboardData, markAppointmentReminderSent, registerAttendance, renewClient, saveAgendaSettings, saveAppointment, saveClient, saveExpense, saveGoal, savePayment, savePlan, saveService, saveTeamMember, saveTeamPayment, syncFinishedAppointments, updateAppointmentDetails, rescheduleAppointmentFromAgenda, updateDailyRecord } from "../../../db/dashboard";
@@ -96,6 +97,6 @@ export async function POST(request: Request) {
     if (error instanceof Error && /^Failed query:/i.test(error.message)) {
       return Response.json({ error: "Não foi possível salvar a alteração. Confira os dados e tente novamente." }, { status: 400 });
     }
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível concluir a ação." }, { status: 400 });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível concluir a ação.") }, { status: 400 });
   }
 }

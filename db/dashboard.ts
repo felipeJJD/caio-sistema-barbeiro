@@ -259,7 +259,7 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
     const [rawClients, rawPlans, rawTeam, rawTeamPayments, accountRows, serviceList, payments, rawMembershipPayments, expenseList, goalRows, recordList, appointmentList, reservedMembershipAppointments, notificationList, productData, billingOffer] = await Promise.all([
       db.select().from(clients).where(and(eq(clients.organizationId, organizationId), isNull(clients.deletedAt))).orderBy(clients.name),
       db.select().from(plans).where(eq(plans.organizationId, organizationId)).orderBy(plans.id),
-      db.select().from(team).where(eq(team.organizationId, organizationId)).orderBy(team.name),
+      db.select().from(team).where(and(eq(team.organizationId, organizationId), sql`NOT EXISTS (SELECT 1 FROM deleted_team_members WHERE team_member_id = ${team.id} AND organization_id = ${organizationId})`)).orderBy(team.name),
       access.isOwner ? db.select({ id: teamPayments.id, teamMemberId: teamPayments.teamMemberId, teamMemberName: teamPayments.teamMemberName, occurredAt: teamPayments.occurredAt, kind: teamPayments.kind, reason: teamPayments.reason, valueCents: teamPayments.valueCents }).from(teamPayments).where(and(eq(teamPayments.organizationId, organizationId), gte(teamPayments.occurredAt, period.start), lte(teamPayments.occurredAt, period.end))).orderBy(desc(teamPayments.occurredAt), desc(teamPayments.id)) : Promise.resolve([]),
       access.isOwner ? db.select({ teamMemberId: authAccounts.teamMemberId }).from(authAccounts).where(eq(authAccounts.organizationId, organizationId)) : Promise.resolve([]),
       db.select().from(services).where(and(eq(services.organizationId, organizationId), isNull(services.deletedAt))).orderBy(services.name),
@@ -373,7 +373,7 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
     const client = (await db.select().from(clients).where(and(eq(clients.id, input.membershipClientId ?? 0), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).limit(1))[0];
     if (!client) throw new Error("Escolha o mensalista.");
     if (client.status !== "Ativo") throw new Error("Este mensalista não está ativo.");
-    if (client.unlimitedUses && input.occurredAt > client.dueDate) throw new Error("Este plano venceu. Renove a mensalidade antes de registrar outro uso.");
+    if (input.occurredAt > client.dueDate) throw new Error("Este plano venceu. Renove a mensalidade antes de registrar outro uso.");
     const paymentList = await db.select().from(paymentMethods).where(eq(paymentMethods.organizationId, access.organizationId)).orderBy(paymentMethods.id);
     const selectedPayment = paymentList.find((item) => item.id === input.paymentMethodId);
     const payment = input.productItems?.length
@@ -393,7 +393,7 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
         eq(clients.organizationId, access.organizationId),
         eq(clients.status, "Ativo"),
         isNull(clients.deletedAt),
-        sql`(${clients.unlimitedUses} = 0 OR ${clients.dueDate} >= ${input.occurredAt})`,
+        sql`${clients.dueDate} >= ${input.occurredAt}`,
         sql`(${clients.unlimitedUses} = 1 OR ${clients.balance} > (
           SELECT COUNT(*)
           FROM appointments AS reserved_credit
@@ -593,7 +593,7 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
   if (existing) requireOwnBarber(access, existing.barberId);
   if (existing?.membershipClientId) {
     const member = (await db.select().from(clients).where(and(eq(clients.id, existing.membershipClientId), eq(clients.organizationId, access.organizationId))).limit(1))[0];
-    if (member?.unlimitedUses && (member.deletedAt || member.status !== "Ativo" || input.appointmentDate > member.dueDate)) throw new Error("Renove o plano mensalista antes de remarcar depois do vencimento.");
+    if (member && (member.deletedAt || member.status !== "Ativo" || input.appointmentDate > member.dueDate)) throw new Error("Renove o plano mensalista antes de remarcar depois do vencimento.");
   }
   const barber = (await db.select().from(team).where(and(eq(team.id, input.barberId), eq(team.organizationId, access.organizationId))).limit(1))[0];
   const service = (await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.organizationId, access.organizationId))).limit(1))[0];

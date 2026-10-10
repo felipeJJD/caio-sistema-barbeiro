@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../lib/api-error";
 import { createPublicBooking, getPublicBookingPaymentOptions, getPublicBookingSlots, reportPublicBookingPix } from "../../../../db/public-booking";
 import { enforceRateLimit, RateLimitError } from "../../../../db/rate-limit";
 
@@ -20,7 +21,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     );
     return Response.json({ slots }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível consultar os horários." }, { status: 400, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível consultar os horários.") }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 }
 
@@ -54,7 +55,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     });
     return Response.json({ ok: true, booking }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível concluir o agendamento." }, { status: error instanceof RateLimitError ? 429 : 400, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível concluir o agendamento.") }, { status: error instanceof RateLimitError ? 429 : 400, headers: { "Cache-Control": "no-store" } });
   }
 }
 
@@ -64,6 +65,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
     const data = await request.json() as Record<string, unknown>;
     return Response.json(await reportPublicBookingPix(slug, Number(data.appointmentId), String(data.paymentToken ?? "")), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível informar o pagamento." }, { status: 400, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ error: publicErrorMessage(error, "Não foi possível informar o pagamento.") }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 }

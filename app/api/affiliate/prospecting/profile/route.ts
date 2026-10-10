@@ -1,3 +1,4 @@
+import { publicErrorMessage } from "../../../../../lib/api-error";
 import { eq } from "drizzle-orm";
 import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
 import { getDb } from "../../../../../db/index";
@@ -24,6 +25,6 @@ export async function POST(request: Request) {
     await db.update(affiliates).set({ whatsapp, updatedAt: new Date().toISOString() }).where(eq(affiliates.id, access.affiliateId));
     return noStore({ ok: true, whatsapp });
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Não foi possível salvar o WhatsApp." }, 400);
+    return noStore({ error: publicErrorMessage(error, "Não foi possível salvar o WhatsApp.") }, 400);
   }
 }
