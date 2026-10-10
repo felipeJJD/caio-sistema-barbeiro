@@ -471,7 +471,7 @@ export async function createPublicBooking(slug: string, input: { date: string; t
     const queued = options.skipImmediateWhatsappConfirmation
       ? await queueAppointmentReminderOnlySafely(appointmentId)
       : await queueAppointmentWhatsappSafely("confirmation", appointmentId);
-    if (queued.queued) await processConnectedWhatsappQueueSafely(data.organization.id, 3);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(data.organization.id, appointmentId, 3);
   }
   return {
     id: appointmentId,
@@ -660,7 +660,7 @@ export async function cancelWhatsappManagedBooking(slugValue: string, phoneValue
   await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date: row.date, time: row.time, status: "Cancelado" }, "cancelled");
   if (!options.skipWhatsappNotice) {
     const queued = await queueAppointmentWhatsappSafely("cancellation", row.appointmentId);
-    if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, 3);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, row.appointmentId, 3);
   }
   return { ...row, status:"Cancelado" };
 }
@@ -698,7 +698,7 @@ export async function rescheduleWhatsappManagedBooking(slugValue: string, phoneV
   await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date, time, status: newStatus }, "rescheduled");
   if (newStatus === "Agendado" && !options.skipWhatsappNotice) {
     const queued = await queueAppointmentWhatsappSafely("rescheduled", row.appointmentId);
-    if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, 3);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, row.appointmentId, 3);
   }
   return { ...row, date, time, status:newStatus };
 }
@@ -718,7 +718,7 @@ export async function cancelPublicBooking(slug: string, token: string) {
   ));
   await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date: row.date, time: row.time, status: "Cancelado" }, "cancelled");
   const queued = await queueAppointmentWhatsappSafely("cancellation", row.appointmentId);
-  if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, 3);
+  if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, row.appointmentId, 3);
   return getPublicBookingManagement(slug, token);
 }
 
@@ -755,7 +755,7 @@ export async function reschedulePublicBooking(slug: string, token: string, date:
   await notifyBookingChange({ organizationId: row.organizationId, appointmentId: row.appointmentId, clientName: row.clientName, serviceName: row.serviceName, barberId: row.barberId, barberName: row.barberName, date, time, status: newStatus }, "rescheduled");
   if (newStatus === "Agendado") {
     const queued = await queueAppointmentWhatsappSafely("rescheduled", row.appointmentId);
-    if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, 3);
+    if (queued.queued) await processConnectedWhatsappQueueSafely(row.organizationId, row.appointmentId, 3);
   }
   return getPublicBookingManagement(slug, token);
 }

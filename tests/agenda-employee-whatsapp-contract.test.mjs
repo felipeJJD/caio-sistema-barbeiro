@@ -19,7 +19,7 @@ test("confirmar horário continua enviando confirmação automática",()=>{
   const end=dashboard.indexOf("export async function completeAppointment",start);
   const body=dashboard.slice(start,end);
   assert.match(body,/queueAppointmentWhatsappSafely\("confirmation", id\)/);
-  assert.match(body,/processConnectedWhatsappQueueSafely\(access\.organizationId, 3\)/);
+  assert.match(body,/processConnectedWhatsappQueueSafely\(access\.organizationId, id, 3\)/);
 });
 
 test("remarcação confirmada dispara WhatsApp e preserva isolamento",()=>{
@@ -30,5 +30,5 @@ test("remarcação confirmada dispara WhatsApp e preserva isolamento",()=>{
   assert.match(body,/requireOwnBarber\(access, existing\.barberId\)/);
   assert.match(body,/existing\.status === "Agendado"/);
   assert.match(body,/queueAppointmentWhatsappSafely\("rescheduled", existing\.id\)/);
-  assert.match(body,/processConnectedWhatsappQueueSafely\(access\.organizationId, 3\)/);
+  assert.match(body,/processConnectedWhatsappQueueSafely\(access\.organizationId, existing\.id, 3\)/);
 });

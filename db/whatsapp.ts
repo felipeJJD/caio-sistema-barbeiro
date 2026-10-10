@@ -5,6 +5,7 @@ import { getDb } from "./index";
 import { getWhatsappEntitlementForOrganization, type WhatsappEntitlement } from "./whatsapp-entitlement";
 import { decryptSecret, encryptSecret } from "./platform-secrets";
 import { normalizeWhatsappPhone, whatsappReminderAt } from "../lib/whatsapp";
+import { cancelInvalidAppointmentMessage } from "./whatsapp-message-guard";
 import {
   appointments,
   organizations,
@@ -555,8 +556,8 @@ async function appointmentContext(appointmentId: number) {
     barberName: team.name,
   }).from(appointments)
     .innerJoin(organizations, eq(organizations.id, appointments.organizationId))
-    .innerJoin(services, eq(services.id, appointments.serviceId))
-    .innerJoin(team, eq(team.id, appointments.barberId))
+    .innerJoin(services, and(eq(services.id, appointments.serviceId), eq(services.organizationId, appointments.organizationId)))
+    .innerJoin(team, and(eq(team.id, appointments.barberId), eq(team.organizationId, appointments.organizationId)))
     .where(eq(appointments.id, appointmentId))
     .limit(1))[0] ?? null;
 }
@@ -636,6 +637,7 @@ export async function queueAppointmentWhatsapp(kind: Exclude<WhatsappAutomationK
     await cancelPendingAppointmentMessages(appointment.organizationId, appointment.id, ["confirmation", "reminder", "rescheduled"]);
   }
   if (kind === "rescheduled") {
+    await cancelPendingAppointmentMessages(appointment.organizationId, appointment.id, ["confirmation"]);
     await cancelPendingAppointmentMessages(appointment.organizationId, appointment.id, ["reminder", "rescheduled"]);
   }
 
@@ -749,6 +751,7 @@ async function sendQueuedMessage(message: typeof whatsappMessages.$inferSelect) 
   }
 
   const token = await decryptSecret(connection.encryptedAccessToken, connection.accessTokenIv);
+  if (await cancelInvalidAppointmentMessage(message)) return null;
   const payload = JSON.parse(message.payloadJson || "{}") as Record<string, string>;
   const messageBody = message.kind === "bot_text"
     ? {
@@ -787,13 +790,17 @@ async function sendQueuedMessage(message: typeof whatsappMessages.$inferSelect) 
   return providerMessageId;
 }
 
-export async function processWhatsappQueue(options: { organizationId?: number; limit?: number } = {}) {
+export async function processWhatsappQueue(options: { organizationId?: number; appointmentId?: number; limit?: number } = {}) {
   const db = await getDb();
   const limit = Math.max(1, Math.min(50, Math.round(Number(options.limit ?? 20))));
   const now = new Date().toISOString();
-  const condition = options.organizationId
-    ? and(eq(whatsappMessages.organizationId, options.organizationId), eq(whatsappMessages.status, "queued"), lte(whatsappMessages.scheduledAt, now), sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'meta_cloud')`)
-    : and(eq(whatsappMessages.status, "queued"), lte(whatsappMessages.scheduledAt, now), sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'meta_cloud')`);
+  const condition = and(
+    options.organizationId !== undefined ? eq(whatsappMessages.organizationId, options.organizationId) : undefined,
+    options.appointmentId !== undefined ? eq(whatsappMessages.appointmentId, options.appointmentId) : undefined,
+    eq(whatsappMessages.direction, "outbound"),
+    eq(whatsappMessages.status, "queued"), lte(whatsappMessages.scheduledAt, now),
+    sql`exists (select 1 from whatsapp_connections c where c.organization_id = ${whatsappMessages.organizationId} and c.provider = 'meta_cloud')`,
+  );
   const queue = await db.select().from(whatsappMessages).where(condition).orderBy(whatsappMessages.scheduledAt, whatsappMessages.id).limit(limit);
   let sent = 0;
   let failed = 0;
@@ -806,6 +813,7 @@ export async function processWhatsappQueue(options: { organizationId?: number; l
     if (!claimed[0]?.id) continue;
     try {
       const providerMessageId = await sendQueuedMessage({ ...message, status:"sending", updatedAt:claimedAt });
+      if (!providerMessageId) continue;
       const sentAt = new Date().toISOString();
       await db.update(whatsappMessages).set({
         providerMessageId,
@@ -838,9 +846,9 @@ export async function processWhatsappQueue(options: { organizationId?: number; l
   return { processed: queue.length, sent, failed };
 }
 
-export async function processWhatsappQueueSafely(organizationId?: number, limit = 5) {
+export async function processWhatsappQueueSafely(organizationId?: number, limit = 5, appointmentId?: number) {
   try {
-    return await processWhatsappQueue({ organizationId, limit });
+    return await processWhatsappQueue({ organizationId, appointmentId, limit });
   } catch (error) {
     console.error("WhatsApp automation send failed", error);
     return { processed: 0, sent: 0, failed: 0 };

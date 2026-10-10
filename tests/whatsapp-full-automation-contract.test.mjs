@@ -8,7 +8,7 @@ async function source(path) {
 
 test("ações da agenda despacham a fila também pela Evolution", async () => {
   const dashboard = await source("db/dashboard.ts");
-  assert.match(dashboard, /processConnectedWhatsappQueueSafely\(access\.organizationId, 3\)/);
+  assert.match(dashboard, /processConnectedWhatsappQueueSafely\(access\.organizationId, id, 3\)/);
   assert.doesNotMatch(dashboard, /processWhatsappQueueSafely\(access\.organizationId, 3\)/);
 });
 

@@ -93,6 +93,9 @@ export async function POST(request: Request) {
     const freshData = await getDashboardData(access);
     return Response.json({ ok: true, data: freshData });
   } catch (error) {
+    if (error instanceof Error && /^Failed query:/i.test(error.message)) {
+      return Response.json({ error: "Não foi possível salvar a alteração. Confira os dados e tente novamente." }, { status: 400 });
+    }
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível concluir a ação." }, { status: 400 });
   }
 }
