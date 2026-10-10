@@ -22,14 +22,14 @@ import { processConnectedWhatsappQueueSafely } from "./whatsapp-dispatch";
 export type DashboardData = {
   dataPeriod: { start: string; end: string };
   viewer: { name: string; email: string; role: "owner" | "barber"; isOwner: boolean; isPlatformAdmin: boolean; teamMemberId: number; organizationName: string; accountType: "barbershop" | "individual"; organizationStatus: string; trialEndsAt: string | null };
-  clients: Array<{ id: number; name: string; phone: string; plan: string; planKind: string; planId: number; paymentMethodId: number; paymentName: string; balance: number; maxBalance: number; dueDate: string; status: string; monthlyValueCents: number; paidMonth: string; usedThisMonth: number; remaining: number; overLimit: boolean }>;
-  plans: Array<{ id: number; name: string; planKind: string; serviceId: number | null; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }>;
+  clients: Array<{ id: number; name: string; phone: string; plan: string; planKind: string; planId: number; paymentMethodId: number; paymentName: string; balance: number; maxBalance: number; unlimitedUses: boolean; dueDate: string; status: string; monthlyValueCents: number; paidMonth: string; usedThisMonth: number; remaining: number; overLimit: boolean }>;
+  plans: Array<{ id: number; name: string; planKind: string; serviceId: number | null; monthlyValueCents: number; maxUses: number; unlimitedUses: boolean; barberPayoutCents: number; active: boolean }>;
   team: Array<{ id: number; name: string; role: string; loginEmail: string | null; accessRole: string; commissionCents: number; commissionRateBps: number; active: boolean; hasPassword: boolean; weeklyHours: WeeklyBookingHours }>;
   teamPayments: Array<{ id: number; teamMemberId: number; teamMemberName: string; occurredAt: string; kind: TeamPaymentKind; reason: string; valueCents: number }>;
   services: Array<{ id: number; name: string; priceCents: number; durationMinutes: number; active: boolean }>;
   agendaSettings: { useServiceDuration: boolean; openingTime: string; closingTime: string; weeklyHours: WeeklyBookingHours; publicBookingEnabled: boolean; publicBookingRequiresApproval: boolean; publicBookingWeekdays: number[]; publicBookingSlug: string };
   paymentMethods: Array<{ id: number; name: string; feeBps: number }>;
-  membershipPayments: Array<{ id: number; clientId: number; clientName: string; planName: string; planKind: string; paymentMethodId: number; paymentName: string; paidMonth: string; occurredAt: string; amountCents: number; feeCents: number }>;
+  membershipPayments: Array<{ id: number; clientId: number; clientName: string; planName: string; planKind: string; maxUses: number | null; unlimitedUses: boolean; paymentMethodId: number; paymentName: string; paidMonth: string; occurredAt: string; amountCents: number; feeCents: number }>;
   records: Array<{ id: number; occurredAt: string; clientName: string; barberId: number; barberName: string; serviceId: number; serviceName: string; paymentMethodId: number; paymentName: string; quantity: number; valueCents: number; commissionCents: number; feeCents: number; tipCents: number; origin: string; recordType: string; membershipClientId: number | null }>;
   expenses: Array<{ id: number; occurredAt: string; type: string; description: string; valueCents: number; paid: boolean }>;
   appointments: Array<{ id: number; appointmentDate: string; appointmentTime: string; clientName: string; phone: string; serviceId: number; serviceName: string; durationMinutes: number; barberId: number; barberName: string; notes: string; status: string; reminderSentAt: string | null; paymentChoice: string; membershipClientId: number | null; membershipPlanId: number | null; membershipCreditState: string | null }>;
@@ -177,6 +177,8 @@ async function upsertMembershipPaymentSnapshot(input: {
   occurredAt?: string;
   amountCents: number;
   paymentFeeBps: number;
+  maxUses?: number;
+  unlimitedUses?: boolean;
 }): Promise<DashboardData["membershipPayments"][number] | null> {
   if (!/^\d{4}-\d{2}$/.test(input.paidMonth)) return null;
   const db = await getDb();
@@ -189,6 +191,8 @@ async function upsertMembershipPaymentSnapshot(input: {
     clientName: input.clientName,
     planName: input.planName,
     planKind: input.planKind,
+    maxUses: input.maxUses ?? null,
+    unlimitedUses: input.unlimitedUses ?? false,
     paymentMethodId: input.paymentMethodId,
     paymentName: input.paymentName,
     paidMonth: input.paidMonth,
@@ -205,7 +209,7 @@ async function upsertMembershipPaymentSnapshot(input: {
     clientId: membershipPayments.clientId,
     clientName: membershipPayments.clientName,
     planName: membershipPayments.planName,
-    planKind: membershipPayments.planKind,
+    planKind: membershipPayments.planKind, maxUses: membershipPayments.maxUses, unlimitedUses: membershipPayments.unlimitedUses,
     paymentMethodId: membershipPayments.paymentMethodId,
     paymentName: membershipPayments.paymentName,
     paidMonth: membershipPayments.paidMonth,
@@ -260,7 +264,7 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
       access.isOwner ? db.select({ teamMemberId: authAccounts.teamMemberId }).from(authAccounts).where(eq(authAccounts.organizationId, organizationId)) : Promise.resolve([]),
       db.select().from(services).where(and(eq(services.organizationId, organizationId), isNull(services.deletedAt))).orderBy(services.name),
       db.select().from(paymentMethods).where(eq(paymentMethods.organizationId, organizationId)).orderBy(paymentMethods.id),
-      access.isOwner ? db.select({ id: membershipPayments.id, clientId: membershipPayments.clientId, clientName: membershipPayments.clientName, planName: membershipPayments.planName, planKind: membershipPayments.planKind, paymentMethodId: membershipPayments.paymentMethodId, paymentName: membershipPayments.paymentName, paidMonth: membershipPayments.paidMonth, occurredAt: membershipPayments.occurredAt, amountCents: membershipPayments.amountCents, feeCents: membershipPayments.feeCents }).from(membershipPayments).where(and(eq(membershipPayments.organizationId, organizationId), or(and(gte(membershipPayments.occurredAt, period.start), lte(membershipPayments.occurredAt, period.end)), and(gte(membershipPayments.paidMonth, periodStartMonth), lte(membershipPayments.paidMonth, periodEndMonth))))).orderBy(desc(membershipPayments.paidMonth), desc(membershipPayments.id)) : Promise.resolve([]),
+      access.isOwner ? db.select({ id: membershipPayments.id, clientId: membershipPayments.clientId, clientName: membershipPayments.clientName, planName: membershipPayments.planName, planKind: membershipPayments.planKind, maxUses: membershipPayments.maxUses, unlimitedUses: membershipPayments.unlimitedUses, paymentMethodId: membershipPayments.paymentMethodId, paymentName: membershipPayments.paymentName, paidMonth: membershipPayments.paidMonth, occurredAt: membershipPayments.occurredAt, amountCents: membershipPayments.amountCents, feeCents: membershipPayments.feeCents }).from(membershipPayments).where(and(eq(membershipPayments.organizationId, organizationId), or(and(gte(membershipPayments.occurredAt, period.start), lte(membershipPayments.occurredAt, period.end)), and(gte(membershipPayments.paidMonth, periodStartMonth), lte(membershipPayments.paidMonth, periodEndMonth))))).orderBy(desc(membershipPayments.paidMonth), desc(membershipPayments.id)) : Promise.resolve([]),
       access.isOwner ? db.select().from(expenses).where(and(eq(expenses.organizationId, organizationId), gte(expenses.occurredAt, period.start), lte(expenses.occurredAt, period.end))).orderBy(desc(expenses.occurredAt)) : Promise.resolve([]),
       access.isOwner ? db.select().from(goals).where(and(eq(goals.organizationId, organizationId), eq(goals.month, month))).limit(1) : Promise.resolve([]),
       db.select({ id: dailyRecords.id, occurredAt: dailyRecords.occurredAt, clientName: dailyRecords.clientName, barberId: dailyRecords.barberId, barberName: team.name, serviceId: dailyRecords.serviceId, serviceName: services.name, paymentMethodId: dailyRecords.paymentMethodId, paymentName: paymentMethods.name, quantity: dailyRecords.quantity, valueCents: dailyRecords.valueCents, commissionCents: dailyRecords.commissionCents, feeCents: dailyRecords.feeCents, tipCents: dailyRecords.tipCents, origin: dailyRecords.origin, recordType: dailyRecords.recordType, membershipClientId: dailyRecords.membershipClientId }).from(dailyRecords).innerJoin(team, eq(dailyRecords.barberId, team.id)).innerJoin(services, eq(dailyRecords.serviceId, services.id)).innerJoin(paymentMethods, eq(dailyRecords.paymentMethodId, paymentMethods.id)).where(recordCondition).orderBy(desc(dailyRecords.occurredAt), desc(dailyRecords.id)),
@@ -295,7 +299,7 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
       .filter((client) => client.status === "Ativo" && /^\d{4}-\d{2}$/.test(client.paidMonth) && client.paidMonth >= periodStartMonth && client.paidMonth <= periodEndMonth && !knownMembershipPaymentKeys.has(`${client.id}:${client.paidMonth}`))
       .map((client) => {
         const payment = paymentById.get(client.paymentMethodId);
-        return upsertMembershipPaymentSnapshot({ organizationId, clientId: client.id, clientName: client.name, planName: client.plan, planKind: client.planKind, paymentMethodId: client.paymentMethodId, paymentName: payment?.name ?? "Não informado", paidMonth: client.paidMonth, amountCents: client.monthlyValueCents, paymentFeeBps: payment?.feeBps ?? 0 });
+        return upsertMembershipPaymentSnapshot({ organizationId, clientId: client.id, clientName: client.name, planName: client.plan, planKind: client.planKind, paymentMethodId: client.paymentMethodId, paymentName: payment?.name ?? "Não informado", paidMonth: client.paidMonth, amountCents: client.monthlyValueCents, maxUses: client.maxBalance, unlimitedUses: client.unlimitedUses, paymentFeeBps: payment?.feeBps ?? 0 });
       }))).filter((payment): payment is DashboardData["membershipPayments"][number] => Boolean(payment)) : [];
     const membershipPaymentList = [...normalizedMembershipPayments, ...backfilledMembershipPayments]
       .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id - left.id);
@@ -307,7 +311,7 @@ export async function getDashboardData(access: AccessContext, requestedPeriod?: 
     const clientsWithUsage = rawClients.map((client) => {
       const usedThisMonth = currentRecords.filter((record) => record.recordType === "Mensalista" && record.membershipClientId === client.id).reduce((sum, record) => sum + record.quantity, 0);
       const reservedUses = reservedUsesByClient.get(client.id) ?? 0;
-      return { ...client, paymentName: paymentById.get(client.paymentMethodId)?.name ?? "Não informado", monthlyValueCents: access.isOwner ? client.monthlyValueCents : 0, usedThisMonth, remaining: Math.max(0, client.balance - reservedUses), overLimit: usedThisMonth > client.maxBalance };
+      return { ...client, paymentName: paymentById.get(client.paymentMethodId)?.name ?? "Não informado", monthlyValueCents: access.isOwner ? client.monthlyValueCents : 0, usedThisMonth, remaining: Math.max(0, client.balance - reservedUses), overLimit: !client.unlimitedUses && usedThisMonth > client.maxBalance };
     });
     const planList = rawPlans.map((plan) => ({ ...plan, monthlyValueCents: access.isOwner ? plan.monthlyValueCents : 0 }));
     const visibleTeam = teamList.map((member) => ({ ...member, loginEmail: access.isOwner ? member.loginEmail : null, hasPassword: accountTeamIds.has(member.id), weeklyHours: parseTeamWeeklyBookingHours(member.weeklyBookingHours, organizationWeeklyHours) }));
@@ -369,6 +373,7 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
     const client = (await db.select().from(clients).where(and(eq(clients.id, input.membershipClientId ?? 0), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).limit(1))[0];
     if (!client) throw new Error("Escolha o mensalista.");
     if (client.status !== "Ativo") throw new Error("Este mensalista não está ativo.");
+    if (client.unlimitedUses && input.occurredAt > client.dueDate) throw new Error("Este plano venceu. Renove a mensalidade antes de registrar outro uso.");
     const paymentList = await db.select().from(paymentMethods).where(eq(paymentMethods.organizationId, access.organizationId)).orderBy(paymentMethods.id);
     const selectedPayment = paymentList.find((item) => item.id === input.paymentMethodId);
     const payment = input.productItems?.length
@@ -382,18 +387,21 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
     const payout = membershipPayoutCentsForAccessRole(barber.accessRole, plan?.barberPayoutCents, client.planKind);
     const ownAppointmentId = input.appointmentId ?? 0;
     const claimedCredit = await db.update(clients)
-      .set({ balance: sql`${clients.balance} - 1` })
+      .set({ balance: sql`CASE WHEN ${clients.unlimitedUses} = 1 THEN ${clients.balance} ELSE ${clients.balance} - 1 END` })
       .where(and(
         eq(clients.id, client.id),
         eq(clients.organizationId, access.organizationId),
-        sql`${clients.balance} > (
+        eq(clients.status, "Ativo"),
+        isNull(clients.deletedAt),
+        sql`(${clients.unlimitedUses} = 0 OR ${clients.dueDate} >= ${input.occurredAt})`,
+        sql`(${clients.unlimitedUses} = 1 OR ${clients.balance} > (
           SELECT COUNT(*)
           FROM appointments AS reserved_credit
           WHERE reserved_credit.organization_id = ${access.organizationId}
             AND reserved_credit.membership_client_id = ${client.id}
             AND reserved_credit.membership_credit_state = 'reserved'
             AND (${ownAppointmentId} = 0 OR reserved_credit.id <> ${ownAppointmentId})
-        )`,
+        ))`,
       ))
       .returning({ id: clients.id });
     if (!claimedCredit.length) throw new Error("Este mensalista não tem créditos disponíveis fora dos horários já reservados.");
@@ -420,7 +428,7 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
       }).returning({ id: dailyRecords.id });
       recordId = inserted[0]?.id;
     } catch (error) {
-      await db.update(clients).set({ balance: sql`${clients.balance} + 1` }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId)));
+      await db.update(clients).set({ balance: sql`CASE WHEN ${clients.unlimitedUses} = 1 THEN ${clients.balance} ELSE ${clients.balance} + 1 END` }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId)));
       throw error;
     }
     if (input.productItems?.length) {
@@ -430,7 +438,7 @@ export async function createDailyRecord(access: AccessContext, input: { occurred
       } catch (error) {
         await db.batch([
           db.delete(dailyRecords).where(and(eq(dailyRecords.id, recordId), eq(dailyRecords.organizationId, access.organizationId))),
-          db.update(clients).set({ balance: sql`${clients.balance} + 1` }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId))),
+          db.update(clients).set({ balance: sql`CASE WHEN ${clients.unlimitedUses} = 1 THEN ${clients.balance} ELSE ${clients.balance} + 1 END` }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId))),
         ]);
         throw error;
       }
@@ -484,8 +492,8 @@ export async function updateDailyRecord(access: AccessContext, input: { id: numb
     if (!service) throw new Error("O plano deste mensalista precisa estar ligado a um serviço válido.");
     const payout = membershipPayoutCentsForAccessRole(barber.accessRole, plan?.barberPayoutCents, client.planKind);
     if (existing.membershipClientId && existing.membershipClientId !== client.id) {
-      await db.update(clients).set({ balance: sql`${clients.balance} + ${existing.quantity}` }).where(and(eq(clients.id, existing.membershipClientId), eq(clients.organizationId, access.organizationId)));
-      await db.update(clients).set({ balance: sql`${clients.balance} - ${existing.quantity}` }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId)));
+      await db.update(clients).set({ balance: sql`CASE WHEN ${clients.unlimitedUses} = 1 THEN ${clients.balance} ELSE ${clients.balance} + ${existing.quantity} END` }).where(and(eq(clients.id, existing.membershipClientId), eq(clients.organizationId, access.organizationId)));
+      await db.update(clients).set({ balance: sql`CASE WHEN ${clients.unlimitedUses} = 1 THEN ${clients.balance} ELSE ${clients.balance} - ${existing.quantity} END` }).where(and(eq(clients.id, client.id), eq(clients.organizationId, access.organizationId)));
     }
     await db.update(dailyRecords).set({ occurredAt: input.occurredAt, clientName: client.name, barberId: barber.id, serviceId: service.id, paymentMethodId: payment.id, valueCents: 0, commissionRateBps: 0, commissionCents: payout, tipCents, feeCents: 0, origin: "Assinatura", membershipClientId: client.id }).where(and(eq(dailyRecords.id, input.id), eq(dailyRecords.organizationId, access.organizationId)));
     const productSaleContext = { dailyRecordId: input.id, occurredAt: input.occurredAt, clientName: client.name, sellerTeamMemberId: barber.id, paymentMethodId: payment.id };
@@ -512,7 +520,7 @@ export async function deleteDailyRecord(access: AccessContext, id: number) {
   if (!existing) throw new Error("Atendimento não encontrado.");
   requireOwnBarber(access, existing.barberId);
   await deleteProductSalesForDailyRecord(access, id);
-  if (existing.recordType === "Mensalista" && existing.membershipClientId) await db.update(clients).set({ balance: sql`${clients.balance} + ${existing.quantity}` }).where(and(eq(clients.id, existing.membershipClientId), eq(clients.organizationId, access.organizationId)));
+  if (existing.recordType === "Mensalista" && existing.membershipClientId) await db.update(clients).set({ balance: sql`CASE WHEN ${clients.unlimitedUses} = 1 THEN ${clients.balance} ELSE ${clients.balance} + ${existing.quantity} END` }).where(and(eq(clients.id, existing.membershipClientId), eq(clients.organizationId, access.organizationId)));
   await db.delete(dailyRecords).where(and(eq(dailyRecords.id, id), eq(dailyRecords.organizationId, access.organizationId)));
 }
 
@@ -527,8 +535,8 @@ export async function renewClient(access: AccessContext, clientId: number) {
   const today = appDate();
   const renewal = membershipRenewalDates(client.dueDate, today);
   const paidMonth = renewal.paidMonth;
-  await db.update(clients).set({ balance: plan?.maxUses ?? client.maxBalance, maxBalance: plan?.maxUses ?? client.maxBalance, status: "Ativo", paidMonth, dueDate: renewal.dueDate }).where(and(eq(clients.id, clientId), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt)));
-  await upsertMembershipPaymentSnapshot({ organizationId: access.organizationId, clientId: client.id, clientName: client.name, planName: plan?.name ?? client.plan, planKind: plan?.planKind ?? client.planKind, paymentMethodId: client.paymentMethodId, paymentName: payment?.name ?? "Não informado", paidMonth, occurredAt: today, amountCents: plan?.monthlyValueCents ?? client.monthlyValueCents, paymentFeeBps: payment?.feeBps ?? 0 });
+  await db.update(clients).set({ balance: plan?.maxUses ?? client.maxBalance, maxBalance: plan?.maxUses ?? client.maxBalance, unlimitedUses: plan?.unlimitedUses ?? client.unlimitedUses, status: "Ativo", paidMonth, dueDate: renewal.dueDate }).where(and(eq(clients.id, clientId), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt)));
+  await upsertMembershipPaymentSnapshot({ organizationId: access.organizationId, clientId: client.id, clientName: client.name, planName: plan?.name ?? client.plan, planKind: plan?.planKind ?? client.planKind, paymentMethodId: client.paymentMethodId, paymentName: payment?.name ?? "Não informado", paidMonth, occurredAt: today, amountCents: plan?.monthlyValueCents ?? client.monthlyValueCents, maxUses: plan?.maxUses ?? client.maxBalance, unlimitedUses: plan?.unlimitedUses ?? client.unlimitedUses, paymentFeeBps: payment?.feeBps ?? 0 });
 }
 export async function saveExpense(access: AccessContext, input: { id?: number; occurredAt: string; type: string; description: string; valueCents: number; paid: boolean }) { requireOwner(access); if (!input.description.trim() || input.valueCents <= 0) throw new Error("Informe a despesa e o valor."); const db = await getDb(); const values = { occurredAt: input.occurredAt, type: input.type, description: input.description.trim(), valueCents: input.valueCents, paid: input.paid }; if (input.id) await db.update(expenses).set(values).where(and(eq(expenses.id, input.id), eq(expenses.organizationId, access.organizationId))); else await db.insert(expenses).values({ ...values, organizationId: access.organizationId }); }
 export async function deleteExpense(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const existing = (await db.select().from(expenses).where(and(eq(expenses.id, id), eq(expenses.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Despesa não encontrada."); await db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.organizationId, access.organizationId))); }
@@ -583,6 +591,10 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
   const existing = input.id ? (await db.select().from(appointments).where(and(eq(appointments.id, input.id), eq(appointments.organizationId, access.organizationId))).limit(1))[0] : undefined;
   if (input.id && !existing) throw new Error("Agendamento não encontrado.");
   if (existing) requireOwnBarber(access, existing.barberId);
+  if (existing?.membershipClientId) {
+    const member = (await db.select().from(clients).where(and(eq(clients.id, existing.membershipClientId), eq(clients.organizationId, access.organizationId))).limit(1))[0];
+    if (member?.unlimitedUses && (member.deletedAt || member.status !== "Ativo" || input.appointmentDate > member.dueDate)) throw new Error("Renove o plano mensalista antes de remarcar depois do vencimento.");
+  }
   const barber = (await db.select().from(team).where(and(eq(team.id, input.barberId), eq(team.organizationId, access.organizationId))).limit(1))[0];
   const service = (await db.select().from(services).where(and(eq(services.id, input.serviceId), eq(services.organizationId, access.organizationId))).limit(1))[0];
   if (!barber || !service || (service.deletedAt && service.id !== existing?.serviceId)) throw new Error("Escolha barbeiro e serviço.");
@@ -632,12 +644,12 @@ export async function saveAppointment(access: AccessContext, input: { id?: numbe
             AND membership_client.organization_id = ${access.organizationId}
             AND membership_client.status = 'Ativo'
             AND membership_client.deleted_at IS NULL
-            AND membership_client.balance > (
+            AND (membership_client.unlimited_uses = 1 OR membership_client.balance > (
               SELECT COUNT(*) FROM appointments AS reserved_credit
               WHERE reserved_credit.organization_id = ${access.organizationId}
                 AND reserved_credit.membership_client_id = ${existing.membershipClientId}
                 AND reserved_credit.membership_credit_state = 'reserved'
-            )
+            ))
         ) > 0`,
       )).returning({ id: appointments.id });
       if (!restored.length) throw new Error("Não foi possível atualizar o agendamento. Confira o crédito e atualize a agenda.");
@@ -789,7 +801,24 @@ export async function completeAppointment(access: AccessContext, input: { id: nu
 export async function markAppointmentReminderSent(access: AccessContext, id: number) { const db = await getDb(); const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Agendamento não encontrado."); requireOwnBarber(access, existing.barberId); if (existing.status !== "Agendado") throw new Error("Confirme o agendamento antes de enviar o lembrete."); await db.update(appointments).set({ reminderSentAt: new Date().toISOString() }).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))); }
 export async function deleteAppointment(access: AccessContext, id: number) { const db = await getDb(); const existing = (await db.select().from(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))).limit(1))[0]; if (!existing) throw new Error("Agendamento não encontrado."); requireOwnBarber(access, existing.barberId); await db.delete(appointments).where(and(eq(appointments.id, id), eq(appointments.organizationId, access.organizationId))); }
 
-export async function savePlan(access: AccessContext, input: { id?: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; barberPayoutCents: number; active: boolean }) { requireOwner(access); if (!input.name.trim() || input.monthlyValueCents < 0 || input.maxUses < 1) throw new Error("Preencha os dados do plano."); const db = await getDb(); const linkedService = (await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, access.organizationId), eq(services.name, input.planKind.trim()), eq(services.active, true), isNull(services.deletedAt))).limit(1))[0]; if (!linkedService) throw new Error("Escolha um serviço ativo da barbearia para este plano."); const values = { name: input.name.trim(), planKind: input.planKind.trim(), serviceId: linkedService.id, monthlyValueCents: input.monthlyValueCents, maxUses: input.maxUses, barberPayoutCents: input.barberPayoutCents, active: input.active }; if (input.id) { await db.update(plans).set(values).where(and(eq(plans.id, input.id), eq(plans.organizationId, access.organizationId))); await db.update(clients).set({ plan: values.name, planKind: values.planKind, monthlyValueCents: values.monthlyValueCents, maxBalance: values.maxUses }).where(and(eq(clients.planId, input.id), eq(clients.organizationId, access.organizationId))); } else await db.insert(plans).values({ ...values, organizationId: access.organizationId }); }
+export async function savePlan(access: AccessContext, input: { id?: number; name: string; planKind: string; monthlyValueCents: number; maxUses: number; unlimitedUses?: boolean; barberPayoutCents: number; active: boolean }) {
+  requireOwner(access);
+  const db = await getDb();
+  const existingPlan = input.id ? (await db.select().from(plans).where(and(eq(plans.id, input.id), eq(plans.organizationId, access.organizationId))).limit(1))[0] : undefined;
+  if (input.id && !existingPlan) throw new Error("Plano não encontrado nesta barbearia.");
+  const unlimitedUses = input.unlimitedUses ?? existingPlan?.unlimitedUses ?? false;
+  const maxUses = unlimitedUses ? (existingPlan?.maxUses ?? 4) : input.maxUses;
+  if (!input.name.trim() || !Number.isSafeInteger(input.monthlyValueCents) || input.monthlyValueCents < 0 || !Number.isSafeInteger(maxUses) || maxUses < 1 || !Number.isSafeInteger(input.barberPayoutCents) || input.barberPayoutCents < 0) throw new Error("Preencha os dados do plano com valores válidos.");
+  const linkedService = (await db.select({ id: services.id }).from(services).where(and(eq(services.organizationId, access.organizationId), eq(services.name, input.planKind.trim()), eq(services.active, true), isNull(services.deletedAt))).limit(1))[0];
+  if (!linkedService) throw new Error("Escolha um serviço ativo da barbearia para este plano.");
+  const values = { name: input.name.trim(), planKind: input.planKind.trim(), serviceId: linkedService.id, monthlyValueCents: input.monthlyValueCents, maxUses, unlimitedUses, barberPayoutCents: input.barberPayoutCents, active: input.active };
+  if (input.id) {
+    const updated = await db.update(plans).set(values).where(and(eq(plans.id, input.id), eq(plans.organizationId, access.organizationId))).returning({ id: plans.id });
+    if (!updated.length) throw new Error("Plano não encontrado nesta barbearia.");
+    // Preserve the allowance already purchased. Changes to use limits apply on renewal.
+    await db.update(clients).set({ plan: values.name, planKind: values.planKind, monthlyValueCents: values.monthlyValueCents }).where(and(eq(clients.planId, input.id), eq(clients.organizationId, access.organizationId)));
+  } else await db.insert(plans).values({ ...values, organizationId: access.organizationId });
+}
 export async function deletePlan(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const plan = (await db.select().from(plans).where(and(eq(plans.id, id), eq(plans.organizationId, access.organizationId))).limit(1))[0]; if (!plan) throw new Error("Plano não encontrado."); const linkedClients = await db.select({ id: clients.id }).from(clients).where(and(eq(clients.organizationId, access.organizationId), eq(clients.planId, plan.id), isNull(clients.deletedAt))).limit(1); if (linkedClients.length) throw new Error("Este plano ainda está ligado a clientes mensalistas. Altere o plano desses clientes antes de excluir."); await db.delete(plans).where(and(eq(plans.id, plan.id), eq(plans.organizationId, access.organizationId))); }
 export async function saveClient(access: AccessContext, input: { id?: number; name: string; phone: string; planId: number; paymentMethodId: number; status: string; dueDate: string; paidMonth: string }) {
   requireOwner(access);
@@ -799,10 +828,15 @@ export async function saveClient(access: AccessContext, input: { id?: number; na
   const payment = (await db.select().from(paymentMethods).where(and(eq(paymentMethods.id, input.paymentMethodId), eq(paymentMethods.organizationId, access.organizationId))).limit(1))[0];
   if (!plan || !payment) throw new Error("Informe nome, plano e como a mensalidade foi paga.");
   if (!/^\d{4}-\d{2}$/.test(input.paidMonth)) throw new Error("Informe o mês pago.");
-  const values = { name: clientName, phone: input.phone.trim(), plan: plan.name, planKind: plan.planKind, planId: plan.id, paymentMethodId: payment.id, maxBalance: plan.maxUses, monthlyValueCents: plan.monthlyValueCents, status: input.status, dueDate: input.dueDate, paidMonth: input.paidMonth };
+  const values = { name: clientName, phone: input.phone.trim(), plan: plan.name, planKind: plan.planKind, planId: plan.id, paymentMethodId: payment.id, maxBalance: plan.maxUses, unlimitedUses: plan.unlimitedUses, monthlyValueCents: plan.monthlyValueCents, status: input.status, dueDate: input.dueDate, paidMonth: input.paidMonth };
   let clientId: number;
   if (input.id) {
-    const [updated] = await db.update(clients).set(values).where(and(eq(clients.id, input.id), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).returning({ id: clients.id });
+    const current = (await db.select().from(clients).where(and(eq(clients.id, input.id), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).limit(1))[0];
+    if (!current) throw new Error("Mensalista não encontrado.");
+    const changingAllowance = current.planId !== plan.id;
+    const usedRows = changingAllowance ? await db.select({ quantity: dailyRecords.quantity }).from(dailyRecords).where(and(eq(dailyRecords.organizationId, access.organizationId), eq(dailyRecords.membershipClientId, current.id), eq(dailyRecords.recordType, "Mensalista"), gte(dailyRecords.occurredAt, `${input.paidMonth}-01`), lte(dailyRecords.occurredAt, input.dueDate))) : [];
+    const allowance = changingAllowance ? { balance: plan.unlimitedUses ? 0 : Math.max(0, plan.maxUses - usedRows.reduce((total, row) => total + row.quantity, 0)) } : { maxBalance: current.maxBalance, unlimitedUses: current.unlimitedUses };
+    const [updated] = await db.update(clients).set({ ...values, ...allowance }).where(and(eq(clients.id, input.id), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).returning({ id: clients.id });
     if (!updated) throw new Error("Mensalista não encontrado.");
     clientId = updated.id;
   } else {
@@ -810,7 +844,8 @@ export async function saveClient(access: AccessContext, input: { id?: number; na
     if (!created) throw new Error("Não foi possível cadastrar o mensalista.");
     clientId = created.id;
   }
-  if (input.status === "Ativo") await upsertMembershipPaymentSnapshot({ organizationId: access.organizationId, clientId, clientName: values.name, planName: plan.name, planKind: plan.planKind, paymentMethodId: payment.id, paymentName: payment.name, paidMonth: input.paidMonth, occurredAt: appDate(), amountCents: plan.monthlyValueCents, paymentFeeBps: payment.feeBps });
+  const savedClient = (await db.select().from(clients).where(and(eq(clients.id, clientId), eq(clients.organizationId, access.organizationId))).limit(1))[0];
+  if (input.status === "Ativo") await upsertMembershipPaymentSnapshot({ organizationId: access.organizationId, clientId, clientName: values.name, planName: plan.name, planKind: plan.planKind, paymentMethodId: payment.id, paymentName: payment.name, paidMonth: input.paidMonth, occurredAt: appDate(), amountCents: plan.monthlyValueCents, maxUses: savedClient.maxBalance, unlimitedUses: savedClient.unlimitedUses, paymentFeeBps: payment.feeBps });
 }
 export async function deleteClient(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const now = new Date().toISOString(); const updated = await db.update(clients).set({ status: "Bloqueado", deletedAt: now }).where(and(eq(clients.id, id), eq(clients.organizationId, access.organizationId), isNull(clients.deletedAt))).returning({ id: clients.id }); if (!updated.length) throw new Error("Mensalista não encontrado."); }
 export async function deleteMembershipPayment(access: AccessContext, id: number) { requireOwner(access); const db = await getDb(); const deleted = await db.delete(membershipPayments).where(and(eq(membershipPayments.id, id), eq(membershipPayments.organizationId, access.organizationId))).returning({ id: membershipPayments.id }); if (!deleted.length) throw new Error("Lançamento mensal não encontrado."); }

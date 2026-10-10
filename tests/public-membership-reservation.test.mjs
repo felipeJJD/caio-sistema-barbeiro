@@ -69,7 +69,7 @@ function membershipInsertBindings({ time, clientId = 1, planId = 3, balanceOrgan
     7, "2026-09-21", time, "João Silva", "(41) 99999-9999",
     10, 2, "Mensalista · Plano · Corte", "Agendado", "Mensalista", null, "hash",
     clientId, planId,
-    clientId, balanceOrganizationId, planId, 7,
+    clientId, balanceOrganizationId, planId, 7, "2026-09-21",
     7, "2026-09-21", 2, start + 30, start,
   ];
 }
@@ -83,7 +83,9 @@ test("último crédito não pode ser reservado duas vezes e cancelamento libera 
       status TEXT NOT NULL,
       deleted_at TEXT,
       plan_id INTEGER NOT NULL,
-      balance INTEGER NOT NULL
+      balance INTEGER NOT NULL,
+      unlimited_uses INTEGER NOT NULL DEFAULT 0,
+      due_date TEXT NOT NULL DEFAULT '2026-10-21'
     );
     CREATE TABLE services (
       id INTEGER PRIMARY KEY,

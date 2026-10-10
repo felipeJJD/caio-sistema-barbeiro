@@ -18,7 +18,7 @@ const fixture = {
   payments: { pixEnabled: true, pixKey: "test", cashEnabled: true, debitEnabled: false, creditEnabled: false },
 };
 
-async function setup({ reduced = false, noPhotos = false } = {}) {
+async function setup({ reduced = false, noPhotos = false, unlimited = false } = {}) {
   const dom = new JSDOM('<div id="root"></div>', { url: "https://example.test/agendar/teste", pretendToBeVisual: true });
   const { window } = dom;
   const names = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"];
@@ -34,7 +34,7 @@ async function setup({ reduced = false, noPhotos = false } = {}) {
   const fetch = async (url, options = {}) => {
     requests.push({ url, options });
     if (url.includes("/membership?q=")) return Response.json({ candidates: [{ clientId: 9, clientName: "João Silva", requiresPhone: false }] });
-    if (url.endsWith("/membership")) return Response.json({ membership: { clientId: 9, clientName: "João Silva", planId: 1, planName: "Mensal", serviceId: 11, serviceName: "Corte", durationMinutes: 30, remainingUses: 3 } });
+    if (url.endsWith("/membership")) return Response.json({ membership: { clientId: 9, clientName: "João Silva", planId: 1, planName: "Mensal", serviceId: 11, serviceName: "Corte", durationMinutes: 30, remainingUses: unlimited ? 0 : 3, unlimitedUses: unlimited, dueDate: "2026-11-07" } });
     if (url.includes("payments=1")) return Response.json({ payments: fixture.payments });
     return Response.json({ slots: [{ time: "10:00", barberId: 1, barberName: "Davi" }] });
   };
@@ -124,4 +124,26 @@ test("sem fotos, a capa alternativa e qualquer profissional preservam o acesso a
     assert.ok(fallback.document.querySelector("#booking-service"));
     assert.ok([...fallback.document.querySelectorAll("button")].some(b => b.textContent.includes("Sou mensalista")));
   } finally { await fallback.cleanup(); }
+});
+
+
+test("plano ilimitado mostra modalidade e vencimento sem anunciar reserva de crédito", async () => {
+  const ui = await setup({ unlimited: true });
+  try {
+    await ui.click(ui.document.querySelector('[aria-label="Escolher Davi"]'));
+    await ui.click(ui.document.querySelector(".booking-membership-entry"));
+    const field = ui.document.querySelector(".membership-name-field input");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(ui.window.HTMLInputElement.prototype, "value").set.call(field, "João");
+      field.dispatchEvent(new ui.window.Event("input", { bubbles: true }));
+    });
+    await ui.settle(340);
+    await ui.click(ui.document.querySelector(".membership-name-option"));
+    const confirmed = ui.document.querySelector(".membership-credit-confirm");
+    assert.match(confirmed.textContent, /Usos ilimitados/);
+    assert.match(confirmed.textContent, /07\/11\/2026/);
+    assert.doesNotMatch(confirmed.textContent, /1 crédito|0 créditos|será reservado/);
+    await ui.click(confirmed.querySelector(".booking-membership-find"));
+    assert.ok(ui.document.querySelector("#booking-date"));
+  } finally { await ui.cleanup(); }
 });

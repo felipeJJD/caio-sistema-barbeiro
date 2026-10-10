@@ -26,7 +26,9 @@ function setupDb() {
       status TEXT NOT NULL,
       deleted_at TEXT,
       plan_id INTEGER NOT NULL,
-      balance INTEGER NOT NULL
+      balance INTEGER NOT NULL,
+      unlimited_uses INTEGER NOT NULL DEFAULT 0,
+      due_date TEXT NOT NULL DEFAULT '2026-10-21'
     );
     CREATE TABLE services (
       id INTEGER PRIMARY KEY,
@@ -63,7 +65,7 @@ function membershipBindings(time = "10:00") {
     7, "2026-09-21", time, "Mensalista", "41999999999",
     10, 2, "Mensalista · Plano · Corte", "Agendado", "Mensalista", null, "hash-mensalista",
     1, 3,
-    1, 7, 3, 7,
+    1, 7, 3, 7, "2026-09-21",
     7, "2026-09-21", 2, start + 30, start,
   ];
 }
