@@ -6,6 +6,7 @@ import {
   restartBarbershopTrial,
   setBarbershopBlocked,
   setBarbershopOwnerPassword,
+  sendBarbershopOwnerAccessEmail,
 } from "../../../../db/auth";
 import { getPlatformTrialDays } from "../../../../db/platform-trial";
 
@@ -42,6 +43,8 @@ export async function POST(request: Request) {
     } else if (data.action === "set-owner-password") {
       if (typeof data.password !== "string") return Response.json({ error: "Informe a nova senha." }, { status: 400 });
       await setBarbershopOwnerPassword(access, Number(data.organizationId), data.password);
+    } else if (data.action === "send-owner-access-email") {
+      await sendBarbershopOwnerAccessEmail(access, Number(data.organizationId));
     } else if (data.action === "delete-barbershop") {
       await deleteBarbershop(access, Number(data.organizationId));
     } else {

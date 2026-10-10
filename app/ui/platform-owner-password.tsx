@@ -3,10 +3,11 @@
 import { useState, type FormEvent } from "react";
 import { PasswordInput } from "./password-input";
 
-export function PlatformOwnerPassword({ shop, pending, onSave }: {
-  shop: { name: string; ownerEmail: string; ownerEmailVerified: boolean; isBlocked: boolean };
+export function PlatformOwnerPassword({ shop, pending, onSave, onSendEmail }: {
+  shop: { name: string; ownerEmail: string; ownerEmailVerified: boolean; ownerHasPassword: boolean; isBlocked: boolean };
   pending: boolean;
   onSave: (password: string) => Promise<boolean>;
+  onSendEmail: () => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState("");
@@ -21,14 +22,20 @@ export function PlatformOwnerPassword({ shop, pending, onSave }: {
       setPassword("");
       setConfirmation("");
       setOpen(false);
-      setFeedback("Nova senha salva. O cliente pode entrar e alterá-la em Configurações → Minha senha.");
+      setFeedback(shop.ownerEmailVerified ? "Nova senha salva. O cliente pode entrar e alterá-la em Configurações → Minha senha." : "Nova senha salva. O cliente ainda precisa confirmar o e-mail para entrar. Reenvie a confirmação pelo botão abaixo.");
     }
+  }
+
+  async function sendEmail() {
+    setFeedback("");
+    if (await onSendEmail()) setFeedback(`Pedido de envio concluído para ${shop.ownerEmail}. Confira a caixa de entrada e o spam.`);
   }
 
   return <section aria-label={`Recuperar acesso de ${shop.name}`}>
     <p><strong>E-mail do proprietário:</strong> {shop.ownerEmail || "Não informado"} · {shop.ownerEmailVerified ? "Confirmado" : "Aguardando confirmação"}</p>
-    {!shop.ownerEmailVerified && <p>O cliente precisa confirmar o e-mail antes de receber uma nova senha. A opção Esqueci minha senha reenvia a confirmação para cadastros pendentes.</p>}
-    <div className="platform-shop-actions"><button type="button" disabled={pending || shop.isBlocked || !shop.ownerEmailVerified} onClick={() => { setOpen(!open); setPassword(""); setConfirmation(""); setFeedback(""); }}>Criar nova senha para o cliente</button></div>
+    {!shop.ownerHasPassword && <p>Este proprietário ainda não possui um acesso com senha ativo.</p>}
+    {shop.ownerHasPassword && !shop.ownerEmailVerified && <p>Você pode definir a senha agora. O cliente ainda precisa confirmar o e-mail para entrar. Reenvie a confirmação pelo botão abaixo.</p>}
+    <div className="platform-shop-actions"><button type="button" disabled={pending || shop.isBlocked || !shop.ownerHasPassword} onClick={() => { setOpen(!open); setPassword(""); setConfirmation(""); setFeedback(""); }}>Redefinir senha do cliente</button><button type="button" disabled={pending || shop.isBlocked || !shop.ownerHasPassword} onClick={sendEmail}>{shop.ownerEmailVerified ? "Enviar link de recuperação" : "Reenviar confirmação"}</button></div>
     {open && <form className="access-form" onSubmit={submit}>
       <p>Defina uma senha e passe diretamente ao proprietário. As sessões anteriores serão encerradas. O prazo de teste permanece igual.</p>
       <label><span>Nova senha</span><PasswordInput value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} maxLength={128} autoComplete="new-password" required disabled={pending} /></label>
