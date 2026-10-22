@@ -1,71 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { GET } from "../app/api/locations/cities/route.js";
 
-function jsonResponse(value, status = 200) {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
+const snapshot = JSON.parse(readFileSync(new URL("../data/municipios-ibge.json", import.meta.url), "utf8"));
 
-test("carrega e ordena as cidades do estado escolhido", async () => {
-  const originalFetch = globalThis.fetch;
-  let calledUrl = "";
-  globalThis.fetch = async (input) => {
-    calledUrl = String(input);
-    return jsonResponse([
-      { id: 4106902, nome: "Curitiba" },
-      { id: 4105805, nome: "Colombo" },
-      { id: 4125506, nome: "São José dos Pinhais" },
-    ]);
-  };
-
-  try {
-    const response = await GET(new Request("http://localhost/api/locations/cities?uf=PR"));
-    assert.equal(response.status, 200);
-    const body = await response.json();
-    assert.equal(body.uf, "PR");
-    assert.deepEqual(body.cities, [
-      { id: 4106902, name: "Curitiba" },
-      { id: 4105805, name: "Colombo" },
-      { id: 4125506, name: "São José dos Pinhais" },
-    ]);
-    assert.match(calledUrl, /estados\/PR\/municipios/);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("rejeita UF inválida sem consultar o IBGE", async () => {
-  const originalFetch = globalThis.fetch;
-  let called = false;
-  globalThis.fetch = async () => {
-    called = true;
-    return jsonResponse([]);
-  };
-
-  try {
-    const response = await GET(new Request("http://localhost/api/locations/cities?uf=XX"));
-    assert.equal(response.status, 400);
-    const body = await response.json();
-    assert.match(body.error, /estado válido/i);
-    assert.equal(called, false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-const IBGE_HOST = "servicodados.ibge.gov.br";
-const BRASILAPI_HOST = "brasilapi.com.br";
-
-async function withFetch(handler, run) {
+async function withoutNetwork(run) {
   const originalFetch = globalThis.fetch;
   const calls = [];
-  globalThis.fetch = async (input, init) => {
-    const url = String(input);
-    calls.push({ url, init });
-    return handler(url, init);
+  globalThis.fetch = async (input) => {
+    calls.push(String(input));
+    throw new Error(`A rota de cidades não pode chamar a rede: ${input}`);
   };
 
   try {
@@ -75,141 +20,59 @@ async function withFetch(handler, run) {
   }
 }
 
-function networkError() {
-  const error = new TypeError("fetch failed");
-  error.cause = Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" });
-  return error;
-}
+test("lista as cidades do estado escolhido, ordenadas por nome", async () => {
+  await withoutNetwork(async () => {
+    const response = await GET(new Request("http://localhost/api/locations/cities?uf=pr"));
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("cache-control"), /max-age=21600/);
 
-const brasilApiPR = [
-  { nome: "SÃO JOSÉ DOS PINHAIS", codigo_ibge: "4125506" },
-  { nome: "COLOMBO (PARANÁ)", codigo_ibge: "4105805" },
-  { nome: "CURITIBA", codigo_ibge: "4106902" },
-  { nome: "ÂNGULO (PARANÁ)", codigo_ibge: "4101853" },
-];
+    const body = await response.json();
+    assert.equal(body.uf, "PR");
+    assert.equal(body.cities.length, 399);
 
-const expectedPR = [
-  { id: 4101853, name: "Ângulo" },
-  { id: 4105805, name: "Colombo" },
-  { id: 4106902, name: "Curitiba" },
-  { id: 4125506, name: "São José dos Pinhais" },
-];
+    const names = body.cities.map((city) => city.name);
+    assert.ok(names.includes("Colombo"));
+    assert.ok(names.includes("Curitiba"));
+    assert.ok(names.includes("São José dos Pinhais"));
+    assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b, "pt-BR")));
+    assert.deepEqual(body.cities.find((city) => city.name === "Colombo"), { id: 4105805, name: "Colombo" });
+    assert.ok(body.cities.every((city) => Number.isInteger(city.id)));
+  });
+});
 
-test("usa a BrasilAPI quando o IBGE falha por erro de rede", async () => {
-  await withFetch(
-    (url) => {
-      if (url.includes(IBGE_HOST)) throw networkError();
-      return jsonResponse(brasilApiPR);
-    },
-    async (calls) => {
-      const response = await GET(new Request("http://localhost/api/locations/cities?uf=PR"));
+test("não chama fetch para listar cidades", async () => {
+  await withoutNetwork(async (calls) => {
+    for (const uf of ["PR", "SC", "DF"]) {
+      const response = await GET(new Request(`http://localhost/api/locations/cities?uf=${uf}`));
       assert.equal(response.status, 200);
+    }
+    assert.deepEqual(calls, []);
+  });
+});
+
+test("rejeita UF inválida ou ausente", async () => {
+  await withoutNetwork(async (calls) => {
+    for (const query of ["?uf=XX", "?uf=", ""]) {
+      const response = await GET(new Request(`http://localhost/api/locations/cities${query}`));
+      assert.equal(response.status, 400);
       const body = await response.json();
-      assert.equal(body.uf, "PR");
-      assert.deepEqual(body.cities, expectedPR);
-
-      assert.equal(calls.length, 2);
-      assert.ok(calls[0].url.includes(IBGE_HOST));
-      assert.ok(calls[0].init.signal instanceof AbortSignal);
-      assert.equal(
-        calls[1].url,
-        "https://brasilapi.com.br/api/ibge/municipios/v1/PR?providers=dados-abertos-br,gov,wikipedia",
-      );
-      assert.ok(calls[1].init.signal instanceof AbortSignal);
-      assert.match(calls[1].init.headers["user-agent"], /CortouAnotouProspeccao/);
-    },
-  );
+      assert.match(body.error, /estado válido/i);
+    }
+    assert.deepEqual(calls, []);
+  });
 });
 
-test("usa a BrasilAPI quando o IBGE responde com erro HTTP", async () => {
-  await withFetch(
-    (url) => (url.includes(IBGE_HOST) ? jsonResponse({ erro: "indisponível" }, 500) : jsonResponse(brasilApiPR)),
-    async (calls) => {
-      const response = await GET(new Request("http://localhost/api/locations/cities?uf=PR"));
-      assert.equal(response.status, 200);
-      assert.deepEqual((await response.json()).cities, expectedPR);
-      assert.equal(calls.filter((call) => call.url.includes(BRASILAPI_HOST)).length, 1);
-    },
-  );
-});
+test("o snapshot do IBGE cobre as 27 UFs e todos os municípios", () => {
+  const ufs = Object.keys(snapshot.ufs);
+  assert.equal(ufs.length, 27);
+  assert.match(snapshot.geradoEm, /^\d{4}-\d{2}-\d{2}$/);
 
-test("usa a BrasilAPI quando o IBGE devolve lista vazia ou inválida", async () => {
-  for (const payload of [[], { mensagem: "sem dados" }]) {
-    await withFetch(
-      (url) => (url.includes(IBGE_HOST) ? jsonResponse(payload) : jsonResponse(brasilApiPR)),
-      async () => {
-        const response = await GET(new Request("http://localhost/api/locations/cities?uf=PR"));
-        assert.equal(response.status, 200);
-        assert.deepEqual((await response.json()).cities, expectedPR);
-      },
-    );
-  }
-});
+  const rows = ufs.flatMap((uf) => snapshot.ufs[uf]);
+  assert.ok(rows.length >= 5570, `esperava ao menos 5570 municípios, veio ${rows.length}`);
+  assert.equal(new Set(rows.map(([id]) => id)).size, rows.length);
+  assert.ok(rows.every(([id, name]) => Number.isInteger(id) && typeof name === "string" && name.trim() === name && name));
 
-test("converte nomes da BrasilAPI para título preservando preposições e acentos", async () => {
-  await withFetch(
-    (url) =>
-      url.includes(IBGE_HOST)
-        ? jsonResponse({}, 503)
-        : jsonResponse([
-            { nome: "SÃO JOSÉ DOS PINHAIS", codigo_ibge: "4125506" },
-            { nome: "COLOMBO", codigo_ibge: "4105805" },
-            { nome: "FOZ DO IGUAÇU", codigo_ibge: "4108304" },
-            { nome: "OLHO D'ÁGUA DAS FLORES", codigo_ibge: "2704708" },
-            { nome: "XIQUE-XIQUE", codigo_ibge: "2933604" },
-            { nome: "SANTA MARIA E SÃO JOÃO", codigo_ibge: "9999999" },
-          ]),
-    async () => {
-      const response = await GET(new Request("http://localhost/api/locations/cities?uf=PR"));
-      assert.equal(response.status, 200);
-      const names = (await response.json()).cities.map((city) => city.name);
-      assert.deepEqual(names, [
-        "Colombo",
-        "Foz do Iguaçu",
-        "Olho d'Água das Flores",
-        "Santa Maria e São João",
-        "São José dos Pinhais",
-        "Xique-Xique",
-      ]);
-    },
-  );
-});
-
-test("retorna 503 quando IBGE e BrasilAPI falham", async () => {
-  const falhas = [
-    () => {
-      throw networkError();
-    },
-    () => jsonResponse({ erro: "indisponível" }, 502),
-    () => jsonResponse([]),
-  ];
-
-  for (const handler of falhas) {
-    await withFetch(
-      (url, init) => {
-        if (url.includes(IBGE_HOST)) throw networkError();
-        return handler(url, init);
-      },
-      async (calls) => {
-        const response = await GET(new Request("http://localhost/api/locations/cities?uf=PR"));
-        assert.equal(response.status, 503);
-        const body = await response.json();
-        assert.equal(body.error, "Não consegui carregar as cidades agora. Tente novamente em alguns segundos.");
-        assert.equal(calls.length, 2);
-      },
-    );
-  }
-});
-
-test("não consulta a BrasilAPI quando o IBGE responde normalmente", async () => {
-  await withFetch(
-    () => jsonResponse([{ id: 4106902, nome: "Curitiba" }]),
-    async (calls) => {
-      const response = await GET(new Request("http://localhost/api/locations/cities?uf=PR"));
-      assert.equal(response.status, 200);
-      assert.deepEqual((await response.json()).cities, [{ id: 4106902, name: "Curitiba" }]);
-      assert.equal(calls.length, 1);
-      assert.ok(calls.every((call) => !call.url.includes(BRASILAPI_HOST)));
-    },
-  );
+  const santaCatarina = snapshot.ufs.SC.map(([, name]) => name);
+  assert.equal(santaCatarina.length, 295);
+  assert.equal(new Set(santaCatarina).size, santaCatarina.length);
 });
