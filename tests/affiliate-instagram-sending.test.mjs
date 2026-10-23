@@ -20,6 +20,8 @@ test('Instagram sender API usa sessão e link do afiliado e rejeita origem exter
  assert.equal((await post({action:'start',usernames:Array(41).fill('barber'),template:'Oi'})).status,400);
  assert.equal((await post({action:'start',usernames:[{}],template:'Oi'})).status,400);
  assert.equal(calls.length,1);active=false;assert.equal((await api.GET()).status,401);assert.equal((await post({action:'pause',batchId:'fixture'})).status,401);assert.equal(calls.length,1);
+ active=true;assert.equal((await post({action:'verify',prospectorKey:'affiliate:99',password:'must-not-forward',username:'wrong'})).status,200);
+ assert.equal(calls.at(-1).options.prospectorKey,'affiliate:42');assert.equal(JSON.stringify(calls.at(-1).options.body),JSON.stringify({action:'verify'}));
 });
 
 test('Instagram normaliza perfis e respeita a pausa do servidor sem repetir login ou trocar sessão ativa',async()=>{
@@ -51,12 +53,12 @@ test('Instagram accepts only handles and actual profile URLs',()=>{
  for(const value of ['https://instagram.com.evil.invalid/conta','https://instagram.com/direct/inbox/','https://instagram.com/p/fixture/','@a..b','name with spaces','https://instagram.com:444/conta','https://user:pass@instagram.com/conta'])assert.equal(parse(value),null,value);
 });
 
-test('Conferir conexão usa apenas consulta e preserva a pausa sem tentativas automáticas de login',async()=>{
+test('Conferir conexão valida sessão quando suportado sem enviar senha ou iniciar login',async()=>{
  const dom=new JSDOM('<div id="root"></div>',{url:'https://fixture.test'}),{window}=dom;
  globalThis.window=window;globalThis.document=window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true;
  let reads=0,posts=0;
- let state={enabled:true,connection:{username:'fixture.sender',status:'disconnected',error:'Aguarde a verificação.',retryAt:new Date(Date.now()+600000).toISOString()},batch:null};
- const fetch=async(url,options={})=>{if(options.method==='POST')posts++;else reads++;return Response.json(state);};
+ let state={enabled:true,capabilities:{sessionVerification:true},connection:{username:'fixture.sender',status:'disconnected',error:'Aguarde a verificação.',retryAt:new Date(Date.now()+600000).toISOString()},batch:null};
+ const fetch=async(url,options={})=>{if(options.method==='POST'){posts++;assert.deepEqual(JSON.parse(options.body),{action:'verify'});}else reads++;return Response.json(state);};
  const api=load('app/ui/affiliate-instagram-sender.tsx',{'./affiliate-instagram-manual.module.css':{default:new Proxy({},{get:(_,key)=>key}),__esModule:true}},{window,document:window.document,fetch});
  const root=createRoot(window.document.getElementById('root'));
  const settle=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});
@@ -66,9 +68,9 @@ test('Conferir conexão usa apenas consulta e preserva a pausa sem tentativas au
   await act(async()=>root.render(React.createElement(api.AffiliateInstagramSender,{name:'Kaio',signupUrl:'https://fixture.test',links:[],campaignId:null,onChooseCampaign(){},selectedUsernames:[],showQueue:false,onChanged(){}})));await settle();
   assert.match(window.document.body.textContent,/Aguardando Instagram/);
   await click(button('Conectar meu Instagram'));assert.equal(button('Aguardando nova tentativa').disabled,true);
-  await click(button('Conferir conexão'));assert.equal(reads,2);assert.equal(posts,0);
+  await click(button('Conferir conexão'));assert.equal(reads,1);assert.equal(posts,1);
   state={...state,connection:{username:'fixture.sender',status:'connected',error:'',retryAt:null}};
-  await click(button('Conferir conexão'));assert.equal(reads,3);assert.equal(posts,0);assert.ok(button('Desconectar Instagram'));assert.equal(window.document.querySelector('input[type=password]'),null);
+  await click(button('Conferir conexão'));assert.equal(reads,1);assert.equal(posts,2);assert.ok(button('Desconectar Instagram'));assert.equal(window.document.querySelector('input[type=password]'),null);
  }finally{await act(async()=>root.unmount());window.close();delete globalThis.window;delete globalThis.document;delete globalThis.IS_REACT_ACT_ENVIRONMENT;}
 });
 test('Instagram sender UI exige conexão, selecionados e confirmação, protege senha e pausa a fila',async()=>{

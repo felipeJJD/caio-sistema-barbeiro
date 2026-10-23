@@ -2,7 +2,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import styles from './affiliate-instagram-manual.module.css';
 type Delivery={username:string;name:string;status:string;error:string;confirmed:boolean};
-type State={enabled:boolean;connection:{username:string;status:string;error:string;retryAt?:string|null};batch:{id:string;status:string;reason:string;sender:string;items:Delivery[]}|null};
+type State={enabled:boolean;capabilities?:{sessionVerification?:boolean};verification?:{status:string;message:string};connection:{username:string;status:string;error:string;retryAt?:string|null};batch:{id:string;status:string;reason:string;sender:string;items:Delivery[]}|null};
 type Props={name:string;signupUrl:string;campaignId:number|null;links:Array<{id:number;label:string;url:string}>;onChooseCampaign:(id:number|null)=>void;selectedUsernames:string[];onChanged:()=>void;showQueue:boolean};
 const labels:Record<string,string>={pending:'Aguardando envio',sending:'Enviando',sent:'Enviada ao Instagram',failed:'Não enviada',uncertain:'Confira no Instagram',skipped:'Ignorada'};
 export function AffiliateInstagramSender({name,signupUrl,campaignId,links,onChooseCampaign,selectedUsernames,onChanged,showQueue}:Props){
@@ -15,7 +15,7 @@ export function AffiliateInstagramSender({name,signupUrl,campaignId,links,onChoo
  const apply=useCallback((value:State)=>{
   const old=current.current;
   if(old?.batch&&value.batch&&JSON.stringify(old.batch.items)!==JSON.stringify(value.batch.items))changed.current();
-  current.current=value;setNow(Date.now());setState(value);setUsername(previous=>previous||value.connection.username||'');
+  current.current=value;setNow(Date.now());setState(value);if(!old)setUsername(previous=>previous||value.connection.username||'');
  },[]);
  useEffect(()=>{changed.current=onChanged;},[onChanged]);
  useEffect(()=>{
@@ -33,10 +33,11 @@ export function AffiliateInstagramSender({name,signupUrl,campaignId,links,onChoo
   if(pending.current||checking)return;
   setChecking(true);setError('');setNotice('');const version=generation.current;
   try{
-   const response=await fetch('/api/affiliate/prospecting/instagram/sending',{cache:'no-store',signal:AbortSignal.timeout(20000)}),value=await response.json();
-   if(!response.ok)throw Error(value.error||'Não consegui conferir a conexão.');
+   const verify=Boolean(current.current?.capabilities?.sessionVerification);
+   const response=await fetch('/api/affiliate/prospecting/instagram/sending',{cache:'no-store',signal:AbortSignal.timeout(80000),...(verify?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'verify'})}:{})}),value=await response.json();
+   if(!response.ok){if(value.retryAt&&alive.current)setState(previous=>previous?{...previous,connection:{...previous.connection,retryAt:value.retryAt}}:previous);throw Error(value.error||'Não consegui conferir a conexão.');}
    if(!alive.current||version!==generation.current)return;
-   apply(value);setQueryError('');setNotice(value.connection.status==='connected'?'Conexão confirmada. Seu Instagram está pronto.':value.connection.error?'A conexão ainda precisa de atenção. Confira a orientação abaixo.':'Ainda não há uma conexão ativa. Use Conectar meu Instagram.');
+   apply(value);setQueryError('');setNotice(value.verification?.message||(value.connection.status==='connected'?'Conexão confirmada. Seu Instagram está pronto.':value.connection.error?'A conexão ainda precisa de atenção. Confira a orientação da conexão.':'Ainda não há uma conexão ativa. Use Conectar meu Instagram.'));
   }catch(cause){if(alive.current)setQueryError(cause instanceof Error?cause.message:'Não consegui conferir a conexão.');}
   finally{if(alive.current)setChecking(false);}
  }
