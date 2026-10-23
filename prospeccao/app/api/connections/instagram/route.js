@@ -1,5 +1,5 @@
 import {authorizedBridge} from '../../../../lib/bridge-auth.js';
-import {instagramSendingStatus,connectInstagram,disconnectInstagram,startInstagramBatch,controlInstagramBatch} from '../../../../lib/instagram-sending.js';
+import {instagramSendingStatus,connectInstagram,verifyInstagram,disconnectInstagram,startInstagramBatch,controlInstagramBatch} from '../../../../lib/instagram-sending.js';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 const reply=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
 export async function GET(request){
@@ -11,6 +11,7 @@ export async function POST(request){
  try{
   const body=await request.json(),input={...body,prospectorKey:request.headers.get('x-ca-prospector-key')};
   if(body.action==='connect')return reply(await connectInstagram(input));
+  if(body.action==='verify')return reply(await verifyInstagram(input));
   if(body.action==='disconnect')return reply(await disconnectInstagram(input));
   if(body.action==='start')return reply(await startInstagramBatch(input));
   if(['pause','resume','stop'].includes(body.action))return reply(await controlInstagramBatch(input));
