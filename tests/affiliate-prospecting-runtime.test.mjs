@@ -169,7 +169,7 @@ test('URL da abordagem continua derivada no servidor: ADM sem ref e afiliado com
    [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active:true,affiliateId:42,isAdmin:admin,name:'Pessoa'})},
    [prefix+'db/affiliate-portal']:{getAffiliateDashboard:async()=>({links:[{active:true,isMain:true,url:'https://cortouanotou.com.br/comece?ref=CODIGO_REAL'}]})},
    [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:access=>({prospectorKey:`${access.isAdmin?'admin':'affiliate'}:${access.affiliateId}`}),affiliateProspectingFetch:async(path,options)=>{calls.push(options);return {response:{status:200},payload:{jobs:[]}};}},
-   [prefix+'lib/affiliate-prospecting-whatsapp']:{prospectingInstanceFor:()=> 'ca-prospeccao-outbound',getProspectingWhatsappState:async()=>({connected:true})},
+   [prefix+'lib/affiliate-prospecting-whatsapp']:{prospectingInstanceFor:()=> 'ca-prospeccao-outbound',getProspectingWhatsappState:async()=>({connected:true}),checkProspectingWhatsappNumbers:async phones=>phones.map(phone=>({phone,status:'available'}))},
    [prefix+'lib/affiliate-prospecting-audio']:{getVoiceProfile:async()=>({audioId:id}),getVoiceAudio:async()=>Buffer.from('OggS'),validVoiceId:()=>true}
  },{Buffer});
  const request=()=>new Request('https://cortouanotou.com.br/api/affiliate/prospecting/whatsapp',{method:'POST',body:JSON.stringify({action:'enqueue',keys:['phone:5541999999999'],template:'Oi {barbearia}',approachMode:'audio_wait',audioId:id})});
@@ -302,4 +302,50 @@ test('Instagram usa sessão ativa, protege origem e não expõe ação de envio 
  assert.equal((await api.POST(request({action:'instagram_enqueue',items:[]}))).status,400);
  assert.equal((await api.POST(request({action:'instagram_enqueue',items:Array(41).fill({username:'test'})}))).status,400);
  active=false;assert.equal((await api.GET(new Request('https://fixture.test/api/instagram'))).status,401);assert.equal(calls.length,4);
+});
+
+
+test('conferência consulta a instância correta, preserva nono dígito e não envia mensagens',async()=>{
+ const phone='5541999999999', other='5582999999999', unknown='5511999999999';
+ const calls=[];
+ const api=runtime('lib/affiliate-prospecting-whatsapp.ts',{}, {process:{env:credentials},fetch:async(url,init={})=>{
+  calls.push({url,init});
+  if(url.includes('connectionState'))return ok({instance:{state:'open'}});
+  if(url.includes('fetchInstances'))return ok([]);
+  if(url.includes('/webhook/set/'))return ok({});
+  if(url.endsWith('/chat/whatsappNumbers/ca-prospeccao-affiliate-42'))return ok([
+    {number:other,jid:other+'@s.whatsapp.net',exists:false},
+    {number:phone,jid:'554199999999@s.whatsapp.net',exists:true},
+    {jid:unknown+'@lid',exists:true},
+    {number:unknown,jid:other+'@s.whatsapp.net',exists:true},
+  ]);
+  throw Error('unexpected '+url);
+ }});
+ const checks=await api.checkProspectingWhatsappNumbers([phone,other,unknown],'ca-prospeccao-affiliate-42');
+ assert.deepEqual(Array.from(checks,item=>item.status),['available','unavailable','unknown']);
+ assert.equal(checks[0].phone,phone);
+ assert.ok(!calls.some(call=>call.url.includes('/message/')));
+ await assert.rejects(api.checkProspectingWhatsappNumbers([phone],'ca-org-42'));
+ await assert.rejects(api.checkProspectingWhatsappNumbers(Array(41).fill(phone),'ca-prospeccao-affiliate-42'));
+});
+
+test('fila exclui números não reconhecidos e não envia nada quando a consulta é inconclusiva',async()=>{
+ const prefix='../'.repeat(5), calls=[];
+ let status='unavailable',active=true;
+ const available='5541999999999',other='5582999999999';
+ const route=runtime('app/api/affiliate/prospecting/whatsapp/route.ts',{
+  [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active,affiliateId:42,isAdmin:false})},
+  [prefix+'db/affiliate-portal']:{getAffiliateDashboard:async()=>({links:[{active:true,isMain:true,url:'https://cortouanotou.com.br/comece?ref=REAL'}]})},
+  [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'}),affiliateProspectingFetch:async(path,options)=>{calls.push({path,...options});return {response:{status:200},payload:{jobs:[{key:'phone:'+available}]}};}},
+  [prefix+'lib/affiliate-prospecting-whatsapp']:{prospectingInstanceFor:()=> 'ca-prospeccao-affiliate-42',getProspectingWhatsappState:async()=>({connected:true}),checkProspectingWhatsappNumbers:async(phones,instance)=>{assert.equal(instance,'ca-prospeccao-affiliate-42');return phones.map(phone=>({phone,status:phone===available?'available':status}));}},
+  [prefix+'lib/affiliate-prospecting-audio']:{}
+ });
+ const request=(action,keys=['phone:'+available,'phone:'+other])=>new Request('https://app.test/api/affiliate/prospecting/whatsapp',{method:'POST',body:JSON.stringify({action,keys,instance:'ca-prospeccao-affiliate-99'})});
+ assert.equal((await route.POST(request('check'))).status,200);assert.equal(calls.length,0);
+ const response=await route.POST(request('enqueue'));assert.equal(response.status,200);
+ assert.deepEqual(Array.from(calls[0].body.keys),['phone:'+available]);assert.equal(calls[0].prospectorKey,'affiliate:42');
+ status='unknown';assert.equal((await route.POST(request('enqueue'))).status,503);assert.equal(calls.length,1);
+ status='unavailable';assert.equal((await route.POST(request('enqueue',['phone:'+other]))).status,422);assert.equal(calls.length,1);
+ assert.equal((await route.POST(request('check',['phone:123@g.us']))).status,400);
+ active=false;assert.equal((await route.POST(request('check'))).status,401);
 });

@@ -1,7 +1,7 @@
 import { getAffiliateSessionAccess } from "../../../../../db/affiliate-auth";
 import { getAffiliateDashboard } from "../../../../../db/affiliate-portal";
 import { affiliateProspectingFetch, affiliateProspectorIdentity } from "../../../../../lib/affiliate-prospecting-bridge";
-import { beginProspectingWhatsappPairing, recoverProspectingWhatsappConnection, getProspectingWhatsappState, normalizeProspectingWhatsappPhone, canonicalProspectingPhone, prospectingInstanceFor } from "../../../../../lib/affiliate-prospecting-whatsapp";
+import { checkProspectingWhatsappNumbers, beginProspectingWhatsappPairing, recoverProspectingWhatsappConnection, getProspectingWhatsappState, normalizeProspectingWhatsappPhone, canonicalProspectingPhone, prospectingInstanceFor } from "../../../../../lib/affiliate-prospecting-whatsapp";
 import { getVoiceAudio, getVoiceProfile, validVoiceId } from '../../../../../lib/affiliate-prospecting-audio';
 const reply=(payload:unknown,status=200)=>Response.json(payload,{status,headers:{"cache-control":"no-store"}});
 export async function GET() {
@@ -25,6 +25,11 @@ export async function POST(request:Request) {
     if(!access?.active)return reply({error:"Entre como afiliado para usar a prospecção."},401);
     const body=await request.json() as {action?:string;phone?:string;keys?:string[];template?:string;approachMode?:string;audioId?:string;linkId?:number | null};
     const identity=affiliateProspectorIdentity(access);const instance=prospectingInstanceFor(access);
+    if(body.action==='check') {
+      const keys=body.keys;
+      if(!Array.isArray(keys)||!keys.length||keys.length>40||keys.some(key=>typeof key!=='string'||!/^phone:55\d{11}$/.test(key)))return reply({error:'Selecione até 40 celulares válidos por vez.'},400);
+      return reply({checks:await checkProspectingWhatsappNumbers(keys.map(key=>key.slice(6)),instance)});
+    }
     if(body.action==='recover')return reply(await recoverProspectingWhatsappConnection(instance));
     if(body.action==='connect') {
       const phone=normalizeProspectingWhatsappPhone(String(body.phone||''));
@@ -51,8 +56,14 @@ export async function POST(request:Request) {
       const state=await getProspectingWhatsappState(instance);
       if(!state.connected)return reply({error:"Conecte seu WhatsApp antes de enviar."},409);
       if(state.webhookReady===false)return reply({error:'O recebimento das respostas está temporariamente indisponível. Aguarde antes de iniciar novos envios.'},503);
-      const result=await affiliateProspectingFetch('/api/queue',{method:'POST',...identity,body:{action:'enqueue',keys:body.keys,template:String(body.template||''),signupUrl,approachMode:mode,audioId:mode==='text'?undefined:body.audioId}});
-      return reply(result.payload,result.response.status);
+      const keys=body.keys;
+      if(!Array.isArray(keys)||!keys.length||keys.length>40||keys.some(key=>typeof key!=='string'||!/^phone:55\d{11}$/.test(key)))return reply({error:'Selecione até 40 celulares válidos por vez.'},400);
+      const checks=await checkProspectingWhatsappNumbers(keys.map(key=>key.slice(6)),instance);
+      if(checks.some(check=>check.status==='unknown'))return reply({error:'O WhatsApp não conseguiu confirmar todos os números. Nenhuma mensagem foi colocada na fila. Confira novamente.',checks},503);
+      const availableKeys=checks.filter(check=>check.status==='available').map(check=>`phone:${check.phone}`);
+      if(!availableKeys.length)return reply({error:'O WhatsApp não reconheceu estes números. Confira os contatos ou procure outras barbearias.',checks},422);
+      const result=await affiliateProspectingFetch('/api/queue',{method:'POST',...identity,body:{action:'enqueue',keys:availableKeys,template:String(body.template||''),signupUrl,approachMode:mode,audioId:mode==='text'?undefined:body.audioId}});
+      return reply({...result.payload,checks},result.response.status);
     }
     return reply({error:"Ação inválida."},400);
   }catch(error){console.error('[prospecting-whatsapp]',{type:error instanceof Error?error.name:'Unknown'});return reply({error:error instanceof Error?error.message:"Não foi possível atualizar seu WhatsApp."},Number((error as {status?:number})?.status)||503);}
