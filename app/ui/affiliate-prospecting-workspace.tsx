@@ -81,6 +81,12 @@ function modeLabel(mode: ApproachMode) {
   return "Mensagem";
 }
 
+function ChannelIcon({ channel }: { channel: WorkspaceTab }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {channel === "instagram" ? <><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><path d="M17.5 6.5h.01" /></> : channel === "progress" ? <><path d="M4 20h16M6 15v-4m6 4V4m6 11V8" /></> : channel === "settings" ? <><path d="M4 6h16M4 12h16M4 18h16" /><path d="M8 4v4m8 2v4m-6 2v4" /></> : <><path d="M21 11.5a9 9 0 0 1-13.4 7.8L3 21l1.7-4.6A9 9 0 1 1 21 11.5Z" /><path d="M8 8c0 4 4 8 8 8m-8-8h2l1 3-1 1m6 4v-2l-3-1-1 1" /></>}
+  </svg>;
+}
+
 export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl: defaultSignupUrl, links = [] }: { name: string; initialWhatsapp: string; signupUrl: string; isAdmin: boolean; links?: Array<{id:number;label:string;url:string}> }) {
   const [campaignId, setCampaignId] = useState<number | null>(null);
   const campaign = links.find(link => link.id === campaignId);
@@ -120,6 +126,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   const automaticRequest = useRef(false);
   const [pairingCode, setPairingCode] = useState("");
   const [jobs, setJobs] = useState<QueueJob[]>([]);
+  const [queueLoaded, setQueueLoaded] = useState(false);
   const [jobActionId, setJobActionId] = useState("");
   const jobActionRef = useRef(false);
 
@@ -177,6 +184,8 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   const unavailableLeads = useMemo(() => leads.filter((lead) => !canSelectLead(lead)), [leads]);
   const visibleLeads = useMemo(() => availableLeads.slice(0, visibleCount), [availableLeads, visibleCount]);
   const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id) && canSelectLead(lead)), [leads, selected]);
+  const queuedCount = jobs.filter(job => ["pending", "leased", "sending"].includes(job.status)).length;
+  const attentionCount = jobs.filter(job => ["failed", "uncertain"].includes(job.status)).length;
   function chooseTab(next: WorkspaceTab) {
     setError("");
     router.push(affiliateWorkspaceHref(next), { scroll: false });
@@ -197,7 +206,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
     try {
       const response = await fetch("/api/affiliate/prospecting/queue", { cache: "no-store" });
       const payload = await response.json() as { jobs?: QueueJob[] };
-      if (response.ok) setJobs(payload.jobs || []);
+      if (response.ok) { setJobs(payload.jobs || []); setQueueLoaded(true); }
     } catch { /* Mantém o último progresso visível durante falhas temporárias. */ }
   }
 
@@ -316,6 +325,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
 
   function toggle(lead: Lead) {
     if (!canSelectLead(lead)) return setNotice("Essa barbearia não tem um celular válido para WhatsApp.");
+    if (!selected.has(lead.id) && selectedLeads.length >= 40) return setNotice("Selecione até 40 barbearias por envio. Coloque estas na fila para continuar.");
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(lead.id)) next.delete(lead.id); else next.add(lead.id);
@@ -324,7 +334,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   }
 
   function selectVisible() {
-    setSelected((current) => new Set([...current, ...visibleLeads.filter(canSelectLead).map((lead) => lead.id)]));
+    setSelected((current) => new Set([...new Set([...current, ...visibleLeads.filter(canSelectLead).map((lead) => lead.id)])].slice(0, 40)));
   }
 
   async function checkSelectedNumbers() {
@@ -440,7 +450,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
     }
   }
 
-  return <main className={styles.page}>
+  return <main className={`${styles.page} ${tab === "prospecting" && selectedLeads.length ? styles.hasSelection : ""}`}>
     <header className={styles.header}>
       <BrandLogo variant="access" />
       <div className={styles.headerText}><strong>Prospecção C|A</strong><span>Olá, {name.split(/\s+/)[0] || name}</span></div>
@@ -448,14 +458,23 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
     </header>
 
     <section className={styles.topline}>
-      <div><span>{tab === "instagram" ? "INSTAGRAM" : tab === "prospecting" ? "PROSPECÇÃO" : tab === "progress" ? "PROGRESSO" : "CONFIGURAÇÕES"}</span><h1>{tab === "instagram" ? "Prospecção pelo Instagram" : tab === "prospecting" ? "Encontre novos clientes" : tab === "progress" ? "Acompanhe seus envios" : "Prepare sua prospecção"}</h1></div>
+      <div><span>C|A PROSPECÇÃO</span><h1>{tab === "instagram" ? "Conexões que viram parcerias." : tab === "prospecting" ? "Sua próxima parceria começa aqui." : tab === "progress" ? "Cada conversa, um próximo passo." : "Sua voz. Sua abordagem."}</h1><p>{tab === "instagram" ? "Encontre perfis e organize suas abordagens pelo Instagram." : tab === "prospecting" ? "Encontre barbearias, confira o WhatsApp e apresente o Cortou Anotou." : tab === "progress" ? "Acompanhe envios, respostas e os contatos que merecem um retorno." : "Conecte seu WhatsApp e prepare o conteúdo que cada barbearia vai receber."}</p></div>
       {tab !== "instagram" && <div className={styles.quickStatus}><button type="button" className={automatic.connected && !connectionUnavailable ? styles.online : styles.offline} onClick={() => chooseTab("settings")}>{automaticLoading ? "Conferindo WhatsApp" : connectionUnavailable ? "Conexão não verificada" : automatic.connected ? "WhatsApp conectado" : automatic.state === "connecting" ? "WhatsApp conectando" : "WhatsApp desconectado"} ›</button><small>{modeLabel(approachMode)}</small></div>}
     </section>
 
+    <nav className={styles.channels} aria-label="Canais e acompanhamento da prospecção">
+      {([["prospecting", "WhatsApp", "Buscar barbearias"], ["instagram", "Instagram", "Perfis e directs"], ["progress", "Progresso", "Fila e retornos"], ["settings", "Conexões", "WhatsApp e conteúdo"]] as const).map(([key, label, hint]) => <button type="button" key={key} aria-current={tab === key ? "page" : undefined} onClick={() => chooseTab(key)}><ChannelIcon channel={key} /><span><strong>{label}</strong><small>{hint}</small></span>{key === "progress" && queueLoaded && queuedCount > 0 && <b>{queuedCount}</b>}</button>)}
+    </nav>
+
     {tab === "instagram" && <AffiliateInstagramManual name={name} signupUrl={signupUrl} links={links} campaignId={campaignId} onChooseCampaign={setCampaignId} />}
     <div className={styles.panel} hidden={tab !== "prospecting"}>
+      <div className={styles.overview} aria-label="Sua operação no WhatsApp">
+        <button type="button" onClick={() => { window.dispatchEvent(new Event("prospecting-show-queue")); chooseTab("progress"); }}><span>Na sua fila</span><strong>{queueLoaded ? queuedCount : "—"}</strong><small>Ver barbearias <b aria-hidden="true">↗</b></small></button>
+        <button type="button" onClick={() => chooseTab("settings")}><span>Sua abordagem</span><strong className={styles.overviewLabel}>{modeLabel(approachMode)}</strong><small>{approachMode === "text" ? "Editar mensagem" : audioId ? "Áudio salvo e pronto" : "Preparar seu áudio"} <b aria-hidden="true">↗</b></small></button>
+        <button type="button" onClick={() => { window.dispatchEvent(new Event("prospecting-show-attention")); chooseTab("progress"); }}><span>Para conferir</span><strong>{queueLoaded ? attentionCount : "—"}</strong><small>{queueLoaded && !attentionCount ? "Nenhuma falha na fila" : "Ver detalhes dos envios"} <b aria-hidden="true">↗</b></small></button>
+      </div>
       <section className={styles.card}>
-        <div className={styles.cardTitle}><div><b>Buscar barbearias</b><span>Escolha a região e encontre contatos disponíveis para você.</span></div></div>
+        <div className={styles.cardTitle}><div><small className={styles.eyebrow}>COMECE PELA REGIÃO</small><b>Buscar barbearias</b><span>Escolha o estado e a cidade para começar.</span></div><span className={styles.sourceTag}>Busca por cidade</span></div>
         <form className={styles.searchForm} onSubmit={search}>
           <label><span>Estado</span><select value={uf} onChange={(event) => { setCitiesLoading(true); setUf(event.target.value); setCity(""); }}>{STATES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
           <label><span>Cidade</span><select value={city} onChange={(event) => setCity(event.target.value)} disabled={citiesLoading}><option value="">{citiesLoading ? "Carregando..." : "Selecione"}</option>{cities.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select></label>
@@ -465,13 +484,13 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
       </section>
 
       {(leads.length > 0 || (searchedCity && hasMore)) && <section className={styles.card} aria-label="Resultados da busca">
-        <div className={styles.cardTitle}><div><b>Selecionar contatos</b><span>{searchedCity}{searchedName ? ` · “${searchedName}”` : ""} · {availableLeads.length} disponíveis</span></div>{visibleLeads.length > 0 && <button type="button" className={styles.secondary} onClick={selectVisible}>Selecionar visíveis</button>}</div>
+        <div className={styles.cardTitle}><div><b>Selecionar contatos</b><span>{searchedCity}{searchedName ? ` · “${searchedName}”` : ""} · {availableLeads.length} disponíveis</span></div>{visibleLeads.length > 0 && <div className={styles.selectionTools}><button type="button" className={styles.secondary} onClick={selectVisible}>Selecionar visíveis</button>{selectedLeads.length > 0 && <button type="button" className={styles.textButton} onClick={() => setSelected(new Set())}>Limpar seleção</button>}</div>}</div>
         <p className={styles.resultsHint}>Selecione os contatos e confira o WhatsApp antes de enviar. Números não reconhecidos ficam em Ver indisponíveis.</p>
         {visibleLeads.length > 0 && <div className={styles.leadList}>{visibleLeads.map((lead) => {
           const checked = selected.has(lead.id);
           const enabled = Boolean(lead.whatsappCandidate && lead.phoneE164 && lead.whatsappStatus !== "unavailable");
-          return <button type="button" className={`${styles.lead} ${checked ? styles.selected : ""}`} onClick={() => toggle(lead)} key={lead.id} disabled={!enabled}>
-            <span className={styles.check}>{checked ? "✓" : ""}</span><div><strong>{lead.name}</strong><small>{lead.address || "Endereço não informado"}</small><em>{enabled ? `${lead.phone}${lead.whatsappStatus === "available" ? " · WhatsApp confirmado" : ""}` : lead.whatsappStatus === "unavailable" ? "WhatsApp não reconheceu este número" : lead.phoneKind === "landline" ? `Fixo: ${lead.phone}` : "Sem celular válido"}</em></div>
+          return <button type="button" className={`${styles.lead} ${checked ? styles.selected : ""}`} aria-pressed={checked} onClick={() => toggle(lead)} key={lead.id} disabled={!enabled}>
+            <span className={styles.check}>{checked ? "✓" : ""}</span><div><strong>{lead.name}</strong><small>{lead.address || "Endereço não informado"}</small><em>{enabled ? `${lead.phone}${lead.whatsappStatus === "available" ? " · WhatsApp confirmado" : ""}` : lead.whatsappStatus === "unavailable" ? "WhatsApp não reconheceu este número" : lead.phoneKind === "landline" ? `Fixo: ${lead.phone}` : "Sem celular válido"}</em></div>{lead.whatsappStatus === "available" && <span className={styles.verified} aria-hidden="true">✓</span>}
           </button>;
         })}</div>}
         {availableLeads.length === 0 && <p className={styles.resultsHint}>{hasMore ? "Ainda não há barbearias com celular válido neste lote. Toque em Ver mais barbearias para continuar." : "Nenhuma barbearia com celular válido nos resultados encontrados."}</p>}
@@ -488,12 +507,14 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
         </div>}
       </section>}
 
+      {!searchedCity && !loading && <div className={styles.startGuide}><span className={styles.guideMark} aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="21" cy="21" r="11" /><path d="m29 29 9 9M21 15v12m-6-6h12" /><path d="M6 10h6M36 7v7m-3-3h6M8 35v5m-3-2.5h6" /></svg></span><div><strong>Uma cidade. Novas oportunidades.</strong><p>Os contatos aparecem aqui. Você escolhe quem abordar e acompanha cada conversa no Progresso.</p></div></div>}
+
       <section className={styles.card}>
         <div className={styles.cardTitle}><div><b>Abordagem deste envio</b><span>Escolha como esses contatos vão receber sua apresentação.</span></div><button type="button" className={styles.textButton} onClick={() => chooseTab("settings")}>Editar conteúdo</button></div>
         <div className={styles.modeGrid}>
-          {([['text', 'Mensagem'], ['text_audio', 'Mensagem + áudio'], ['audio_only', 'Somente áudio']] as const).map(([value, label]) => <button type="button" key={value} className={approachMode === value ? styles.modeActive : ""} onClick={() => chooseApproach(value)}><strong>{label}</strong><small>{value === 'text' ? 'Envia só o texto configurado' : value === 'text_audio' ? 'Texto primeiro e áudio depois' : 'Envia apenas o áudio salvo'}</small></button>)}
+          {([['text', 'Mensagem'], ['text_audio', 'Mensagem + áudio'], ['audio_only', 'Somente áudio']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={approachMode === value} className={approachMode === value ? styles.modeActive : ""} onClick={() => chooseApproach(value)}><strong>{label}</strong><small>{value === 'text' ? 'Envia só o texto configurado' : value === 'text_audio' ? 'Texto primeiro e áudio depois' : 'Envia apenas o áudio salvo'}</small></button>)}
         </div>
-        <div className={styles.queueBar}><div><strong>{selectedLeads.length} selecionada{selectedLeads.length === 1 ? "" : "s"}</strong><span>{automatic.connected ? "WhatsApp pronto" : "Conecte o WhatsApp em Configurações"}{approachMode !== 'text' ? audioId ? " · áudio pronto" : " · falta gravar o áudio" : ""}</span></div><button type="button" className={styles.secondary} onClick={() => void checkSelectedNumbers()} disabled={checkingNumbers || queueing || !automatic.connected || selectedLeads.length === 0}>{checkingNumbers ? "Conferindo WhatsApp..." : "Conferir números"}</button><button type="button" onClick={() => void enqueueSelected()} disabled={checkingNumbers || queueing || selectedLeads.length === 0}>{queueing ? "Colocando na fila..." : "Colocar na fila"}</button></div>
+        <div className={`${styles.queueBar} ${selectedLeads.length ? styles.queueBarActive : ""}`}><div><strong>{selectedLeads.length} selecionada{selectedLeads.length === 1 ? "" : "s"}</strong><span>{automatic.connected ? "WhatsApp pronto" : "Conecte o WhatsApp em Configurações"}{approachMode !== 'text' ? audioId ? " · áudio pronto" : " · falta gravar o áudio" : ""}</span></div><button type="button" className={styles.secondary} onClick={() => void checkSelectedNumbers()} disabled={checkingNumbers || queueing || !automatic.connected || selectedLeads.length === 0}>{checkingNumbers ? "Conferindo WhatsApp..." : "Conferir números"}</button><button type="button" onClick={() => void enqueueSelected()} disabled={checkingNumbers || queueing || selectedLeads.length === 0}>{queueing ? "Colocando na fila..." : "Colocar na fila"}</button></div>
       </section>
     </div>
 

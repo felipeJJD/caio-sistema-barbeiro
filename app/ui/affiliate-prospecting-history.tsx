@@ -69,8 +69,10 @@ export function AffiliateProspectingHistory({ signupUrl, jobs = [], onRefreshQue
   const invalidateRequests = useCallback(() => { ++requestVersion.current; }, []);
   useEffect(() => {
     const showQueue = () => { setView("queued"); setQuery(""); setVisibleCount(10); };
+    const showAttention = () => { setView("failed"); setQuery(""); setVisibleCount(10); };
     window.addEventListener("prospecting-show-queue", showQueue);
-    return () => window.removeEventListener("prospecting-show-queue", showQueue);
+    window.addEventListener("prospecting-show-attention", showAttention);
+    return () => { window.removeEventListener("prospecting-show-queue", showQueue); window.removeEventListener("prospecting-show-attention", showAttention); };
   }, []);
 
   const load = useCallback(async (nextView: HistoryView, silent = false, offset = 0) => {

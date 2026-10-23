@@ -8,6 +8,7 @@ test('Instagram sender API usa sessão e link do afiliado e rejeita origem exter
   [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active,affiliateId:42,name:'Teste'})},
   [prefix+'db/affiliate-portal']:{getAffiliateDashboard:async()=>({links:[{id:1,active:true,isMain:true,url:'https://cortouanotou.com.br/comece?ref=owner42'},{id:2,active:false,url:'https://cortouanotou.com.br/comece?ref=disabled'}]})},
   [prefix+'lib/request-origin']:{validAppOrigin:request=>request.headers.get('origin')==='https://cortouanotou.com.br'},
+  [prefix+'lib/affiliate-instagram-profile']:load('lib/affiliate-instagram-profile.ts'),
   [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:access=>({prospectorKey:`affiliate:${access.affiliateId}`}),affiliateProspectingFetch:async(path,options)=>{calls.push({path,options});return {response:{status:200},payload:{ok:true}};}}
  });
  const post=(body,origin='https://cortouanotou.com.br')=>api.POST(new Request('https://cortouanotou.com.br/api/affiliate/prospecting/instagram/sending',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)}));
@@ -19,6 +20,56 @@ test('Instagram sender API usa sessão e link do afiliado e rejeita origem exter
  assert.equal((await post({action:'start',usernames:Array(41).fill('barber'),template:'Oi'})).status,400);
  assert.equal((await post({action:'start',usernames:[{}],template:'Oi'})).status,400);
  assert.equal(calls.length,1);active=false;assert.equal((await api.GET()).status,401);assert.equal((await post({action:'pause',batchId:'fixture'})).status,401);assert.equal(calls.length,1);
+});
+
+test('Instagram normaliza perfis e respeita a pausa do servidor sem repetir login ou trocar sessão ativa',async()=>{
+ const prefix='../'.repeat(6),calls=[];
+ let state={enabled:true,connection:{status:'disconnected',retryAt:new Date(Date.now()+600000).toISOString()}},lookupWorks=true;
+ const api=load('app/api/affiliate/prospecting/instagram/sending/route.ts',{
+  [prefix+'db/affiliate-auth']:{getAffiliateSessionAccess:async()=>({active:true,affiliateId:42,name:'Teste'})},
+  [prefix+'db/affiliate-portal']:{getAffiliateDashboard:async()=>({links:[]})},
+  [prefix+'lib/request-origin']:{validAppOrigin:()=>true},
+  [prefix+'lib/affiliate-instagram-profile']:load('lib/affiliate-instagram-profile.ts'),
+  [prefix+'lib/affiliate-prospecting-bridge']:{affiliateProspectorIdentity:()=>({prospectorKey:'affiliate:42'}),affiliateProspectingFetch:async(path,options)=>{calls.push({path,options});return {response:{ok:lookupWorks,status:lookupWorks?200:503},payload:state};}}
+ });
+ const post=(extra={})=>api.POST(new Request('https://fixture.test/api/affiliate/prospecting/instagram/sending',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'connect',username:'https://www.instagram.com/Teste.Conta/?igsh=fixture',password:'fixture',...extra})}));
+ const paused=await post();assert.equal(paused.status,429);assert.equal((await paused.json()).retryAt,state.connection.retryAt);
+ assert.equal(calls.length,1);assert.ok(!calls[0].options.method,'a cooldown check must not transmit credentials');
+ state={enabled:true,connection:{status:'disconnected',retryAt:null}};calls.length=0;
+ assert.equal((await post({code:'123 456'})).status,200);assert.equal(calls.length,2);assert.equal(calls[1].options.body.username,'teste.conta');assert.equal(calls[1].options.body.code,'123456');assert.equal(calls[1].options.prospectorKey,'affiliate:42');
+ calls.length=0;assert.equal((await post({username:'https://evil.invalid/conta'})).status,400);assert.equal(calls.length,0);
+ assert.equal((await post({code:'invalid'})).status,400);assert.equal(calls.length,0);
+ state={enabled:true,connection:{status:'connected',username:'existing'}};
+ assert.equal((await post()).status,200);assert.equal(calls.length,1,'an active session is not replaced by another login');
+ calls.length=0;lookupWorks=false;assert.equal((await post()).status,503);assert.equal(calls.length,1,'an unavailable lookup never proceeds to login');
+});
+
+test('Instagram accepts only handles and actual profile URLs',()=>{
+ const {instagramProfileUsername:parse}=load('lib/affiliate-instagram-profile.ts');
+ assert.equal(parse(' @Minha.Barbearia '),'minha.barbearia');
+ assert.equal(parse('instagram.com/minha_barbearia/?igsh=fixture'),'minha_barbearia');
+ for(const value of ['https://instagram.com.evil.invalid/conta','https://instagram.com/direct/inbox/','https://instagram.com/p/fixture/','@a..b','name with spaces','https://instagram.com:444/conta','https://user:pass@instagram.com/conta'])assert.equal(parse(value),null,value);
+});
+
+test('Conferir conexão usa apenas consulta e preserva a pausa sem tentativas automáticas de login',async()=>{
+ const dom=new JSDOM('<div id="root"></div>',{url:'https://fixture.test'}),{window}=dom;
+ globalThis.window=window;globalThis.document=window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+ let reads=0,posts=0;
+ let state={enabled:true,connection:{username:'fixture.sender',status:'disconnected',error:'Aguarde a verificação.',retryAt:new Date(Date.now()+600000).toISOString()},batch:null};
+ const fetch=async(url,options={})=>{if(options.method==='POST')posts++;else reads++;return Response.json(state);};
+ const api=load('app/ui/affiliate-instagram-sender.tsx',{'./affiliate-instagram-manual.module.css':{default:new Proxy({},{get:(_,key)=>key}),__esModule:true}},{window,document:window.document,fetch});
+ const root=createRoot(window.document.getElementById('root'));
+ const settle=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});
+ const button=text=>[...window.document.querySelectorAll('button')].find(node=>node.textContent===text);
+ const click=async node=>{assert.ok(node);await act(async()=>node.dispatchEvent(new window.MouseEvent('click',{bubbles:true,cancelable:true})));await settle();};
+ try{
+  await act(async()=>root.render(React.createElement(api.AffiliateInstagramSender,{name:'Kaio',signupUrl:'https://fixture.test',links:[],campaignId:null,onChooseCampaign(){},selectedUsernames:[],showQueue:false,onChanged(){}})));await settle();
+  assert.match(window.document.body.textContent,/Aguardando Instagram/);
+  await click(button('Conectar meu Instagram'));assert.equal(button('Aguardando nova tentativa').disabled,true);
+  await click(button('Conferir conexão'));assert.equal(reads,2);assert.equal(posts,0);
+  state={...state,connection:{username:'fixture.sender',status:'connected',error:'',retryAt:null}};
+  await click(button('Conferir conexão'));assert.equal(reads,3);assert.equal(posts,0);assert.ok(button('Desconectar Instagram'));assert.equal(window.document.querySelector('input[type=password]'),null);
+ }finally{await act(async()=>root.unmount());window.close();delete globalThis.window;delete globalThis.document;delete globalThis.IS_REACT_ACT_ENVIRONMENT;}
 });
 test('Instagram sender UI exige conexão, selecionados e confirmação, protege senha e pausa a fila',async()=>{
  const dom=new JSDOM('<div id="root"></div>',{url:'https://fixture.test'}),{window}=dom;

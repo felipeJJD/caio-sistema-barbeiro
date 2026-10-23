@@ -33,3 +33,78 @@
 .dialogHeader button { width:42px; height:42px; flex:0 0 42px; border:1px solid #d8dfd8; border-radius:50%; background:white; color:#17231f; font-size:25px; }
 .dialog .dialogBody { min-height:0; border:0; border-radius:0; overflow-y:auto; overscroll-behavior:contain; padding-bottom:calc(20px + env(safe-area-inset-bottom)); }
 .queueRow{display:flex;align-items:center;gap:12px;width:100%}.queueRow>input{width:24px;height:24px;flex:0 0 24px;accent-color:#416853}.queueRow>.row{flex:1;min-width:0}.sendPanel{display:grid;gap:12px;margin-top:20px;border-top:1px solid #dce2d8;padding-top:20px}.preview{white-space:pre-wrap;overflow-wrap:anywhere}.delivery{display:grid;gap:6px;padding:14px;border:1px solid #dce2d8;border-radius:14px;overflow-wrap:anywhere}.delivery small{color:#58655e}
+
+.shell { width: min(1180px, 100%); margin: 0 auto; gap: 16px; }
+.card { min-width: 0; padding: 22px; border-color: #e1e1d6; box-shadow: 0 3px 12px #17231f03; }
+.card h2 { margin: 5px 0 10px; font-size: 21px; letter-spacing: -.3px; }
+.card button, .tabs button, .actions a { cursor: pointer; transition: background .2s ease, border-color .2s ease, box-shadow .2s ease; }
+.card button:disabled { cursor: not-allowed; }
+.card button:focus-visible, .tabs button:focus-visible, .card a:focus-visible { outline: 3px solid #ba954c; outline-offset: 3px; }
+.card input:focus, .card select:focus, .card textarea:focus { outline: 2px solid #ba954c; outline-offset: 2px; }
+.card input[type=checkbox] { accent-color: #38603c; cursor: pointer; }
+.tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 0; overflow: visible; }
+.tabs button { min-width: 0; padding: 12px; border-radius: 12px; background: #f0f0e7; border-color: #e1e2d5; font-size: 13px; color: #687160; }
+.tabs button[aria-pressed=true] { color: #fff; border-color: #294a32; background: #294a32; }
+.eyebrow { display: block; margin-bottom: 5px; font-size: 10px; letter-spacing: .12em; font-weight: 800; color: #8b753f; }
+.connectionHeading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.connectionIdentity { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.connectionIdentity h2 { margin: 3px 0 0; }
+.socialIcon { display: grid; flex: 0 0 47px; place-items: center; width: 47px; height: 47px; background: #eee9de; color: #857044; border: 1px solid #e6deca; border-radius: 14px; }
+.socialIcon svg { width: 25px; height: 25px; }
+.connectionBadge { flex-shrink: 0; font-size: 11px; padding: 7px 10px; border: 1px solid #e2d4b7; color: #80632f; border-radius: 9px; background: #f6efd9; }
+.connected { color: #316141; border-color: #c5d9bd; background: #e9f2e1; }
+.accountName { margin: 12px 0; font-size: 14px; color: #52644e; font-weight: 600; overflow-wrap: anywhere; }
+.connectionActions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.connectionActions button { font-size: 13px; padding: 12px 16px; }
+.connectionIssue { background: #f8f1e4; border: 1px solid #eaddbf; padding: 15px; border-radius: 13px; color: #78602c; font-size: 13px; line-height: 1.5; }
+.connectionIssue > strong { font-size: 14px; }
+.connectionIssue p { margin: 5px 0 10px; overflow-wrap: anywhere; }
+.connectionIssue a { font-weight: 700; color: #4d6146; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.waiting { font-size: 12px; color: #82714a; }
+.connectionSteps { padding: 16px; border: 1px solid #dfe5d7; border-radius: 13px; background: #f1f4eb; margin-top: 10px; font-size: 14px; }
+.connectionSteps p { margin: 7px 0; font-weight: 400; color: #52644e; }
+.connectionSteps small { font-size: 12px; line-height: 1.5; color: #65735b; }
+.searchForm { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 12px !important; align-items: end; margin-top: 16px; }
+.searchForm label { margin: 0; min-width: 0; }
+.searchForm > button { min-height: 48px; }
+.searchForm input, .searchForm select { min-height: 48px; }
+.resultsHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 24px; }
+.resultsHeading h3 { margin: 0; font-size: 17px; }
+.resultsHeading p { margin: 4px 0 0; }
+.resultsHeading button { flex-shrink: 0; font-size: 12px; padding: 10px 12px; }
+.card .result { padding: 17px 14px; background: #fff; border-color: #e0e3d7; align-items: center; font-size: 16px; cursor: pointer; }
+.card .resultSelected { background: #f0f5e9; border-color: #76936f; }
+.result a { color: #5b784e; text-decoration: none; font-size: 12px; font-weight: 700; }
+.result a:hover { text-decoration: underline; }
+.sourceDetails { margin-top: 18px; font-size: 12px; color: #74816b; }
+.sourceDetails summary { cursor: pointer; padding: 8px 0; }
+.sendPanel h3 { margin: 0; font-size: 18px; }
+.sendPanel > p { margin: 0; font-size: 13px; color: #68716d; }
+.sendPanel label { margin: 0; }
+.sendPanel details { font-size: 13px; color: #52644e; }
+.sendPanel summary { padding: 10px 0; cursor: pointer; }
+.sendPanel > button { background: #294e34; }
+.actions { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.queueRow .row { padding: 17px 14px; }
+.row strong { font-size: 16px; }
+.card .helper { font-weight: 400; }
+@media(max-width:760px) {
+  .card { padding: 18px 15px; }
+  .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tabs button { font-size: 12px; }
+  .searchForm { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 13px 9px !important; }
+  .searchForm label:nth-of-type(3), .searchForm > button, .searchForm > p { grid-column: 1/-1; }
+  .connectionHeading { align-items: flex-start; flex-wrap: wrap; }
+  .connectionIdentity h2 { font-size: 20px; }
+  .connectionIdentity .eyebrow { font-size: 9px; }
+  .connectionBadge { font-size: 10px; }
+  .connectionActions { display: grid; grid-template-columns: 1fr 1fr; }
+  .connectionActions button { padding: 11px 8px; font-size: 12px; }
+  .connectionIssue { padding: 13px; font-size: 12px; }
+  .connectionSteps { padding: 13px; }
+  .resultsHeading { gap: 8px; }
+  .resultsHeading h3 { font-size: 15px; }
+  .resultsHeading button { padding: 9px; font-size: 11px; }
+  .actions { grid-template-columns: 1fr; }
+}
+@media(prefers-reduced-motion:reduce) { .card button, .tabs button, .actions a { transition: none; } }

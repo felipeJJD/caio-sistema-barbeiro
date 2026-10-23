@@ -83,6 +83,15 @@ test('menu fecha no item atual, URLs selecionam a tela certa e progresso abre os
   await click([...document.querySelectorAll('button.contactRow')].find(node=>node.textContent.includes('Barbearia Na Fila')));
   assert.match(document.querySelector('dialog').textContent,/Na fila/);assert.match(document.querySelector('dialog').textContent,/Somente áudio/);
   await click(document.querySelector('[aria-label="Fechar detalhes"]'));
+  await click(document.querySelector('.channels button'));
+  assert.equal(window.location.search,'');
+  await click([...document.querySelectorAll('.overview button')].find(node=>node.textContent.includes('Na sua fila')));
+  assert.equal(window.location.search,'?tab=progress');
+  assert.equal(button('Retornos').getAttribute('aria-pressed'),'false');
+  assert.ok(document.querySelector('button.metricActive').textContent.includes('Na fila'),'workspace shortcut opens the queue filter');
+  await click(document.querySelector('.channels button'));
+  await click([...document.querySelectorAll('.overview button')].find(node=>node.textContent.includes('Para conferir')));
+  assert.equal([...document.querySelectorAll('.tabs button')].find(node=>node.textContent==='Falhas').getAttribute('aria-pressed'),'true');
   await menu('Progresso');assert.equal(window.location.search,'?tab=progress');
   await menu('WhatsApp e abordagem');assert.equal(window.location.search,'?tab=settings');assert.match(document.querySelector('div.panel:not([hidden])').textContent,/Meu WhatsApp/);
   unavailable=true;await act(async()=>window.dispatchEvent(new window.Event('focus')));await settle();
