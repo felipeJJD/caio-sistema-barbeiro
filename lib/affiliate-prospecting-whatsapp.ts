@@ -161,6 +161,41 @@ async function ensureProspectingWebhook(instance = INSTANCE_NAME, force = false)
   return setup;
 }
 
+export type ProspectingNumberCheck = { phone: string; status: "available" | "unavailable" | "unknown" };
+
+// Query the connected account without sending a message. A mobile-looking number
+// from the public directory is only a candidate, not proof of a WhatsApp account.
+export async function checkProspectingWhatsappNumbers(values: string[], instance = INSTANCE_NAME): Promise<ProspectingNumberCheck[]> {
+  validInstance(instance);
+  if (!Array.isArray(values) || !values.length || values.length > 40 || values.some(value => typeof value !== "string" || !/^55\d{11}$/.test(value))) {
+    throw Object.assign(new Error("Selecione até 40 celulares válidos por vez."), { status: 400 });
+  }
+  const phones = [...new Set(values)];
+  const state = await getProspectingWhatsappState(instance);
+  if (!state.connected) throw Object.assign(new Error("Reconecte seu WhatsApp para conferir os números."), { status: 409 });
+  const body = await evolutionRequest<EvolutionPayload>(`/chat/whatsappNumbers/${encodeURIComponent(instance)}`, {
+    method: "POST", body: JSON.stringify({ numbers: phones }),
+  });
+  const rows: unknown[] = Array.isArray(body) ? body : Array.isArray(body.data) ? body.data : [];
+  return phones.map(phone => {
+    const matching = rows.filter(row => {
+      if (!row || typeof row !== "object") return false;
+      const record = row as Record<string, unknown>;
+      const number = normalizeProspectingWhatsappPhone(String(record.number ?? ""));
+      const jid = String(record.jid ?? "");
+      const jidPhone = jid.endsWith("@s.whatsapp.net") ? normalizeProspectingWhatsappPhone(jid.split("@")[0]) : "";
+      // Never match by array position or treat an opaque @lid as a phone number.
+      if (number && canonicalProspectingPhone(number) !== phone) return false;
+      if (jidPhone && canonicalProspectingPhone(jidPhone) !== phone) return false;
+      if (jid && !jidPhone && !jid.endsWith("@lid")) return false;
+      return Boolean(number || jidPhone);
+    }) as Array<Record<string, unknown>>;
+    const available = matching.some(row => row.exists === true);
+    const unavailable = matching.length > 0 && matching.every(row => row.exists === false);
+    return { phone, status: available ? "available" : unavailable ? "unavailable" : "unknown" };
+  });
+}
+
 function pairingCodeFrom(value: unknown) {
   if (!value || typeof value !== "object") return "";
   const body = value as Record<string, unknown>;

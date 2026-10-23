@@ -16,10 +16,12 @@ type Lead = {
   phoneE164: string;
   phoneKind: string;
   whatsappCandidate: boolean;
+  whatsappStatus?: "available" | "unavailable";
   address: string;
   confidence?: number | null;
 };
 
+type NumberCheck = { phone: string; status: "available" | "unavailable" | "unknown" };
 type City = { id: number | string; name: string };
 type ReservedClaim = { key: string; phoneE164: string; name?: string };
 type BlockedClaim = { name?: string; reason?: string };
@@ -47,7 +49,7 @@ function nationalPhone(value: string) {
 }
 
 function canSelectLead(lead: Lead) {
-  return Boolean(lead.whatsappCandidate && lead.phoneE164);
+  return Boolean(lead.whatsappCandidate && lead.phoneE164 && lead.whatsappStatus !== "unavailable");
 }
 
 function readableError(value: unknown, fallback: string): string {
@@ -106,6 +108,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   const [audioId, setAudioId] = useState("");
   const [loading, setLoading] = useState(false);
   const [moreLoading, setMoreLoading] = useState(false);
+  const [checkingNumbers, setCheckingNumbers] = useState(false);
   const [queueing, setQueueing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -173,7 +176,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   const availableLeads = useMemo(() => leads.filter(canSelectLead), [leads]);
   const unavailableLeads = useMemo(() => leads.filter((lead) => !canSelectLead(lead)), [leads]);
   const visibleLeads = useMemo(() => availableLeads.slice(0, visibleCount), [availableLeads, visibleCount]);
-  const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id) && lead.whatsappCandidate && lead.phoneE164), [leads, selected]);
+  const selectedLeads = useMemo(() => leads.filter((lead) => selected.has(lead.id) && canSelectLead(lead)), [leads, selected]);
   function chooseTab(next: WorkspaceTab) {
     setError("");
     router.push(affiliateWorkspaceHref(next), { scroll: false });
@@ -312,7 +315,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   }
 
   function toggle(lead: Lead) {
-    if (!lead.whatsappCandidate || !lead.phoneE164) return setNotice("Essa barbearia não tem um celular válido para WhatsApp.");
+    if (!canSelectLead(lead)) return setNotice("Essa barbearia não tem um celular válido para WhatsApp.");
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(lead.id)) next.delete(lead.id); else next.add(lead.id);
@@ -321,7 +324,35 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
   }
 
   function selectVisible() {
-    setSelected((current) => new Set([...current, ...visibleLeads.filter((lead) => lead.whatsappCandidate && lead.phoneE164).map((lead) => lead.id)]));
+    setSelected((current) => new Set([...current, ...visibleLeads.filter(canSelectLead).map((lead) => lead.id)]));
+  }
+
+  async function checkSelectedNumbers() {
+    setCheckingNumbers(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/affiliate/prospecting/whatsapp", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "check", keys: selectedLeads.map(lead => `phone:${lead.phoneE164}`) }),
+      });
+      const payload = await response.json() as { checks?: NumberCheck[]; error?: unknown };
+      if (!response.ok || !Array.isArray(payload.checks)) throw new Error(readableError(payload.error, "Não foi possível conferir os números agora."));
+      const checks = new Map(payload.checks.map(check => [check.phone, check.status]));
+      setLeads(current => current.map(lead => {
+        const status = checks.get(lead.phoneE164);
+        return status === "available" || status === "unavailable" ? { ...lead, whatsappStatus: status } : lead;
+      }));
+      setSelected(current => new Set([...current].filter(id => !selectedLeads.some(lead => lead.id === id && checks.get(lead.phoneE164) === "unavailable"))));
+      if (payload.checks.some(check => check.status === "unknown")) throw new Error("O WhatsApp não confirmou todos os números. Tente conferir novamente; nenhuma mensagem foi enviada.");
+      const available = selectedLeads.filter(lead => checks.get(lead.phoneE164) === "available");
+      const unavailableCount = payload.checks.filter(check => check.status === "unavailable").length;
+      setNotice(`${available.length} com WhatsApp confirmado.${unavailableCount ? ` ${unavailableCount} não reconhecido(s), em Ver indisponíveis.` : ""}`);
+      return available;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível conferir os números.");
+      return null;
+    } finally { setCheckingNumbers(false); }
   }
 
   async function enqueueSelected() {
@@ -340,15 +371,17 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
     setError("");
     setNotice("");
     try {
+      const verified = await checkSelectedNumbers();
+      if (!verified?.length) return;
       const reserveResponse = await fetch("/api/affiliate/prospecting/claims", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "reserve", leads: selectedLeads, city: searchedCity }),
+        body: JSON.stringify({ action: "reserve", leads: verified, city: searchedCity }),
       });
       const reservePayload = await reserveResponse.json() as { reserved?: ReservedClaim[]; blocked?: BlockedClaim[]; error?: unknown };
       if (!reserveResponse.ok) throw new Error(readableError(reservePayload.error, "Não foi possível reservar as barbearias."));
       const reservedPhones = new Set((reservePayload.reserved || []).map((item) => item.phoneE164));
-      const ready = selectedLeads.filter((lead) => reservedPhones.has(lead.phoneE164));
+      const ready = verified.filter((lead) => reservedPhones.has(lead.phoneE164));
       if (!ready.length) {
         setSelected(new Set());
         return setNotice(reservePayload.blocked?.length ? "Essas barbearias já foram contatadas ou estão reservadas por outro afiliado." : "Nenhuma barbearia ficou disponível para envio.");
@@ -433,12 +466,12 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
 
       {(leads.length > 0 || (searchedCity && hasMore)) && <section className={styles.card} aria-label="Resultados da busca">
         <div className={styles.cardTitle}><div><b>Selecionar contatos</b><span>{searchedCity}{searchedName ? ` · “${searchedName}”` : ""} · {availableLeads.length} disponíveis</span></div>{visibleLeads.length > 0 && <button type="button" className={styles.secondary} onClick={selectVisible}>Selecionar visíveis</button>}</div>
-        <p className={styles.resultsHint}>Barbearias com celular válido para seleção. As demais ficam em Ver indisponíveis.</p>
+        <p className={styles.resultsHint}>Selecione os contatos e confira o WhatsApp antes de enviar. Números não reconhecidos ficam em Ver indisponíveis.</p>
         {visibleLeads.length > 0 && <div className={styles.leadList}>{visibleLeads.map((lead) => {
           const checked = selected.has(lead.id);
-          const enabled = Boolean(lead.whatsappCandidate && lead.phoneE164);
+          const enabled = Boolean(lead.whatsappCandidate && lead.phoneE164 && lead.whatsappStatus !== "unavailable");
           return <button type="button" className={`${styles.lead} ${checked ? styles.selected : ""}`} onClick={() => toggle(lead)} key={lead.id} disabled={!enabled}>
-            <span className={styles.check}>{checked ? "✓" : ""}</span><div><strong>{lead.name}</strong><small>{lead.address || "Endereço não informado"}</small><em>{enabled ? lead.phone : lead.phoneKind === "landline" ? `Fixo: ${lead.phone}` : "Sem celular válido"}</em></div>
+            <span className={styles.check}>{checked ? "✓" : ""}</span><div><strong>{lead.name}</strong><small>{lead.address || "Endereço não informado"}</small><em>{enabled ? `${lead.phone}${lead.whatsappStatus === "available" ? " · WhatsApp confirmado" : ""}` : lead.whatsappStatus === "unavailable" ? "WhatsApp não reconheceu este número" : lead.phoneKind === "landline" ? `Fixo: ${lead.phone}` : "Sem celular válido"}</em></div>
           </button>;
         })}</div>}
         {availableLeads.length === 0 && <p className={styles.resultsHint}>{hasMore ? "Ainda não há barbearias com celular válido neste lote. Toque em Ver mais barbearias para continuar." : "Nenhuma barbearia com celular válido nos resultados encontrados."}</p>}
@@ -446,9 +479,9 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
         {unavailableLeads.length > 0 && <div className={styles.unavailable}>
           <button type="button" className={styles.unavailableToggle} aria-expanded={showUnavailable} onClick={() => setShowUnavailable((value) => !value)}>{showUnavailable ? "Ocultar indisponíveis" : "Ver indisponíveis"} ({unavailableLeads.length})</button>
           {showUnavailable && <div>
-            <p className={styles.resultsHint}>Estes resultados não têm celular válido para seleção.</p>
+            <p className={styles.resultsHint}>Estes resultados não têm celular válido ou não foram reconhecidos pelo WhatsApp.</p>
             <div className={styles.leadList} aria-label="Barbearias indisponíveis">{unavailableLeads.slice(0, unavailableVisibleCount).map((lead) => <article className={`${styles.lead} ${styles.unavailableLead}`} key={lead.id}>
-              <div><strong>{lead.name}</strong><small>{lead.address || "Endereço não informado"}</small><em>{lead.phoneKind === "landline" ? `Fixo: ${lead.phone}` : "Sem celular válido"}</em></div>
+              <div><strong>{lead.name}</strong><small>{lead.address || "Endereço não informado"}</small><em>{lead.whatsappStatus === "unavailable" ? "WhatsApp não reconheceu este número" : lead.phoneKind === "landline" ? `Fixo: ${lead.phone}` : "Sem celular válido"}</em></div>
             </article>)}</div>
             {unavailableVisibleCount < unavailableLeads.length && <button type="button" className={styles.secondary} onClick={() => setUnavailableVisibleCount((value) => value + DISPLAY_STEP)}>Ver mais indisponíveis</button>}
           </div>}
@@ -460,7 +493,7 @@ export function AffiliateProspectingWorkspace({ name, initialWhatsapp, signupUrl
         <div className={styles.modeGrid}>
           {([['text', 'Mensagem'], ['text_audio', 'Mensagem + áudio'], ['audio_only', 'Somente áudio']] as const).map(([value, label]) => <button type="button" key={value} className={approachMode === value ? styles.modeActive : ""} onClick={() => chooseApproach(value)}><strong>{label}</strong><small>{value === 'text' ? 'Envia só o texto configurado' : value === 'text_audio' ? 'Texto primeiro e áudio depois' : 'Envia apenas o áudio salvo'}</small></button>)}
         </div>
-        <div className={styles.queueBar}><div><strong>{selectedLeads.length} selecionada{selectedLeads.length === 1 ? "" : "s"}</strong><span>{automatic.connected ? "WhatsApp pronto" : "Conecte o WhatsApp em Configurações"}{approachMode !== 'text' ? audioId ? " · áudio pronto" : " · falta gravar o áudio" : ""}</span></div><button type="button" onClick={() => void enqueueSelected()} disabled={queueing || selectedLeads.length === 0}>{queueing ? "Colocando na fila..." : "Colocar na fila"}</button></div>
+        <div className={styles.queueBar}><div><strong>{selectedLeads.length} selecionada{selectedLeads.length === 1 ? "" : "s"}</strong><span>{automatic.connected ? "WhatsApp pronto" : "Conecte o WhatsApp em Configurações"}{approachMode !== 'text' ? audioId ? " · áudio pronto" : " · falta gravar o áudio" : ""}</span></div><button type="button" className={styles.secondary} onClick={() => void checkSelectedNumbers()} disabled={checkingNumbers || queueing || !automatic.connected || selectedLeads.length === 0}>{checkingNumbers ? "Conferindo WhatsApp..." : "Conferir números"}</button><button type="button" onClick={() => void enqueueSelected()} disabled={checkingNumbers || queueing || selectedLeads.length === 0}>{queueing ? "Colocando na fila..." : "Colocar na fila"}</button></div>
       </section>
     </div>
 

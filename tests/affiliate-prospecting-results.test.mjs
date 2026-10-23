@@ -23,11 +23,15 @@ test('rota atual de prospecção prioriza celulares, guarda indisponíveis e pre
   mixed.push({...mobile(99), phoneE164: ''});
   let round = 0;
   const searchRequests = [];
-  const fetch = async url => {
+  const checksRequests = [];
+  const fetch = async (url, init={}) => {
     const request = new URL(url, window.location.origin);
     let payload = {};
     if (request.pathname.endsWith('/cities')) payload = {cities: [{id: 1, name: 'Colombo'}]};
-    else if (request.pathname.endsWith('/whatsapp')) payload = {state: 'close', connected: false};
+    else if (request.pathname.endsWith('/whatsapp')) {
+      if(init.method==='POST') {const body=JSON.parse(init.body);assert.equal(body.action,'check','checking must never enqueue');checksRequests.push(body);payload={checks:body.keys.map(key=>({phone:key.slice(6),status:'unavailable'}))};}
+      else payload = {state: 'open', connected: true};
+    }
     else if (request.pathname.endsWith('/queue')) payload = {jobs: []};
     else if (request.pathname.endsWith('/search')) {
       searchRequests.push(Object.fromEntries(request.searchParams));
@@ -130,6 +134,14 @@ test('rota atual de prospecção prioriza celulares, guarda indisponíveis e pre
     assert.equal(rows().length, 1);
     assert.match(results().querySelector('.cardTitle').textContent, /1 disponíveis/);
     assert.equal(searchRequests.at(-1).offset, '40');
+    await click(rows()[0]);
+    await click(button('Conferir números'));
+    assert.equal(checksRequests.length,1);
+    assert.equal(rows().length,0,'number rejected by WhatsApp moves out of selectable results');
+    assert.match(results().textContent,/Ver indisponíveis/);
+    assert.equal(button('Colocar na fila').disabled,true);
+    await click(button('Ver indisponíveis (2)'));
+    assert.match(results().textContent,/WhatsApp não reconheceu este número/);
   } finally {
     await act(async () => root.unmount());
     window.close();
