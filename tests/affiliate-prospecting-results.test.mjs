@@ -42,10 +42,12 @@ test('rota atual de prospecção prioriza celulares, guarda indisponíveis e pre
         else if (offset === 40) payload = {leads: [fixed(15), fixed(16)], nextOffset: 80, hasMore: true};
         else if (offset === 80) payload = {leads: [mobile(13), mobile(14)], nextOffset: 120, hasMore: false};
         else assert.fail(`Unexpected offset ${offset}`);
-      } else {
+      } else if(round === 2) {
         payload = offset === 0
           ? {leads: [fixed(20)], nextOffset: 40, hasMore: true}
           : {leads: [mobile(20)], nextOffset: 80, hasMore: false};
+      } else {
+        payload = {leads:Array.from({length:45},(_,index)=>mobile(index+100)),nextOffset:45,hasMore:false};
       }
     }
     return Response.json(payload);
@@ -142,6 +144,17 @@ test('rota atual de prospecção prioriza celulares, guarda indisponíveis e pre
     assert.equal(button('Colocar na fila').disabled,true);
     await click(button('Ver indisponíveis (2)'));
     assert.match(results().textContent,/WhatsApp não reconheceu este número/);
+    await search();
+    for(let page=0;page<4;page++){
+      await click(button('Selecionar visíveis'));
+      await click(button('Ver mais barbearias'));
+    }
+    await click(button('Selecionar visíveis'));
+    assert.match(document.querySelector('.queueBar').textContent,/40 selecionadas/,'bulk selection cannot exceed the check/enqueue API limit');
+    await click(rows().at(-1));
+    assert.equal(rows().at(-1).getAttribute('aria-pressed'),'false','a 41st contact is not added by an individual click');
+    await click(button('Limpar seleção'));
+    assert.match(document.querySelector('.queueBar').textContent,/0 selecionadas/);
   } finally {
     await act(async () => root.unmount());
     window.close();
