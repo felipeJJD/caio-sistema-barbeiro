@@ -15,6 +15,7 @@ def connection_settings(client):
 
 
 def failure(error, action, sending=False):
+    connection_action = action in ("connect", "verify")
     kind = type(error).__name__
     response = getattr(error, "response", None)
     status = getattr(response, "status_code", None)
@@ -27,18 +28,18 @@ def failure(error, action, sending=False):
         code, message = "login", "O Instagram pediu uma verificação. Abra o app do Instagram, conclua a confirmação solicitada e depois conecte novamente."
     elif kind in ("PleaseWaitFewMinutes", "RateLimitError", "ClientThrottledError"):
         code = "rate_limited"
-        message = "O Instagram pediu uma pausa antes de uma nova tentativa de conexão. Aguarde e confira sua conta no app." if action == "connect" else "O Instagram pediu uma pausa. Os próximos envios foram pausados."
+        message = "O Instagram pediu uma pausa antes de uma nova tentativa de conexão. Aguarde e confira sua conta no app." if connection_action else "O Instagram pediu uma pausa. Os próximos envios foram pausados."
     elif kind == "ClientForbiddenError":
         code = "access_denied"
-        message = "O Instagram recusou esta tentativa de conexão. Abra o app e confira se existe um aviso de segurança ou uma confirmação de login." if action == "connect" else "O Instagram recusou esta operação. Os próximos envios foram pausados. Confira sua conta no app."
+        message = "O Instagram recusou esta tentativa de conexão. Abra o app e confira se existe um aviso de segurança ou uma confirmação de login." if connection_action else "O Instagram recusou esta operação. Os próximos envios foram pausados. Confira sua conta no app."
     elif kind in ("FeedbackRequired", "SentryBlock"):
         code = "restricted"
-        message = "O Instagram restringiu esta tentativa de conexão. Confira os avisos na sua conta antes de tentar novamente." if action == "connect" else "O Instagram restringiu esta operação. Os próximos envios foram pausados. Confira sua conta no app."
+        message = "O Instagram restringiu esta tentativa de conexão. Confira os avisos na sua conta antes de tentar novamente." if connection_action else "O Instagram restringiu esta operação. Os próximos envios foram pausados. Confira sua conta no app."
     elif kind in ("UserNotFound", "DirectMessageRequestsDisabled", "ClientNotFoundError") and action == "send":
         code, message = "recipient", "Este perfil não está disponível para receber esta mensagem."
     else:
         code = "unknown"
-        message = "Não foi possível confirmar a conexão com o Instagram. Confira sua conta no app antes de tentar novamente." if action == "connect" else "O Instagram não confirmou a operação. Confira a conversa antes de tentar novamente."
+        message = "Não foi possível confirmar a conexão com o Instagram. Confira sua conta no app antes de tentar novamente." if connection_action else "O Instagram não confirmou a operação. Confira a conversa antes de tentar novamente."
     result = {"ok": False, "code": code, "error": message, "uncertain": sending and code == "unknown", **diagnostics}
     if code == "rate_limited":
         # A local pause, not a prediction of Instagram's account limits.
@@ -52,6 +53,11 @@ def perform(data, client_factory=None):
         from instagrapi import Client
 
         class AccountClient(Client):
+            def login_flow(self):
+                # Authentication is checked with account_info below. Reading the
+                # account's reels and timeline is unrelated to this integration.
+                return True
+
             # Upstream normally retries timeouts and resolves challenges. Stop instead.
             def private_request(self, endpoint, data=None, **kwargs):
                 headers = dict(kwargs.pop("headers", None) or {})
@@ -66,22 +72,31 @@ def perform(data, client_factory=None):
         client_factory = AccountClient
     client = client_factory()
     sending = False
+    step = "restore_session"
     try:
         if data.get("session"):
             client.set_settings(data["session"])
         client.set_retry_config(session_retry_total=0, public_request_retries_count=0)
         if data["action"] == "connect":
+            step = "authentication"
             client.login(data["username"], data["password"], verification_code=data.get("code", ""))
+        elif data["action"] == "verify" and not getattr(client, "user_id", None):
+            return {"ok": False, "code": "login", "error": "Ainda não há uma sessão autorizada. Use Conectar meu Instagram para autorizar sua conta.", "step": "restore_session"}
+        step = "account_validation"
         account = client.account_info()
+        if data.get("username") and account.username.lower() != data["username"].lower():
+            return {"ok": False, "code": "login", "error": "A sessão não pertence ao perfil informado. Conecte sua conta novamente.", "step": step}
         if str(account.pk) != str(data.get("accountId", account.pk)):
             return {"ok": False, "code": "login", "error": "A conta conectada mudou. Conecte novamente."}
         result = {"ok": True, "username": account.username, "accountId": str(account.pk)}
         if data["action"] == "send":
+            step = "recipient_lookup"
             target = client.user_info_by_username_v1(data["recipient"])
             if target.username.lower() != data["recipient"].lower() or str(target.pk) == str(account.pk):
                 return {"ok": False, "code": "recipient", "error": "Perfil de destino inválido."}
             # One recipient only. A list of several IDs would create a group conversation.
             sending = True
+            step = "send"
             receipt = client.direct_send(data["message"], user_ids=[target.pk])
             if not receipt.id:
                 raise RuntimeError("Missing receipt")
@@ -91,6 +106,7 @@ def perform(data, client_factory=None):
         return result
     except Exception as error:
         result = failure(error, data["action"], sending)
+        result["step"] = step
         # Reuse the same device for the next user-authorized attempt after verification.
         # Never solve a checkpoint or retry a refused request automatically.
         if data["action"] == "connect":

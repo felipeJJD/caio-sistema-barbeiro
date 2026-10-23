@@ -40,7 +40,7 @@ export async function instagramSendingStatus(input){
  const batch=(await getPool().query('SELECT id,status,reason,sender_username FROM affiliate_instagram_batches WHERE prospector_key=$1 ORDER BY created_at DESC LIMIT 1',[owner])).rows[0];
  const items=batch?(await getPool().query('SELECT username,name,status,error,provider_message_id FROM affiliate_instagram_deliveries WHERE prospector_key=$1 AND batch_id=$2 ORDER BY position',[owner,batch.id])).rows.map(row=>({username:row.username,name:row.name,status:row.status,error:row.error,confirmed:Boolean(row.provider_message_id)})):[];
  let enabled=false;try{await available();enabled=true;}catch{}
- return {enabled,connection:connection?{username:connection.username,status:connection.status,error:connection.last_error,retryAt:connection.cooldown_until?new Date(connection.cooldown_until).toISOString():null}:{username:'',status:'disconnected',error:'',retryAt:null},batch:batch?{id:batch.id,status:batch.status,reason:batch.reason,sender:batch.sender_username,items}:null};
+ return {enabled,capabilities:{sessionVerification:true},connection:connection?{username:connection.username,status:connection.status,error:connection.last_error,retryAt:connection.cooldown_until?new Date(connection.cooldown_until).toISOString():null}:{username:'',status:'disconnected',error:'',retryAt:null},batch:batch?{id:batch.id,status:batch.status,reason:batch.reason,sender:batch.sender_username,items}:null};
 }
 export async function connectInstagram(input,operate=instagramOperation){
  const owner=normalizeProspectorKey(input.prospectorKey),username=instagramUsername(input.username),password=String(input.password||''),code=String(input.code||'').trim();
@@ -64,7 +64,7 @@ export async function connectInstagram(input,operate=instagramOperation){
   const message=String(result.error||'Não foi possível confirmar a conexão.').slice(0,500);
   await getPool().query('UPDATE affiliate_instagram_connections SET username=$3,session_encrypted=$4,last_error=$5,cooldown_until=$6 WHERE prospector_key=$1 AND revision=$2',[owner,attempt,username,result.session?sealSession(owner,result.session):old?.username===username?old.session_encrypted:null,`${message} Referência: ${reference}.`,retryAt]);
   // Diagnostics contain only a category, exception class, HTTP status and random reference.
-  console.warn('[Instagram] conexão recusada',JSON.stringify({reference,code:String(result.code||'unknown').slice(0,40),errorType:String(result.errorType||'').replace(/[^a-zA-Z0-9_]/g,'').slice(0,80),httpStatus:Number(result.httpStatus)||null}));
+  console.warn('[Instagram] conexão recusada',JSON.stringify({reference,code:String(result.code||'unknown').slice(0,40),errorType:String(result.errorType||'').replace(/[^a-zA-Z0-9_]/g,'').slice(0,80),httpStatus:Number(result.httpStatus)||null,step:['restore_session','authentication','account_validation'].includes(result.step)?result.step:'unknown'}));
   throw Object.assign(Error(message),{status:result.code==='two_factor'?428:result.code==='rate_limited'?429:422,code:result.code||'unknown',reference,retryAt});
  }
  if(!result.session||!result.accountId||instagramUsername(result.username)!==username)fail('O Instagram não confirmou a conta solicitada.',422);
@@ -75,6 +75,36 @@ export async function connectInstagram(input,operate=instagramOperation){
   await client.query("UPDATE affiliate_instagram_connections SET username=$2,account_id=$3,session_encrypted=$4,revision=$5,status='connected',last_error='',cooldown_until=NULL,updated_at=NOW() WHERE prospector_key=$1",[owner,username,String(result.accountId),sealSession(owner,result.session),randomUUID()]);
  });}catch(error){if(error.code==='23505')fail('Este Instagram já está conectado a outro afiliado.',409);throw error;}
  return instagramSendingStatus({prospectorKey:owner});
+}
+export async function verifyInstagram(input,operate=instagramOperation){
+ const owner=normalizeProspectorKey(input.prospectorKey);await ensureInstagramSendingSchema();await available();
+ const old=await transaction(async client=>{await lock(client,owner);
+  const connection=(await client.query('SELECT * FROM affiliate_instagram_connections WHERE prospector_key=$1 FOR UPDATE',[owner])).rows[0];
+  if(!connection?.session_encrypted)return null;
+  if(connection.cooldown_until&&new Date(connection.cooldown_until).getTime()>Date.now())throw Object.assign(Error('Aguarde o prazo indicado antes de conferir sua sessão novamente.'),{status:429,code:'rate_limited',retryAt:new Date(connection.cooldown_until).toISOString()});
+  if(connection.attempted_at&&Date.now()-new Date(connection.attempted_at).getTime()<15000)fail('Aguarde alguns segundos antes de conferir novamente.',429);
+  await client.query('UPDATE affiliate_instagram_connections SET attempted_at=NOW() WHERE prospector_key=$1',[owner]);return connection;
+ });
+ if(!old)return {...await instagramSendingStatus({prospectorKey:owner}),verification:{status:'login_required',message:'Use Conectar meu Instagram para autorizar sua conta.'}};
+ // This operation never supplies a password or invokes login. It validates only
+ // an already saved session; it cannot approve a challenge or resume a batch.
+ const result=await operate({action:'verify',username:old.username,...(old.account_id?{accountId:old.account_id}:{}),session:openSession(owner,old.session_encrypted)});
+ if(result.ok&&(!result.session||!result.accountId||instagramUsername(result.username)!==old.username||(old.account_id&&String(result.accountId)!==String(old.account_id))))fail('O Instagram não confirmou o perfil desta sessão.',422);
+ try{await transaction(async client=>{await lock(client,owner);
+  const current=(await client.query('SELECT revision FROM affiliate_instagram_connections WHERE prospector_key=$1 FOR UPDATE',[owner])).rows[0];
+  if(current?.revision!==old.revision)fail('A conexão mudou durante a conferência. Atualize a tela.',409);
+  if(result.ok){
+   const revision=old.status==='connected'?old.revision:randomUUID();
+   await client.query("UPDATE affiliate_instagram_connections SET account_id=$2,session_encrypted=$3,status='connected',last_error='',cooldown_until=NULL,revision=$4,updated_at=NOW() WHERE prospector_key=$1",[owner,String(result.accountId),sealSession(owner,result.session),revision]);
+   if(old.status!=='connected')await client.query("UPDATE affiliate_instagram_batches SET status='paused',reason='Sessão confirmada. Confira os contatos antes de continuar.' WHERE prospector_key=$1 AND status='running'",[owner]);
+  }else{
+   const retryAt=result.code==='rate_limited'?new Date(Date.now()+Math.max(300,Math.min(86400,Number(result.retryAfterSeconds)||300))*1000).toISOString():null;
+   const message=String(result.error||'Não foi possível confirmar sua sessão. Conecte sua conta novamente.').slice(0,500);
+   await client.query('UPDATE affiliate_instagram_connections SET status=$2,last_error=$3,cooldown_until=$4,updated_at=NOW() WHERE prospector_key=$1',[owner,['restricted','rate_limited','access_denied'].includes(result.code)?'restricted':'reauth',message,retryAt]);
+   await client.query("UPDATE affiliate_instagram_batches SET status='paused',reason=$2 WHERE prospector_key=$1 AND status='running'",[owner,message]);
+  }
+ });}catch(error){if(error.code==='23505')fail('Este Instagram já está conectado a outro afiliado.',409);throw error;}
+ return {...await instagramSendingStatus({prospectorKey:owner}),verification:{status:result.ok?'verified':result.code||'unavailable',message:result.ok?'Sessão confirmada pelo Instagram.':String(result.error||'Conecte sua conta novamente.').slice(0,500)}};
 }
 export async function disconnectInstagram(input){
  const owner=normalizeProspectorKey(input.prospectorKey);await ensureInstagramSendingSchema();

@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {randomBytes} from 'node:crypto';import {execFileSync} from 'node:child_process';
 import {sealSession,openSession} from '../lib/instagram-session.js';
-import {ensureInstagramSendingSchema,connectInstagram,disconnectInstagram,startInstagramBatch,controlInstagramBatch,instagramSendingStatus,processInstagramDelivery,recoverInstagramSending,deliveryMessage} from '../lib/instagram-sending.js';
+import {ensureInstagramSendingSchema,connectInstagram,verifyInstagram,disconnectInstagram,startInstagramBatch,controlInstagramBatch,instagramSendingStatus,processInstagramDelivery,recoverInstagramSending,deliveryMessage} from '../lib/instagram-sending.js';
 import {getPool} from '../lib/affiliate-claims.js';
 import {enqueueInstagramContacts,updateInstagramContact} from '../lib/instagram-contacts.js';
 process.env.PROSPECCAO_INSTAGRAM_SESSION_KEY=randomBytes(32).toString('hex');
@@ -27,6 +27,14 @@ test('Instagram PostgreSQL: contas isoladas, envio confirmado, pausa, bloqueio e
   await db.query("UPDATE affiliate_instagram_connections SET attempted_at=NOW()-INTERVAL '30 seconds' WHERE prospector_key=$1",[owner]);
   status=await connectInstagram(connect,async input=>{assert.deepEqual(input.session,{uuid:'same-device'});return login(input);});
   assert.equal(status.connection.status,'connected');assert.ok(!JSON.stringify(status).includes('fixture-session'));
+  await db.query("UPDATE affiliate_instagram_connections SET attempted_at=NOW()-INTERVAL '30 seconds' WHERE prospector_key=$1",[owner]);
+  const revision=(await db.query('SELECT revision FROM affiliate_instagram_connections WHERE prospector_key=$1',[owner])).rows[0].revision;
+  status=await verifyInstagram({prospectorKey:owner},async input=>{assert.equal(input.action,'verify');assert.ok(!('password' in input));assert.equal(input.username,'fixture.sender');return {ok:true,username:'fixture.sender',accountId:'fixture-945',session:input.session};});
+  assert.equal(status.verification.status,'verified');assert.equal(status.connection.status,'connected');assert.equal(status.batch,null,'verification never starts a delivery batch');
+  assert.equal((await db.query('SELECT revision FROM affiliate_instagram_connections WHERE prospector_key=$1',[owner])).rows[0].revision,revision,'checking an active session does not invalidate batches');
+  await assert.rejects(verifyInstagram({prospectorKey:owner},async()=>{throw Error('duplicate provider lookup');}),error=>error.status===429);
+  await db.query("UPDATE affiliate_instagram_connections SET attempted_at=NOW()-INTERVAL '30 seconds' WHERE prospector_key=$1",[owner]);
+  await assert.rejects(verifyInstagram({prospectorKey:owner},async()=>({ok:true,username:'different.account',accountId:'fixture-945',session:{}})),error=>error.status===422);
   assert.equal((await instagramSendingStatus({prospectorKey:other})).connection.status,'disconnected');
   await assert.rejects(connectInstagram({prospectorKey:other,username:'fixture.sender',password:'fixture-password'},login),/outro afiliado/);
   const contacts=['fixture.one','fixture.two','fixture.zthree'].map(username=>({username,name:username,city:'Colombo'}));
@@ -65,6 +73,7 @@ test('Instagram PostgreSQL: contas isoladas, envio confirmado, pausa, bloqueio e
   await assert.rejects(connectInstagram(connect,async()=>({ok:false,code:'rate_limited',errorType:'ClientThrottledError',httpStatus:429,error:'Aguarde.',retryAfterSeconds:300,session:{uuid:'same-device'}})),error=>error.code==='rate_limited'&&Boolean(error.retryAt));
   await assert.rejects(connectInstagram(connect,async()=>{throw Error('provider must not be retried during cooldown');}),error=>error.status===429&&error.code==='rate_limited');
   assert.ok(new Date((await instagramSendingStatus({prospectorKey:owner})).connection.retryAt).getTime()>Date.now());
+  await assert.rejects(verifyInstagram({prospectorKey:owner},async()=>{throw Error('verification must also respect the cooldown');}),error=>error.status===429&&error.code==='rate_limited');
  }finally{
   await db.query('DELETE FROM affiliate_instagram_deliveries WHERE prospector_key=ANY($1::text[])',[[owner,other]]);
   await db.query('DELETE FROM affiliate_instagram_batches WHERE prospector_key=ANY($1::text[])',[[owner,other]]);
