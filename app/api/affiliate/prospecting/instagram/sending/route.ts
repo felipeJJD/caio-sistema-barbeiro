@@ -15,7 +15,7 @@ export async function POST(request:Request){
   if(!validAppOrigin(request))return reply({error:'Origem inválida.'},403);
   const access=await getAffiliateSessionAccess();if(!access?.active)return reply({error:'Entre como afiliado.'},401);
   const body=await request.json().catch(()=>null);
-  if(!body||!['connect','disconnect','start','pause','resume','stop'].includes(body.action))return reply({error:'Ação inválida.'},400);
+  if(!body||!['connect','verify','disconnect','start','pause','resume','stop'].includes(body.action))return reply({error:'Ação inválida.'},400);
   let input:Record<string,unknown>={action:body.action};
   if(body.action==='connect'){
    if(typeof body.username!=='string'||body.username.length>400||typeof body.password!=='string'||!body.password||body.password.length>200||String(body.code||'').length>12)return reply({error:'Confira seu perfil, sua senha e o código.'},400);
